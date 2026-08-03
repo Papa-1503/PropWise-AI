@@ -1,0 +1,83 @@
+"""
+Property + unit endpoints.
+
+GET   /api/properties                 -> list all properties (with units)
+GET   /api/properties/:id             -> single property
+POST  /api/properties                 -> create a property
+PATCH /api/properties/:id/units/:unitId/status  -> change a unit's occupancy status
+
+Each property document embeds its units:
+{
+  _id, name, address,
+  units: [{ unitId, status, rent, bedrooms, bathrooms }]
+}
+Adjust to a separate units collection if that's how your data is actually
+modeled — the dashboard/copilot aggregations would need matching changes.
+"""
+from fastapi import APIRouter, HTTPException, Depends
+from bson import ObjectId
+
+from db import properties_col
+from auth import require_staff
+from models import PropertyCreate, PropertyUpdate, UnitStatusUpdate
+
+router = APIRouter(prefix="/api/properties", tags=["properties"])
+
+
+def serialize(prop: dict) -> dict:
+    prop["id"] = str(prop.pop("_id"))
+    return prop
+
+
+@router.get("")
+async def list_properties(user: dict = Depends(require_staff)):
+    cursor = properties_col.find({})
+    props = await cursor.to_list(length=200)
+    return {"properties": [serialize(p) for p in props]}
+
+
+@router.get("/{property_id}")
+async def get_property(property_id: str, user: dict = Depends(require_staff)):
+    if not ObjectId.is_valid(property_id):
+        raise HTTPException(status_code=400, detail="Invalid property ID")
+    prop = await properties_col.find_one({"_id": ObjectId(property_id)})
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+    return serialize(prop)
+
+
+@router.post("")
+async def create_property(payload: PropertyCreate, user: dict = Depends(require_staff)):
+    doc = payload.model_dump()
+    result = await properties_col.insert_one(doc)
+    doc["_id"] = result.inserted_id
+    return serialize(doc)
+
+
+@router.patch("/{property_id}")
+async def update_property(property_id: str, payload: PropertyUpdate, user: dict = Depends(require_staff)):
+    if not ObjectId.is_valid(property_id):
+        raise HTTPException(status_code=400, detail="Invalid property ID")
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    result = await properties_col.find_one_and_update(
+        {"_id": ObjectId(property_id)}, {"$set": updates}, return_document=True
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Property not found")
+    return serialize(result)
+
+
+@router.patch("/{property_id}/units/{unit_id}/status")
+async def update_unit_status(property_id: str, unit_id: str, payload: UnitStatusUpdate, user: dict = Depends(require_staff)):
+    if not ObjectId.is_valid(property_id):
+        raise HTTPException(status_code=400, detail="Invalid property ID")
+    result = await properties_col.find_one_and_update(
+        {"_id": ObjectId(property_id), "units.unitId": unit_id},
+        {"$set": {"units.$.status": payload.status}},
+        return_document=True,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Property or unit not found")
+    return serialize(result)

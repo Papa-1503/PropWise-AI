@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+motor
+pydantic
+python-multipart
+bcrypt
+python-jose
+anthropic
+python-dotenv
+reportlab
+Pillow
