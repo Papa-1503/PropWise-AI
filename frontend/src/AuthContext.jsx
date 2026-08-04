@@ -19,7 +19,8 @@ import { createContext, useContext, useState, useCallback, useEffect } from "rea
  * carry a token and staff-only routes will 401.
  */
 
-const API_BASE = "/api";
+import { API_BASE } from "./config";
+
 const TOKEN_KEY = "rentflow_token";
 
 const AuthContext = createContext(null);
@@ -36,7 +37,7 @@ export function AuthProvider({ children }) {
       return fetch(url, { ...options, headers });
     },
     [token]
-  );
+  ); oh
 
   const fetchMe = useCallback(async () => {
     if (!token) {
