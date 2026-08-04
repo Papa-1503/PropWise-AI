@@ -7,7 +7,7 @@ import { API_BASE } from "./config";
  * Pulls real aggregate numbers from GET /api/dashboard/stats — nothing
  * hardcoded. Pair with MaintenanceTickets / InspectionChecklist / AICopilot
  * for the full flow.
- 
+ */
 
 
 function StatCard({ label, value, hint, tone = "neutral" }) {
