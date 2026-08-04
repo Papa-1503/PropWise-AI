@@ -37,7 +37,7 @@ export function AuthProvider({ children }) {
       return fetch(url, { ...options, headers });
     },
     [token]
-  ); oh
+  ); 
 
   const fetchMe = useCallback(async () => {
     if (!token) {
