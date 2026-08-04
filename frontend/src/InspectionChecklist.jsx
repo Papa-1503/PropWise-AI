@@ -21,7 +21,7 @@ import { useAuth } from "./AuthContext";
  * }
  */
 
-const API_BASE = "/api"; // adjust if your FastAPI app is mounted elsewhere
+import { API_BASE } from "./config";
 
 const STATUS_STYLES = {
   pass: "bg-emerald-50 text-emerald-700 border-emerald-200",
