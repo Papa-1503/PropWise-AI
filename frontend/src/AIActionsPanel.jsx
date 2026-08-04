@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "./AuthContext";
-
+import { API_BASE } from "./config";
 /**
  * AIActionsPanel
  *
@@ -13,7 +13,7 @@ import { useAuth } from "./AuthContext";
  * don't remove it without building real historical modeling first.
  */
 
-const API_BASE = "/api";
+
 
 const PRIORITY_STYLE = {
   high: "border-rose-300 bg-rose-50",
