@@ -1,15 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "./AuthContext";
-
+import { API_BASE } from "./config";
 /**
  * Dashboard
  *
  * Pulls real aggregate numbers from GET /api/dashboard/stats — nothing
  * hardcoded. Pair with MaintenanceTickets / InspectionChecklist / AICopilot
  * for the full flow.
- */
+ 
 
-const API_BASE = "/api";
 
 function StatCard({ label, value, hint, tone = "neutral" }) {
   const toneColor = {
