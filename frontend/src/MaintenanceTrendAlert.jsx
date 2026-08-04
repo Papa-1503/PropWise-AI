@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "./AuthContext";
+import { API_BASE } from "./config";
 
-const API_BASE = "/api";
 
 /**
  * MaintenanceTrendAlert
