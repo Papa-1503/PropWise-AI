@@ -20,7 +20,7 @@ import VendorAssignment from "./VendorAssignment";
  * }
  */
 
-const API_BASE = "/api";
+import { API_BASE } from "./config";
 
 const STATUS_LABEL = { open: "Open", in_progress: "In progress", done: "Resolved" };
 const STATUS_STYLE = {
