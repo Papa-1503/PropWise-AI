@@ -47,7 +47,7 @@ function AppShell() {
   const activeTab = tabs.includes(tab) ? tab : tabs[0];
 
   return (
-    <div className="min-h-screen bg-[#f6f3ec]">
+    <div className="min-h-screen app-bg">
       <header className="bg-[#14213d] text-white px-6 py-3 flex items-center justify-between">
         <h1 className="font-serif font-bold text-lg">RentFlow AI</h1>
         <div className="flex items-center gap-3 text-sm">
