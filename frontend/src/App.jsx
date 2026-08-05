@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles } from "lucide-react";
-import { AuthProvider, useAuth } from "./AuthContext";
+import { AuthProvider, useAuth } from "./AuthContext";import Avatar from "./Avatar";
 import LoginScreen from "./LoginScreen";
 import Dashboard from "./Dashboard";
 import MaintenanceTickets from "./MaintenanceTickets";
