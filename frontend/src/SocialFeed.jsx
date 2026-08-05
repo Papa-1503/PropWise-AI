@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "./AuthContext";
-import { API_BASE } from "./config";
+import { API_BASE } from "./config";import Avatar from "./Avatar";
 
 
 const CATEGORY_STYLE = {
@@ -191,9 +191,7 @@ function PostCard({ post, authFetch, onUpdated }) {
     <div className="bg-white border border-slate-200 rounded-xl p-4 mb-3">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-slate-900 text-white text-xs font-semibold flex items-center justify-center">
-            {post.authorName?.[0] || "?"}
-          </div>
+         <Avatar name={post.authorName} size={32} />
           <div>
             <div className="text-sm font-semibold">{post.authorName}</div>
             <div className="text-[10px] text-slate-400">{timeAgo(post.createdAt)}</div>
