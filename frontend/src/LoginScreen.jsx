@@ -50,7 +50,7 @@ export default function LoginScreen() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#f6f3ec]">
+    <div className="min-h-screen flex items-center justify-center app-bg">
       <form
         onSubmit={handleSubmit}
         className="bg-white border border-slate-200 rounded-xl p-9 w-[340px] text-center shadow-sm"
