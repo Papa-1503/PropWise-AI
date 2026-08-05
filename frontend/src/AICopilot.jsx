@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useAuth } from "./AuthContext";
+import { API_BASE } from "./config";
 
 /**
  * AICopilot
@@ -15,7 +15,7 @@ import { useAuth } from "./AuthContext";
  *   response: { answer: string, sources: string[] }
  */
 
-const API_BASE = "/api";
+
 
 const SUGGESTIONS = [
   "Show vacant units",
