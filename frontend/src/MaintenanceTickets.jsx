@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAuth } from "./AuthContext";
-import VendorAssignment from "./VendorAssignment";
+import VendorAssignment from "./VendorAssignment";import EmptyState from "./EmptyState";
+import { Wrench } from "lucide-react";
 
 /**
  * MaintenanceTickets
@@ -197,8 +198,12 @@ export default function MaintenanceTickets({ propertyId }) {
         </div>
       )}
 
-      {!loading && !error && filtered.length === 0 && (
-        <p className="text-sm text-slate-400 text-center py-8">No tickets match this filter.</p>
+     {!loading && !error && filtered.length === 0 && (
+        <EmptyState
+          icon={Wrench}
+          title="No tickets match this filter"
+          subtitle="Try a different status, or check back once new maintenance requests come in."
+        />
       )}
 
       {!loading &&
