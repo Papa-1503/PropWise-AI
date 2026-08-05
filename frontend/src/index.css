@@ -1,3 +1,30 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+/* Phase 2: subtle motion & interactivity polish, applied globally */
+button {
+  transition: background-color 150ms ease, color 150ms ease, transform 100ms ease, box-shadow 150ms ease;
+}
+button:active {
+  transform: scale(0.97);
+}
+
+a, [role="button"] {
+  transition: opacity 150ms ease, background-color 150ms ease;
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fadeInUp 300ms ease-out both;
+}
+
+/* Gentle hover lift for card-style containers */
+.rounded-xl.border, .rounded-lg.border {
+  transition: box-shadow 150ms ease, transform 150ms ease;
+}
+.rounded-xl.border:hover, .rounded-lg.border:hover {
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+}
