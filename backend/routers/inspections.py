@@ -13,6 +13,7 @@ import os
 import json
 import uuid
 import base64
+import urllib.request
 from io import BytesIO
 from datetime import datetime, timezone
 from xml.sax.saxutils import escape as _xml_escape
@@ -100,12 +101,14 @@ STATUS_COLOR = {
 }
 
 
-def _local_path_for_photo_url(url: str) -> str | None:
-    """Photo URLs are served from UPLOAD_DIR (see save_photo_file above) —
-    resolve back to the actual file on disk so it can be embedded in the PDF."""
-    filename = url.rsplit("/", 1)[-1]
-    candidate = os.path.join(UPLOAD_DIR, filename)
-    return candidate if os.path.exists(candidate) else None
+def _fetch_photo_bytes(url: str) -> BytesIO | None:
+    """Photo URLs now point to Cloudinary — fetch the bytes so they can
+    be embedded in the PDF."""
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            return BytesIO(resp.read())
+    except Exception:
+        return None
 
 
 @router.get("/{inspection_id}/pdf")
