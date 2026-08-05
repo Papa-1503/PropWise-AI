@@ -4,10 +4,8 @@ Inspection endpoints.
 POST /api/inspections                -> create an inspection record
 POST /api/inspections/:id/photos     -> upload + attach an annotated photo
 
-Photo storage here uses local disk under UPLOAD_DIR and serves it via
-FastAPI staticfiles (mounted in main.py). Swap this for S3 or another
-object store by replacing save_photo_file() only — nothing else needs
-to change.
+Photo storage uses Cloudinary — see save_photo_file() below. Swap
+providers by replacing that function only; nothing else needs to change.
 """
 import os
 import json
@@ -40,9 +38,15 @@ router = APIRouter(prefix="/api/inspections", tags=["inspections"])
 anthropic_client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 VISION_MODEL = "claude-sonnet-4-6"
 
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./uploads/inspection_photos")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+import cloudinary
+import cloudinary.uploader
 
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET"),
+    secure=True,
+)
 
 ALLOWED_IMAGE_TYPES = {
     "image/jpeg": ".jpg",
@@ -53,25 +57,21 @@ ALLOWED_IMAGE_TYPES = {
 
 
 def save_photo_file(inspection_id: str, upload: UploadFile, safe_ext: str) -> str:
-    """Saves the uploaded file to disk and returns a relative URL path.
+    """Uploads the photo to Cloudinary and returns its permanent URL.
 
-    SECURITY (fixed after being found in a live-testing pass): this
-    function used to derive the file extension from the client-supplied
-    filename and wrote the raw uploaded bytes with no content-type check
-    at all. That meant an HTML or SVG file could be uploaded through this
-    "photo" endpoint, saved with a .html extension, and served back
-    as-is by the /uploads static mount — a full stored-XSS vector,
-    confirmed live (an uploaded <script> tag executed when the "photo"
-    URL was fetched). The extension is now taken from `safe_ext`, which
-    the caller derives from a server-validated, allowlisted content-type
-    — never from the client-supplied filename — so an uploaded file can
-    only ever be saved as one of the known-safe image extensions.
+    Local disk isn't durable on Render — it's wiped on every redeploy —
+    so photos are stored with Cloudinary instead and only the resulting
+    URL is kept in Mongo. safe_ext is still derived from a
+    server-validated content-type, not the client filename.
     """
-    filename = f"{inspection_id}_{uuid.uuid4().hex}{safe_ext}"
-    dest_path = os.path.join(UPLOAD_DIR, filename)
-    with open(dest_path, "wb") as f:
-        f.write(upload.file.read())
-    return f"/uploads/inspection_photos/{filename}"
+    upload.file.seek(0)
+    result = cloudinary.uploader.upload(
+        upload.file,
+        folder=f"rentflow/inspections/{inspection_id}",
+        public_id=uuid.uuid4().hex,
+        resource_type="image",
+    )
+    return result["secure_url"]
 
 
 def _pdf_text(value) -> str:
@@ -183,9 +183,9 @@ async def generate_inspection_pdf(inspection_id: str, user: dict = Depends(requi
         for room, room_photos in photos_by_room.items():
             story.append(Paragraph(_pdf_text(room) or "General", room_style))
             for p in room_photos:
-                local_path = _local_path_for_photo_url(p.get("url", ""))
+                photo_bytes = _fetch_photo_bytes(p.get("url", ""))
                 image_ok = False
-                if local_path:
+                if photo_bytes:
                     # BUG THIS FIXES (found live): reportlab's Image flowable
                     # loads lazily — the file isn't actually read/decoded
                     # until doc.build() runs, which is AFTER any try/except
@@ -196,14 +196,16 @@ async def generate_inspection_pdf(inspection_id: str, user: dict = Depends(requi
                     # one photo. Validate the file explicitly, up front,
                     # instead of relying on a try/except that doesn't work.
                     try:
-                        with PILImage.open(local_path) as im:
+                        photo_bytes.seek(0)
+                        with PILImage.open(photo_bytes) as im:
                             im.verify()
                         image_ok = True
                     except (UnidentifiedImageError, OSError):
                         image_ok = False
 
                 if image_ok:
-                    story.append(RLImage(local_path, width=3.2 * inch, height=2.4 * inch))
+                    photo_bytes.seek(0)
+                    story.append(RLImage(photo_bytes, width=3.2 * inch, height=2.4 * inch))
                 else:
                     story.append(Paragraph(f"[Image unavailable: {_pdf_text(p.get('originalName'))}]", caption_style))
                 mark_count = len(p.get("marks", []))
@@ -382,32 +384,6 @@ async def get_inspection(inspection_id: str, user: dict = Depends(require_staff)
         p["_id"] = str(p["_id"])
     inspection["photos"] = photos
     return inspection
-for p in room_photos:
-                photo_bytes = _fetch_photo_bytes(p.get("url", ""))
-                image_ok = False
-                if photo_bytes:
-                    # BUG THIS FIXES (found live): reportlab's Image flowable
-                    # loads lazily — the file isn't actually read/decoded
-                    # until doc.build() runs, which is AFTER any try/except
-                    # wrapped around RLImage(...) construction has already
-                    # exited. A corrupt or truncated image file (e.g. a
-                    # failed/partial upload) would crash the entire PDF
-                    # build with an unhandled exception, not just skip that
-                    # one photo. Validate the file explicitly, up front,
-                    # instead of relying on a try/except that doesn't work.
-                    try:
-                        photo_bytes.seek(0)
-                        with PILImage.open(photo_bytes) as im:
-                            im.verify()
-                        image_ok = True
-                    except (UnidentifiedImageError, OSError):
-                        image_ok = False
-
-                if image_ok:
-                    photo_bytes.seek(0)
-                    story.append(RLImage(photo_bytes, width=3.2 * inch, height=2.4 * inch))
-                else:
-                    story.append(Paragraph(f"[Image unavailable: {_pdf_text(p.get('originalName'))}]", caption_style))
 
 @router.get("")
 async def list_inspections(propertyId: str | None = None, unitId: str | None = None, user: dict = Depends(require_staff)):
@@ -421,3 +397,4 @@ async def list_inspections(propertyId: str | None = None, unitId: str | None = N
     for r in results:
         r["_id"] = str(r["_id"])
     return {"inspections": results}
+
