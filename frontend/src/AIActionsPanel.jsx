@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "./AuthContext";
-import { API_BASE } from "./config";
+import { API_BASE } from "./config";import EmptyState from "./EmptyState";
+import { Sparkles } from "lucide-react";
 /**
  * AIActionsPanel
  *
@@ -254,10 +255,12 @@ export default function AIActionsPanel({ propertyId }) {
           {error}
         </p>
       )}
-      {!loading && actions.length === 0 && !error && (
-        <p className="text-sm text-slate-400 text-center py-8">
-          No pending recommendations. Click "Generate new recommendations" to have AI analyze current data.
-        </p>
+    {!loading && actions.length === 0 && !error && (
+        <EmptyState
+          icon={Sparkles}
+          title="No pending recommendations"
+          subtitle='Click "Generate new recommendations" to have AI analyze current data.'
+        />
       )}
 
       <div className="space-y-3">
