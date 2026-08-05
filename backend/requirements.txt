@@ -9,3 +9,4 @@ anthropic
 python-dotenv
 reportlab
 Pillow
+cloudinary
