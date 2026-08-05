@@ -382,7 +382,32 @@ async def get_inspection(inspection_id: str, user: dict = Depends(require_staff)
         p["_id"] = str(p["_id"])
     inspection["photos"] = photos
     return inspection
+for p in room_photos:
+                photo_bytes = _fetch_photo_bytes(p.get("url", ""))
+                image_ok = False
+                if photo_bytes:
+                    # BUG THIS FIXES (found live): reportlab's Image flowable
+                    # loads lazily — the file isn't actually read/decoded
+                    # until doc.build() runs, which is AFTER any try/except
+                    # wrapped around RLImage(...) construction has already
+                    # exited. A corrupt or truncated image file (e.g. a
+                    # failed/partial upload) would crash the entire PDF
+                    # build with an unhandled exception, not just skip that
+                    # one photo. Validate the file explicitly, up front,
+                    # instead of relying on a try/except that doesn't work.
+                    try:
+                        photo_bytes.seek(0)
+                        with PILImage.open(photo_bytes) as im:
+                            im.verify()
+                        image_ok = True
+                    except (UnidentifiedImageError, OSError):
+                        image_ok = False
 
+                if image_ok:
+                    photo_bytes.seek(0)
+                    story.append(RLImage(photo_bytes, width=3.2 * inch, height=2.4 * inch))
+                else:
+                    story.append(Paragraph(f"[Image unavailable: {_pdf_text(p.get('originalName'))}]", caption_style))
 
 @router.get("")
 async def list_inspections(propertyId: str | None = None, unitId: str | None = None, user: dict = Depends(require_staff)):
