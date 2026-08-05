@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "./AuthContext";
+import { API_BASE } from "./config";
 
-const API_BASE = "/api";
 
 const QUICK_PROMPTS = [
   "What should I focus on?",
