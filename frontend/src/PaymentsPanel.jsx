@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "./AuthContext";
-import { API_BASE } from "./config";
+import { API_BASE } from "./config";import EmptyState from "./EmptyState";
+import { DollarSign } from "lucide-react";
 
 
 const STATUS_STYLE = {
@@ -121,8 +122,12 @@ export default function PaymentsPanel({ propertyId }) {
         ))}
       </div>
 
-      {filtered.length === 0 ? (
-        <p className="text-sm text-slate-400 text-center py-8">No charges match this filter.</p>
+     {filtered.length === 0 ? (
+        <EmptyState
+          icon={DollarSign}
+          title="No charges match this filter"
+          subtitle="Charges will show up here once rent or fees are recorded for this filter."
+        />
       ) : (
         <div className="space-y-2">
           {filtered.map((c) => (
