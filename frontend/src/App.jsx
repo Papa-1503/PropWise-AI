@@ -52,7 +52,10 @@ function AppShell() {
         <h1 className="font-serif font-bold text-lg">RentFlow AI</h1>
         <div className="flex items-center gap-3 text-sm">
           <NotificationBell />
-          <span>{user.name} · {user.role === "staff" ? "Staff" : `Unit ${user.unitId || "—"}`}</span>
+          <div className="flex items-center gap-2">
+            <Avatar name={user.name} size={26} />
+            <span>{user.name} · {user.role === "staff" ? "Staff" : `Unit ${user.unitId || "—"}`}</span>
+          </div>
           <button onClick={logout} className="text-xs border border-white/30 rounded px-2 py-1 hover:bg-white/10">
             Sign out
           </button>
