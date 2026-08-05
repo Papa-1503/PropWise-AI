@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "./AuthContext";
+import { API_BASE } from "./config";
 
-const API_BASE = "/api";
 
 const CATEGORY_STYLE = {
   announcement: "bg-blue-50 text-blue-700 border-blue-200",
