@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "./AuthContext";
+import { API_BASE } from "./config";
 
-const API_BASE = "/api";
 
 const STATUS_STYLE = {
   paid: "bg-emerald-50 text-emerald-700 border-emerald-200",
