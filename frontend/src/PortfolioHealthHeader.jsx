@@ -38,9 +38,23 @@ export default function PortfolioHealthHeader({ propertyId, userName }) {
           <h1 className="text-xl font-serif font-bold">{greeting}{userName ? `, ${userName}` : ""}</h1>
           <p className="text-white/60 text-xs mt-0.5">Portfolio snapshot as of today</p>
         </div>
-        <div className="text-right">
-          <div className={`text-3xl font-bold ${scoreColor}`}>{health.healthScore}</div>
-          <div className="text-[10px] font-mono text-white/50 uppercase tracking-wide">Health Score</div>
+        <div className="flex flex-col items-center">
+          <div className="relative w-20 h-20">
+            <svg viewBox="0 0 80 80" className="w-20 h-20 -rotate-90">
+              <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="7" />
+              <circle
+                cx="40" cy="40" r="34" fill="none"
+                stroke="currentColor" strokeWidth="7" strokeLinecap="round"
+                strokeDasharray={2 * Math.PI * 34}
+                strokeDashoffset={2 * Math.PI * 34 * (1 - health.healthScore / 100)}
+                className={`${scoreColor} transition-all duration-700 ease-out`}
+              />
+            </svg>
+            <div className={`absolute inset-0 flex items-center justify-center text-xl font-bold ${scoreColor}`}>
+              {health.healthScore}
+            </div>
+          </div>
+          <div className="text-[10px] font-mono text-white/50 uppercase tracking-wide mt-1">Health Score</div>
         </div>
       </div>
 
