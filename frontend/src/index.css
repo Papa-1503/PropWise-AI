@@ -33,11 +33,7 @@ a, [role="button"] {
   background-image:
     radial-gradient(circle at 1px 1px, rgba(20, 33, 61, 0.06) 1px, transparent 0),
     url("/skyline-bg.svg");
-  background-position: 0 0, bottom left;
-  background-repeat: repeat, repeat-x;
-  background-size: 22px 22px, 480px 220px;
-  background-attachment: fixed, scroll;
-}
+  
   background-position: 0 0, bottom left;
   background-repeat: repeat, repeat-x;
   background-size: 22px 22px, 480px 220px;
