@@ -270,3 +270,14 @@ class PaymentRecord(BaseModel):
     paidDate: Optional[str] = None  # defaults to now if omitted
     method: Optional[Literal["ach", "card", "check", "cash", "other"]] = None
     note: Optional[str] = None
+class LeadCreate(BaseModel):
+    name: str
+    email: str
+    phone: Optional[str] = None
+    propertyId: Optional[str] = None
+    unitId: Optional[str] = None
+    message: Optional[str] = None
+
+
+class LeadStatusUpdate(BaseModel):
+    status: Literal["new", "toured", "applied", "signed", "declined"]
