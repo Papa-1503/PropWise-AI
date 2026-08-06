@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from db import ensure_indexes
 from routers import inspections, maintenance, ai_copilot, properties, leases, dashboard, auth, ai_actions, vendors, email_test, payments, notifications, social
-
+from routers import admin
 app = FastAPI(title="RentFlow AI API")
 
 # Adjust to your actual frontend origin(s) in production
@@ -38,7 +38,7 @@ app.include_router(email_test.router)
 app.include_router(payments.router)
 app.include_router(notifications.router)
 app.include_router(social.router)
-
+app.include_router(admin.router)
 # BUG FIX (found by actually running this): StaticFiles() raises at import
 # time if the directory doesn't already exist on disk. On a fresh checkout
 # there is no ./uploads folder yet, so the server would crash before it
