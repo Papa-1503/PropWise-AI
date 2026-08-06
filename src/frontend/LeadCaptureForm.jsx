@@ -100,3 +100,25 @@ export default function LeadCaptureForm() {
     </div>
   );
 }
+value={form.message}
+          onChange={(e) => update("message", e.target.value)}
+          rows={3}
+          className="w-full text-sm border border-slate-200 rounded-md px-3 py-2 mb-2"
+        />
+
+        {error && (
+          <p className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2 mt-1 mb-2">
+            {error}
+          </p>
+        )}
+
+        <button
+          type="submit" disabled={submitting}
+          className="w-full mt-2 bg-amber-500 disabled:bg-slate-300 text-white text-sm font-semibold py-2.5 rounded-lg hover:bg-amber-600"
+        >
+          {submitting ? "Submitting…" : "Submit"}
+        </button>
+      </form>
+    </div>
+  );
+}
