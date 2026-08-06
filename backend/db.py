@@ -24,7 +24,7 @@ ai_actions_col = db["ai_actions"]
 vendors_col = db["vendors"]
 payments_col = db["payments"]
 notifications_col = db["notifications"]
-posts_col = db["posts"]
+posts_col = db["posts"]leads_col = db["leads"]
 
 
 async def ensure_indexes():
