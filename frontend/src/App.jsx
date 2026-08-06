@@ -41,6 +41,7 @@ function AppShell() {
   const { user, loading, logout } = useAuth();
   const [tab, setTab] = useState("dashboard");
 
+  if (window.location.pathname === "/apply") return <LeadCaptureForm />;
   if (loading) return <p className="p-6 text-sm text-slate-400">Loading…</p>;
   if (!user) return <LoginScreen />;
 
