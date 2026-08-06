@@ -69,7 +69,7 @@ function AppShell() {
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`text-sm px-3 py-1.5 rounded-full capitalize flex items-center gap-1.5 ${
+              
                 className={`text-sm px-3 py-1.5 rounded-full capitalize flex items-center gap-1.5 transition-transform hover:scale-105 hover:-translate-y-0.5 ${
                 activeTab === t
                   ? "bg-gradient-to-r from-indigo-600 to-fuchsia-600 text-white shadow-sm"
