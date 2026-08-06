@@ -131,7 +131,12 @@ async def get_workforce_stats(propertyId: str | None = None, days: int = 30, use
         {**prop_filter, "createdAt": {"$gte": since}, "status": "completed"}
     ).to_list(length=500)
     revenue_protected = sum(a.get("estimatedValue") or 0 for a in completed_actions)
+    leads_created = await leads_col.count_documents({**prop_filter, "createdAt": {"$gte": since}})
+    tours_scheduled = await leads_col.count_documents({**prop_filter, "touredAt": {"$gte": since}})
+    applications_count = await leads_col.count_documents({**prop_filter, "appliedAt": {"$gte": since}})
+    leases_signed = await leads_col.count_documents({**prop_filter, "signedAt": {"$gte": since}})
 
+    # CollectionsAI — now real, computed from the payments ledger.
     # CollectionsAI — now real, computed from the payments ledger.
     # "Residents contacted" counts distinct units that received a
     # collections_reminder email in the window (from completed ai_actions).
