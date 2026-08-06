@@ -104,5 +104,53 @@ async def seed():
         }
         await leases_col.insert_one(doc)
         print(f"Created lease: Unit {lease['unitId']} — {lease['residentName']}")
+for t in TICKETS:
+        existing = await tickets_col.find_one({"propertyId": PROPERTY_ID, "unitId": t["unitId"], "title": t["title"]})
+        if existing:
+            print(f"Skipping ticket '{t['title']}' — already exists")
+            continue
+        doc = {
+            "propertyId": PROPERTY_ID, "unitId": t["unitId"], "title": t["title"],
+            "priority": t["priority"], "source": "staff", "sourceInspectionId": None,
+            "room": None, "assignee": None, "category": t["category"],
+            "status": t["status"], "createdAt": now,
+        }
+        await tickets_col.insert_one(doc)
+        print(f"Created ticket: {t['title']} ({t['status']})")
 
+    for a in AI_ACTIONS:
+        existing = await ai_actions_col.find_one({"propertyId": PROPERTY_ID, "title": a["title"]})
+        if existing:
+            print(f"Skipping AI action '{a['title']}' — already exists")
+            continue
+        doc = {**a, "propertyId": PROPERTY_ID, "status": "suggested", "createdAt": now}
+        await ai_actions_col.insert_one(doc)
+        print(f"Created AI action: {a['title']}")
+
+    extra_charges = [
+        {"unitId": "102", "amountDue": 1395, "days_ago": 12, "paid": True},
+        {"unitId": "104", "amountDue": 1600, "days_ago": 8, "paid": True},
+        {"unitId": "105", "amountDue": 1550, "days_ago": 6, "paid": False},
+        {"unitId": "107", "amountDue": 1750, "days_ago": 4, "paid": True},
+    ]
+    for c in extra_charges:
+        due = now - timedelta(days=c["days_ago"])
+        existing = await payments_col.find_one({"propertyId": PROPERTY_ID, "unitId": c["unitId"], "dueDate": due})
+        if existing:
+            continue
+        doc = {
+            "propertyId": PROPERTY_ID, "unitId": c["unitId"], "amountDue": c["amountDue"],
+            "dueDate": due, "description": "Monthly rent",
+            "amountPaid": c["amountDue"] if c["paid"] else 0.0,
+            "paidDate": (due + timedelta(days=1)) if c["paid"] else None,
+            "createdAt": now,
+        }
+        await payments_col.insert_one(doc)
+        print(f"Created charge: Unit {c['unitId']} — ${c['amountDue']} ({'paid' if c['paid'] else 'unpaid'})")
+
+    print("\nSimulation data seeded. Refresh the app to see real Dashboard, Actions, and Payments numbers.")
+
+
+if __name__ == "__main__":
+    asyncio.run(seed())
    
