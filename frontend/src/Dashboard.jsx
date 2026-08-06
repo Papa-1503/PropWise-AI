@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "./AuthContext";
-import { API_BASE } from "./config";
+import { API_BASE } from "./config";import AffirmationBanner from "./AffirmationBanner";
 /**
  * Dashboard
  *
@@ -66,6 +66,7 @@ export default function Dashboard({ propertyId }) {
 
   return (
     <div className="p-5">
+      <AffirmationBanner />
       <h1 className="text-2xl font-semibold mb-1">Dashboard</h1>
       <p className="text-sm text-slate-500 mb-5">Portfolio snapshot as of today</p>
       <div className="flex flex-wrap gap-3">
