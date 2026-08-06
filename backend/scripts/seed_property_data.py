@@ -105,11 +105,4 @@ async def seed():
         await leases_col.insert_one(doc)
         print(f"Created lease: Unit {lease['unitId']} — {lease['residentName']}")
 
-    for t in TICKETS:
-        existing = await tickets_col.find_one({"propertyId": PROPERTY_ID, "unitId": t["unitId"], "title": t["title"]})
-        if existing:
-            print(f"Skipping ticket '{t['title']}' — already exists")
-            continue
-        doc = {
-            "propertyId": PROPERTY_ID, "unitId": t["unitId"], "title": t["title"],
-            "priority": t["priority"], "source":
+   
