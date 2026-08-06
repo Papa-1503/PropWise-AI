@@ -48,7 +48,7 @@ function AppShell() {
 
   return (
     <div className="min-h-screen app-bg">
-      <header className="bg-[#14213d] text-white px-6 py-3 flex items-center justify-between">
+      <header className="bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 text-white px-6 py-3 flex items-center justify-between shadow-md">
         <h1 className="font-serif font-bold text-lg">RentFlow AI</h1>
         <div className="flex items-center gap-3 text-sm">
           <NotificationBell />
@@ -70,7 +70,10 @@ function AppShell() {
               key={t}
               onClick={() => setTab(t)}
               className={`text-sm px-3 py-1.5 rounded-full capitalize flex items-center gap-1.5 ${
-                activeTab === t ? "bg-slate-900 text-white" : "bg-white border border-slate-200 text-slate-600"
+                className={`text-sm px-3 py-1.5 rounded-full capitalize flex items-center gap-1.5 transition-transform hover:scale-105 hover:-translate-y-0.5 ${
+                activeTab === t
+                  ? "bg-gradient-to-r from-indigo-600 to-fuchsia-600 text-white shadow-sm"
+                  : "bg-white border border-slate-200 text-slate-600"
               }`}
             >
               {Icon && <Icon size={14} />}
