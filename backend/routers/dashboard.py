@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
 
-from db import properties_col, leases_col, tickets_col, inspections_col, ai_actions_col, payments_col
+from db import properties_col, leases_col, tickets_col, inspections_col, ai_actions_col, payments_col, leads_col
 from auth import require_staff
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
