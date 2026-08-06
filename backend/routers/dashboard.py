@@ -178,7 +178,7 @@ async def get_workforce_stats(propertyId: str | None = None, days: int = 30, use
             "tracked": True,
             "note": None,
         },
-        },
+    
         "collectionsAI": {
             "residentsContacted": residents_contacted,
             "recoveredRevenue": round(recovered_revenue, 2),
