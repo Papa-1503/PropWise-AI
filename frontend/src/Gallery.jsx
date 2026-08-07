@@ -87,4 +87,41 @@ export default function Gallery() {
             onChange={(e) => setCaption(e.target.value)}
             className="flex-1 text-sm border border-slate-200 rounded-md px-3 py-2"
           />
-          <label className="flex items-center gap-1.5
+          <label className="flex items-center gap-1.5 text-sm bg-amber-500 hover:bg-amber-600 text-white font-semibold px-4 py-2 rounded-lg cursor-pointer">
+            <Upload size={14} />
+            {uploading ? "Uploading…" : "Upload Photo"}
+            <input type="file" accept="image/*" onChange={handleUpload} disabled={uploading} className="hidden" />
+          </label>
+        </div>
+      )}
+
+      {error && <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2 mb-3">{error}</p>}
+
+      {loading ? (
+        <p className="text-sm text-slate-400">Loading…</p>
+      ) : photos.length === 0 ? (
+        <EmptyState icon={ImageIcon} title="No photos yet" />
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {photos.map((photo) => (
+            <div key={photo._id} className="relative group rounded-xl overflow-hidden border border-slate-200 bg-white">
+              <img src={photo.url} alt={photo.caption || "Property photo"} className="w-full h-36 object-cover" />
+              {photo.caption && (
+                <p className="text-xs text-slate-500 px-2 py-1.5 truncate">{photo.caption}</p>
+              )}
+              {user.role === "staff" && (
+                <button
+                  onClick={() => handleDelete(photo._id)}
+                  className="absolute top-1.5 right-1.5 bg-white/90 hover:bg-white text-rose-600 rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+    
