@@ -3,6 +3,7 @@ import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles
 import { AuthProvider, useAuth } from "./AuthContext";import Avatar from "./Avatar";
 import LeadCaptureForm from "./LeadCaptureForm";
 import Documents from "./Documents";
+import Gallery from "./Gallery";
 import LoginScreen from "./LoginScreen";
 import Dashboard from "./Dashboard";
 import MaintenanceTickets from "./MaintenanceTickets";
@@ -151,6 +152,7 @@ function AppShell() {
         {activeTab === "maintenance" && <MaintenanceTickets propertyId={user.propertyId} />}
         {activeTab === "payments" && <PaymentsPanel propertyId={user.propertyId} />}
         {activeTab === "documents" && <Documents />}
+        {activeTab === "gallery" && <Gallery />}
         {activeTab === "feed" && <SocialFeed />}
         {activeTab === "ai" && <AICopilot propertyId={user.propertyId} />}
       </main>
