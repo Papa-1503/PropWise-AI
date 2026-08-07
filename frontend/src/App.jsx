@@ -45,7 +45,7 @@ const TAB_ICONS = {
 function AppShell() {
   const { user, loading, logout } = useAuth();
   const [tab, setTab] = useState("dashboard");
-
+  const [moreOpen, setMoreOpen] = useState(false);
   if (window.location.pathname === "/apply") return <LeadCaptureForm />;
   if (loading) return <p className="p-6 text-sm text-slate-400">Loading…</p>;
   if (!user) return <LoginScreen />;
@@ -69,15 +69,14 @@ function AppShell() {
         </div>
       </header>
 
-      <nav className="flex gap-2 px-6 py-3">
-        {tabs.map((t) => {
+      <nav className="relative flex gap-2 px-6 py-3">
+        {(user.role === "staff" ? PRIMARY_STAFF_TABS : PRIMARY_TENANT_TABS).map((t) => {
           const Icon = TAB_ICONS[t];
           return (
             <button
               key={t}
-              onClick={() => setTab(t)}
-              
-                className={`text-sm px-3 py-1.5 rounded-full capitalize flex items-center gap-1.5 transition-transform hover:scale-105 hover:-translate-y-0.5 ${
+              onClick={() => { setTab(t); setMoreOpen(false); }}
+              className={`text-sm px-3 py-1.5 rounded-full capitalize flex items-center gap-1.5 transition-transform hover:scale-105 hover:-translate-y-0.5 ${
                 activeTab === t
                   ? "bg-gradient-to-r from-indigo-600 to-fuchsia-600 text-white shadow-sm"
                   : "bg-white border border-slate-200 text-slate-600"
@@ -88,6 +87,41 @@ function AppShell() {
             </button>
           );
         })}
+
+        {tabs.filter((t) => !(user.role === "staff" ? PRIMARY_STAFF_TABS : PRIMARY_TENANT_TABS).includes(t)).length > 0 && (
+          <div className="relative">
+            <button
+              onClick={() => setMoreOpen((v) => !v)}
+              className={`text-sm px-3 py-1.5 rounded-full capitalize flex items-center gap-1.5 transition-transform hover:scale-105 hover:-translate-y-0.5 ${
+                tabs.filter((t) => !(user.role === "staff" ? PRIMARY_STAFF_TABS : PRIMARY_TENANT_TABS).includes(t)).includes(activeTab)
+                  ? "bg-gradient-to-r from-indigo-600 to-fuchsia-600 text-white shadow-sm"
+                  : "bg-white border border-slate-200 text-slate-600"
+              }`}
+            >
+              <MoreHorizontal size={14} />
+              More
+            </button>
+            {moreOpen && (
+              <div className="absolute left-0 top-10 bg-white border border-slate-200 rounded-xl shadow-lg py-1.5 w-40 z-10">
+                {tabs.filter((t) => !(user.role === "staff" ? PRIMARY_STAFF_TABS : PRIMARY_TENANT_TABS).includes(t)).map((t) => {
+                  const Icon = TAB_ICONS[t];
+                  return (
+                    <button
+                      key={t}
+                      onClick={() => { setTab(t); setMoreOpen(false); }}
+                      className={`w-full text-left text-sm px-3 py-2 capitalize flex items-center gap-2 hover:bg-slate-50 ${
+                        activeTab === t ? "text-indigo-600 font-semibold" : "text-slate-600"
+                      }`}
+                    >
+                      {Icon && <Icon size={14} />}
+                      {t}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </nav>
 
       <main className="px-6 pb-10">
