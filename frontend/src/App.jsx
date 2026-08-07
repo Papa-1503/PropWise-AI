@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles } from "lucide-react";
+import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, MoreHorizontal } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";import Avatar from "./Avatar";
 import LeadCaptureForm from "./LeadCaptureForm";
 import Documents from "./Documents";
