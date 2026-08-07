@@ -29,7 +29,7 @@ export default function Documents() {
     setError(null);
     try {
       const res = await fetch(`${API_BASE}/documents`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        headers: { Authorization: `Bearer ${localStorage.getItem("rentflow_token")}` },
       });
       if (!res.ok) throw new Error("Couldn't load documents.");
       const data = await res.json();
@@ -53,7 +53,7 @@ export default function Documents() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
+          Authorization: `Bearer ${localStorage.getItem("rentflow_token")}`,
         },
         body: JSON.stringify(form),
       });
@@ -75,7 +75,7 @@ export default function Documents() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
+          Authorization: `Bearer ${localStorage.getItem("rentflow_token")}`,
         },
         body: JSON.stringify({ signedByName: signName }),
       });
@@ -92,7 +92,7 @@ export default function Documents() {
 
   function downloadPdf(docId) {
     fetch(`${API_BASE}/documents/${docId}/pdf`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      headers: { Authorization: `Bearer ${localStorage.getItem("rentflow_token")}` },
     })
       .then((res) => res.blob())
       .then((blob) => {
@@ -104,7 +104,8 @@ export default function Documents() {
         URL.revokeObjectURL(url);
       });
   }
- return (
+
+  return (
     <div className="p-5">
       <div className="flex items-center justify-between mb-1">
         <h1 className="text-2xl font-semibold">Documents</h1>
@@ -208,4 +209,6 @@ export default function Documents() {
   );
 }
 
+
+ 
   
