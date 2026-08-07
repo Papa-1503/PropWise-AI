@@ -281,3 +281,12 @@ class LeadCreate(BaseModel):
 
 class LeadStatusUpdate(BaseModel):
     status: Literal["new", "toured", "applied", "signed", "declined"]
+class DocumentCreate(BaseModel):
+    tenantEmail: str
+    leaseId: Optional[str] = None
+    title: str
+    content: str
+
+
+class DocumentSign(BaseModel):
+    signedByName: str
