@@ -27,8 +27,10 @@ import NotificationBell from "./NotificationBell";
  * tab state below for your actual router (React Router, etc.) as needed.
  */
 
-const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "documents", "feed", "ai"];
-const TENANT_TABS = ["documents", "maintenance", "payments", "ai"];
+const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "documents", "gallery", "feed", "ai"];
+const TENANT_TABS = ["documents", "maintenance", "payments", "gallery", "ai"];
+const PRIMARY_STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments"];
+const PRIMARY_TENANT_TABS = ["maintenance", "payments"];
 const TAB_ICONS = {
   dashboard: LayoutDashboard,
   actions: Zap,
@@ -37,6 +39,8 @@ const TAB_ICONS = {
   payments: DollarSign,
   feed: Rss,
   ai: Sparkles,
+  documents: FileText,
+  gallery: Image,
 };
 function AppShell() {
   const { user, loading, logout } = useAuth();
