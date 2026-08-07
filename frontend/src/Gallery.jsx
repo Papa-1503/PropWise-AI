@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+
+
+    import { useState, useEffect, useCallback } from "react";
 import { Image as ImageIcon, Trash2, Upload } from "lucide-react";
 import { useAuth } from "./AuthContext";
 import { API_BASE } from "./config";
@@ -21,7 +23,7 @@ export default function Gallery() {
     setError(null);
     try {
       const res = await fetch(`${API_BASE}/gallery/${user.propertyId}/photos`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        headers: { Authorization: `Bearer ${localStorage.getItem("rentflow_token")}` },
       });
       if (!res.ok) throw new Error("Couldn't load gallery.");
       const data = await res.json();
@@ -48,7 +50,7 @@ export default function Gallery() {
       formData.append("caption", caption);
       const res = await fetch(`${API_BASE}/gallery/${user.propertyId}/photos`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        headers: { Authorization: `Bearer ${localStorage.getItem("rentflow_token")}` },
         body: formData,
       });
       if (!res.ok) throw new Error("Upload failed.");
@@ -66,7 +68,7 @@ export default function Gallery() {
     try {
       const res = await fetch(`${API_BASE}/gallery/photos/${photoId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        headers: { Authorization: `Bearer ${localStorage.getItem("rentflow_token")}` },
       });
       if (!res.ok) throw new Error("Couldn't delete photo.");
       setPhotos((p) => p.filter((ph) => ph._id !== photoId));
