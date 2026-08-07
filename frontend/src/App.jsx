@@ -26,8 +26,8 @@ import NotificationBell from "./NotificationBell";
  * tab state below for your actual router (React Router, etc.) as needed.
  */
 
-const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "feed", "ai"];
-const TENANT_TABS = ["maintenance", "payments", "ai"];
+const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "documents", "feed", "ai"];
+const TENANT_TABS = ["documents", "maintenance", "payments", "ai"];
 const TAB_ICONS = {
   dashboard: LayoutDashboard,
   actions: Zap,
