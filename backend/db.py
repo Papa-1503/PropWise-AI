@@ -26,7 +26,7 @@ payments_col = db["payments"]
 notifications_col = db["notifications"]
 posts_col = db["posts"]
 leads_col = db["leads"]
-
+documents_col = db["documents"]
 
 async def ensure_indexes():
     """Call once at app startup (see main.py) to keep queries fast."""
