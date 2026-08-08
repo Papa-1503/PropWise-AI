@@ -17,6 +17,7 @@ from routers import admin
 from routers import leads
 from routers import documents
 from routers import gallery
+from routers import owners
 app = FastAPI(title="RentFlow AI API")
 
 # Adjust to your actual frontend origin(s) in production
@@ -45,6 +46,7 @@ app.include_router(admin.router)
 app.include_router(leads.router)
 app.include_router(documents.router)
 app.include_router(gallery.router)
+app.include_router(owners.router)
 # BUG FIX (found by actually running this): StaticFiles() raises at import
 # time if the directory doesn't already exist on disk. On a fresh checkout
 # there is no ./uploads folder yet, so the server would crash before it
