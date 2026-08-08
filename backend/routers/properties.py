@@ -81,7 +81,7 @@ async def update_unit_status(property_id: str, unit_id: str, payload: UnitStatus
     if not result:
         raise HTTPException(status_code=404, detail="Property or unit not found")
     return serialize(result)
-  @router.patch("/{property_id}/owner")
+ @router.patch("/{property_id}/owner")
 async def assign_owner(property_id: str, payload: OwnerAssign, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(property_id):
         raise HTTPException(status_code=400, detail="Invalid property ID")
