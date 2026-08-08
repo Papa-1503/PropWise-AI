@@ -107,6 +107,11 @@ async def register_staff(payload: UserRegister, current_user: dict = Depends(req
     """Only an already-authenticated staff member can create another staff account."""
     return await _create_user(payload, forced_role="staff")
 
+@router.post("/register-owner", response_model=TokenResponse)
+async def register_owner(payload: UserRegister, current_user: dict = Depends(require_staff)):
+    """Only an already-authenticated staff member can create an owner account."""
+    return await _create_user(payload, forced_role="owner")
+
 
 @router.post("/login", response_model=TokenResponse)
 async def login(payload: UserLogin):
