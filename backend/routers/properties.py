@@ -19,7 +19,7 @@ from bson import ObjectId
 
 from db import properties_col
 from auth import require_staff
-from models import PropertyCreate, PropertyUpdate, UnitStatusUpdate, , OwnerAssign
+from models import PropertyCreate, PropertyUpdate, UnitStatusUpdate,  OwnerAssign
 
 router = APIRouter(prefix="/api/properties", tags=["properties"])
 
