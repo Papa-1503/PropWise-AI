@@ -19,7 +19,7 @@ from bson import ObjectId
 
 from db import properties_col
 from auth import require_staff
-from models import PropertyCreate, PropertyUpdate, UnitStatusUpdate
+from models import PropertyCreate, PropertyUpdate, UnitStatusUpdate, , OwnerAssign
 
 router = APIRouter(prefix="/api/properties", tags=["properties"])
 
@@ -80,4 +80,18 @@ async def update_unit_status(property_id: str, unit_id: str, payload: UnitStatus
     )
     if not result:
         raise HTTPException(status_code=404, detail="Property or unit not found")
+    return serialize(result)
+  @router.patch("/{property_id}/owner")
+async def assign_owner(property_id: str, payload: OwnerAssign, user: dict = Depends(require_staff)):
+    if not ObjectId.is_valid(property_id):
+        raise HTTPException(status_code=400, detail="Invalid property ID")
+    if not ObjectId.is_valid(payload.ownerId):
+        raise HTTPException(status_code=400, detail="Invalid owner ID")
+    result = await properties_col.find_one_and_update(
+        {"_id": ObjectId(property_id)},
+        {"$set": {"ownerId": payload.ownerId}},
+        return_document=True,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Property not found")
     return serialize(result)
