@@ -130,7 +130,22 @@ class UserOut(BaseModel):
     role: Literal["staff", "tenant"]
     propertyId: Optional[str] = None
     unitId: Optional[str] = None
+class UserRegister(BaseModel):
+    email: str
+    password: str
+    name: str
+    role: Literal["staff", "tenant", "owner"] = "tenant"
+    propertyId: Optional[str] = None
+    unitId: Optional[str] = None
 
+
+class UserOut(BaseModel):
+    id: str
+    email: str
+    name: str
+    role: Literal["staff", "tenant", "owner"]
+    propertyId: Optional[str] = None
+    unitId: Optional[str] = None
 
 class TokenResponse(BaseModel):
     accessToken: str
