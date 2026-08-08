@@ -76,7 +76,8 @@ class PropertyCreate(BaseModel):
     name: str
     address: str = ""
     units: list[UnitIn] = Field(default_factory=list)
-
+class OwnerAssign(BaseModel):
+    ownerId: str
 
 class PropertyUpdate(BaseModel):
     name: Optional[str] = None
