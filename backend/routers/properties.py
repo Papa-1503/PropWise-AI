@@ -54,15 +54,18 @@ async def create_property(payload: PropertyCreate, user: dict = Depends(require_
     return serialize(doc)
 
 
-@router.patch("/{property_id}")
-async def update_property(property_id: str, payload: PropertyUpdate, user: dict = Depends(require_staff)):
-    if not ObjectId.is_valid(property_id):
-        raise HTTPException(status_code=400, detail="Invalid property ID")
-    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
-    if not updates:
-        raise HTTPException(status_code=400, detail="No fields to update")
+@router.patch("/{property_id}/owner")
+async def assign_owner(property_id: str, payload: OwnerAssign, user: dict = Depends(require_staff)):
+    if not ObjectId.is_valid(payload.ownerId):
+        raise HTTPException(status_code=400, detail="Invalid owner ID")
+
+    # Property _id may be a real ObjectId or a plain string (e.g. seeded demo data)
+    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+
     result = await properties_col.find_one_and_update(
-        {"_id": ObjectId(property_id)}, {"$set": updates}, return_document=True
+        {"_id": query_id},
+        {"$set": {"ownerId": payload.ownerId}},
+        return_document=True,
     )
     if not result:
         raise HTTPException(status_code=404, detail="Property not found")
