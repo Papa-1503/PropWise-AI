@@ -306,3 +306,14 @@ class DocumentCreate(BaseModel):
 
 class DocumentSign(BaseModel):
     signedByName: str
+    class ScreeningRequestCreate(BaseModel):
+    leadId: Optional[str] = None
+    applicantName: str
+    applicantEmail: str
+    propertyId: Optional[str] = None
+    unitId: Optional[str] = None
+
+
+class ScreeningStatusUpdate(BaseModel):
+    status: Literal["pending", "in_progress", "passed", "failed", "manual_review"]
+    notes: Optional[str] = None
