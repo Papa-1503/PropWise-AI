@@ -18,8 +18,27 @@ from bson import ObjectId
 
 from db import payments_col
 from date_utils import parse_date_utc
-from models import ChargeCreate, PaymentRecord
+from models import ChargeCreate, PaymentRecord, CheckoutSessionCreate
 from auth import require_staff, get_current_user
+
+@router.post("/{charge_id}/checkout")
+async def create_checkout_session(charge_id: str, payload: CheckoutSessionCreate, user: dict = Depends(get_current_user)):
+    if not ObjectId.is_valid(charge_id):
+        raise HTTPException(status_code=400, detail="Invalid charge ID")
+    charge = await payments_col.find_one({"_id": ObjectId(charge_id)})
+    if not charge:
+        raise HTTPException(status_code=404, detail="Charge not found")
+
+    if user["role"] == "tenant" and (
+        charge.get("propertyId") != user.get("propertyId")
+        or charge.get("unitId") != user.get("unitId")
+    ):
+        raise HTTPException(status_code=403, detail="Not your charge")
+
+    raise HTTPException(
+        status_code=501,
+        detail="Online payment is not yet configured. Contact staff to pay this charge another way.",
+    )
 import notifications_service
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
