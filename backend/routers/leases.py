@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
 
-from db import leases_col
+from db import leases_col, documents_col
 from models import LeaseCreate, LeaseUpdate
 from date_utils import parse_date_utc
 from auth import require_staff
@@ -66,3 +66,41 @@ async def update_lease(lease_id: str, payload: LeaseUpdate, user: dict = Depends
     if not result:
         raise HTTPException(status_code=404, detail="Lease not found")
     return serialize(result)
+
+@router.post("/{lease_id}/generate-document")
+async def generate_lease_document(lease_id: str, user: dict = Depends(require_staff)):
+    if not ObjectId.is_valid(lease_id):
+        raise HTTPException(status_code=400, detail="Invalid lease ID")
+    lease = await leases_col.find_one({"_id": ObjectId(lease_id)})
+    if not lease:
+        raise HTTPException(status_code=404, detail="Lease not found")
+    if not lease.get("residentEmail"):
+        raise HTTPException(status_code=400, detail="Lease has no resident email on file")
+
+    start = lease.get("startDate")
+    end = lease.get("endDate")
+    start_str = start.strftime("%B %d, %Y") if isinstance(start, datetime) else str(start)
+    end_str = end.strftime("%B %d, %Y") if isinstance(end, datetime) else str(end)
+
+    content = (
+        f"This lease agreement is between the property and {lease.get('residentName', 'the resident')} "
+        f"for unit {lease.get('unitId')}.\n\n"
+        f"Lease term: {start_str} through {end_str}.\n\n"
+        f"Monthly rent: ${lease.get('rent', 0):,.2f}.\n\n"
+        f"By signing below, the resident acknowledges agreement to the terms above. "
+        f"This document was generated from lease record {lease_id}."
+    )
+
+    doc = {
+        "tenantEmail": lease["residentEmail"],
+        "leaseId": lease_id,
+        "title": f"Lease Agreement - Unit {lease.get('unitId')}",
+        "content": content,
+        "status": "pending",
+        "signedByName": None,
+        "signedAt": None,
+        "createdAt": datetime.now(timezone.utc),
+    }
+    result = await documents_col.insert_one(doc)
+    return {"documentId": str(result.inserted_id)}
+ 
