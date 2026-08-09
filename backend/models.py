@@ -286,6 +286,11 @@ class PaymentRecord(BaseModel):
     paidDate: Optional[str] = None  # defaults to now if omitted
     method: Optional[Literal["ach", "card", "check", "cash", "other"]] = None
     note: Optional[str] = None
+    
+class CheckoutSessionCreate(BaseModel):
+    successUrl: Optional[str] = None
+    cancelUrl: Optional[str] = None 
+    
 class LeadCreate(BaseModel):
     name: str
     email: str
