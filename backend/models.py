@@ -297,6 +297,7 @@ class LeadCreate(BaseModel):
 
 class LeadStatusUpdate(BaseModel):
     status: Literal["new", "toured", "applied", "signed", "declined"]
+    
 class DocumentCreate(BaseModel):
     tenantEmail: str
     leaseId: Optional[str] = None
@@ -306,7 +307,8 @@ class DocumentCreate(BaseModel):
 
 class DocumentSign(BaseModel):
     signedByName: str
-    class ScreeningRequestCreate(BaseModel):
+    
+class ScreeningRequestCreate(BaseModel):
     leadId: Optional[str] = None
     applicantName: str
     applicantEmail: str
