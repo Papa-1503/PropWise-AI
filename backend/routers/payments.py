@@ -5,11 +5,12 @@ POST  /api/payments                 -> create a charge (e.g. this month's rent)
 GET   /api/payments?status=&propertyId=&unitId= -> list charges
 PATCH /api/payments/:id/record      -> record a payment against a charge
 GET   /api/payments/delinquent      -> charges that are past due and not fully paid
+POST  /api/payments/:id/checkout    -> placeholder for a real payment processor
 
 This is a ledger, not a payments processor — it tracks what's owed and
 what's been recorded as received. It does not move money. Wire a real
-processor (Stripe, etc.) behind /record if you want actual transactions
-instead of manually-recorded payments.
+processor (Stripe, etc.) behind /record and /checkout if you want actual
+transactions instead of manually-recorded payments.
 """
 from datetime import datetime, timezone
 
@@ -20,25 +21,6 @@ from db import payments_col
 from date_utils import parse_date_utc
 from models import ChargeCreate, PaymentRecord, CheckoutSessionCreate
 from auth import require_staff, get_current_user
-
-@router.post("/{charge_id}/checkout")
-async def create_checkout_session(charge_id: str, payload: CheckoutSessionCreate, user: dict = Depends(get_current_user)):
-    if not ObjectId.is_valid(charge_id):
-        raise HTTPException(status_code=400, detail="Invalid charge ID")
-    charge = await payments_col.find_one({"_id": ObjectId(charge_id)})
-    if not charge:
-        raise HTTPException(status_code=404, detail="Charge not found")
-
-    if user["role"] == "tenant" and (
-        charge.get("propertyId") != user.get("propertyId")
-        or charge.get("unitId") != user.get("unitId")
-    ):
-        raise HTTPException(status_code=403, detail="Not your charge")
-
-    raise HTTPException(
-        status_code=501,
-        detail="Online payment is not yet configured. Contact staff to pay this charge another way.",
-    )
 import notifications_service
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
@@ -49,8 +31,6 @@ def compute_status(charge: dict) -> str:
         return "paid"
     due = charge.get("dueDate")
     if isinstance(due, datetime):
-        # defensive: normalize in case a naive datetime ever ends up stored
-        # (e.g. from data written before date_utils.parse_date_utc existed)
         if due.tzinfo is None:
             due = due.replace(tzinfo=timezone.utc)
         if due < datetime.now(timezone.utc):
@@ -87,7 +67,6 @@ async def list_charges(
     user: dict = Depends(get_current_user),
 ):
     query = {}
-    # tenants only ever see their own unit's charges
     if user["role"] == "tenant":
         query["propertyId"] = user.get("propertyId")
         query["unitId"] = user.get("unitId")
@@ -152,3 +131,23 @@ async def record_payment(charge_id: str, payload: PaymentRecord, user: dict = De
     )
 
     return serialize(result)
+
+
+@router.post("/{charge_id}/checkout")
+async def create_checkout_session(charge_id: str, payload: CheckoutSessionCreate, user: dict = Depends(get_current_user)):
+    if not ObjectId.is_valid(charge_id):
+        raise HTTPException(status_code=400, detail="Invalid charge ID")
+    charge = await payments_col.find_one({"_id": ObjectId(charge_id)})
+    if not charge:
+        raise HTTPException(status_code=404, detail="Charge not found")
+
+    if user["role"] == "tenant" and (
+        charge.get("propertyId") != user.get("propertyId")
+        or charge.get("unitId") != user.get("unitId")
+    ):
+        raise HTTPException(status_code=403, detail="Not your charge")
+
+    raise HTTPException(
+        status_code=501,
+        detail="Online payment is not yet configured. Contact staff to pay this charge another way.",
+    )
