@@ -4,6 +4,7 @@ actually owns. Every query filters on ownerId == current user's id,
 not just role-gated, so one owner can never see another owner's data.
 """
 from fastapi import APIRouter, Depends
+from datetime import datetime, timezone
 from bson import ObjectId
 
 from db import properties_col, payments_col, tickets_col
