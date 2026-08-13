@@ -96,3 +96,36 @@ async def owner_statements(user: dict = Depends(require_owner)):
             "outstanding": round(grand_billed - grand_collected, 2),
         },
     }
+@router.get("/me/tax-summary")
+async def owner_tax_summary(year: int, user: dict = Depends(require_owner)):
+    props = await properties_col.find({"ownerId": user["id"]}).to_list(length=500)
+
+    year_start = datetime(year, 1, 1, tzinfo=timezone.utc)
+    year_end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+
+    summary = []
+    grand_total = 0.0
+
+    for p in props:
+        property_id = str(p["_id"])
+        charges = await payments_col.find({
+            "propertyId": property_id,
+            "paidDate": {"$gte": year_start, "$lt": year_end},
+        }).to_list(length=1000)
+
+        collected = sum(c.get("amountPaid", 0) for c in charges)
+
+        summary.append({
+            "propertyId": property_id,
+            "propertyName": p.get("name", ""),
+            "totalCollected": round(collected, 2),
+            "paymentCount": len(charges),
+        })
+        grand_total += collected
+
+    return {
+        "year": year,
+        "properties": summary,
+        "totalIncomeCollected": round(grand_total, 2),
+        "note": "This is a summary of rental income collected, not a filed tax document. Consult a tax professional before using for 1099 filing.",
+    }
