@@ -71,8 +71,23 @@ async def get_screening_request(screening_id: str, user: dict = Depends(require_
 
 @router.patch("/{screening_id}/status")
 async def update_screening_status(screening_id: str, payload: ScreeningStatusUpdate, user: dict = Depends(require_staff)):
+    if not ObjectId.is_valid(screening_id):
+        raise HTTPException(status_code=400, detail="Invalid screening request ID")
+    updates = {
+        "status": payload.status,
+        "updatedAt": datetime.now(timezone.utc),
+    }
+    if payload.notes is not None:
+        updates["notes"] = payload.notes
+    result = await screening_col.find_one_and_update(
+        {"_id": ObjectId(screening_id)}, {"$set": updates}, return_document=True
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Screening request not found")
+    return serialize(result)
 
-    def compute_applicant_score(
+
+def compute_applicant_score(
     creditScore: int | None,
     incomeToRentRatio: float | None,
     priorEvictions: int | None,
@@ -123,20 +138,6 @@ async def score_applicant(screening_id: str, payload: ApplicantScoreUpdate, user
     if payload.notes is not None:
         updates["notes"] = payload.notes
 
-    result = await screening_col.find_one_and_update(
-        {"_id": ObjectId(screening_id)}, {"$set": updates}, return_document=True
-    )
-    if not result:
-        raise HTTPException(status_code=404, detail="Screening request not found")
-    return serialize(result)
-    if not ObjectId.is_valid(screening_id):
-        raise HTTPException(status_code=400, detail="Invalid screening request ID")
-    updates = {
-        "status": payload.status,
-        "updatedAt": datetime.now(timezone.utc),
-    }
-    if payload.notes is not None:
-        updates["notes"] = payload.notes
     result = await screening_col.find_one_and_update(
         {"_id": ObjectId(screening_id)}, {"$set": updates}, return_document=True
     )
