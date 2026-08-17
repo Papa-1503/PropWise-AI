@@ -335,3 +335,10 @@ class BankLineCreate(BaseModel):
 
 class BankLineMatch(BaseModel):
     chargeId: str
+
+class ApplicantScoreUpdate(BaseModel):
+    creditScore: Optional[int] = None
+    incomeToRentRatio: Optional[float] = None
+    priorEvictions: Optional[int] = None
+    rentalHistoryMonths: Optional[int] = None
+    notes: Optional[str] = None
