@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
 
 from db import screening_col
-from models import ScreeningRequestCreate, ScreeningStatusUpdate
+from models import ScreeningRequestCreate, ScreeningStatusUpdate, ApplicantScoreUpdate
 from auth import require_staff
 
 router = APIRouter(prefix="/api/screening", tags=["screening"])
@@ -71,6 +71,64 @@ async def get_screening_request(screening_id: str, user: dict = Depends(require_
 
 @router.patch("/{screening_id}/status")
 async def update_screening_status(screening_id: str, payload: ScreeningStatusUpdate, user: dict = Depends(require_staff)):
+
+    def compute_applicant_score(
+    creditScore: int | None,
+    incomeToRentRatio: float | None,
+    priorEvictions: int | None,
+    rentalHistoryMonths: int | None,
+) -> int:
+    """Simple, transparent 0-100 score. Not a statistical model — a
+    weighted checklist staff can see the reasoning behind at a glance."""
+    score = 0.0
+
+    if creditScore is not None:
+        credit_pct = max(0, min(1, (creditScore - 500) / 300))
+        score += credit_pct * 40
+
+    if incomeToRentRatio is not None:
+        ratio_pct = max(0, min(1, incomeToRentRatio / 3))
+        score += ratio_pct * 30
+
+    if priorEvictions is not None:
+        score += 20 if priorEvictions == 0 else 0
+
+    if rentalHistoryMonths is not None:
+        history_pct = max(0, min(1, rentalHistoryMonths / 12))
+        score += history_pct * 10
+
+    return round(score)
+
+
+@router.patch("/{screening_id}/score")
+async def score_applicant(screening_id: str, payload: ApplicantScoreUpdate, user: dict = Depends(require_staff)):
+    if not ObjectId.is_valid(screening_id):
+        raise HTTPException(status_code=400, detail="Invalid screening request ID")
+
+    computed_score = compute_applicant_score(
+        payload.creditScore,
+        payload.incomeToRentRatio,
+        payload.priorEvictions,
+        payload.rentalHistoryMonths,
+    )
+
+    updates = {
+        "creditScore": payload.creditScore,
+        "incomeToRentRatio": payload.incomeToRentRatio,
+        "priorEvictions": payload.priorEvictions,
+        "rentalHistoryMonths": payload.rentalHistoryMonths,
+        "score": computed_score,
+        "updatedAt": datetime.now(timezone.utc),
+    }
+    if payload.notes is not None:
+        updates["notes"] = payload.notes
+
+    result = await screening_col.find_one_and_update(
+        {"_id": ObjectId(screening_id)}, {"$set": updates}, return_document=True
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Screening request not found")
+    return serialize(result)
     if not ObjectId.is_valid(screening_id):
         raise HTTPException(status_code=400, detail="Invalid screening request ID")
     updates = {
