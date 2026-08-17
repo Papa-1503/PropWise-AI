@@ -30,6 +30,7 @@ documents_col = db["documents"]
 gallery_photos_col = db["gallery_photos"]
 screening_col = db["screening_requests"]
 bank_lines_col = db["bank_statement_lines"]
+dashboard_prefs_col = db["dashboard_preferences"]
 async def ensure_indexes():
     """Call once at app startup (see main.py) to keep queries fast."""
     await inspections_col.create_index([("propertyId", 1), ("unitId", 1)])
