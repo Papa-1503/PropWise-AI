@@ -324,3 +324,14 @@ class ScreeningRequestCreate(BaseModel):
 class ScreeningStatusUpdate(BaseModel):
     status: Literal["pending", "in_progress", "passed", "failed", "manual_review"]
     notes: Optional[str] = None
+
+class BankLineCreate(BaseModel):
+    propertyId: str
+    date: str
+    description: str
+    amount: float
+    matchedChargeId: Optional[str] = None
+
+
+class BankLineMatch(BaseModel):
+    chargeId: str
