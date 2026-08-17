@@ -342,3 +342,7 @@ class ApplicantScoreUpdate(BaseModel):
     priorEvictions: Optional[int] = None
     rentalHistoryMonths: Optional[int] = None
     notes: Optional[str] = None
+
+class DashboardPreferencesUpdate(BaseModel):
+    visibleWidgets: list[str]
+    widgetOrder: list[str]
