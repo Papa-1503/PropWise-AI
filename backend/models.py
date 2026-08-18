@@ -346,3 +346,45 @@ class ApplicantScoreUpdate(BaseModel):
 class DashboardPreferencesUpdate(BaseModel):
     visibleWidgets: list[str]
     widgetOrder: list[str]
+# ---------- Workflows ----------
+
+class WorkflowAction(BaseModel):
+    type: Literal["send_email", "create_task", "assign_user", "set_status", "webhook"]
+    config: dict = Field(default_factory=dict)
+    order: int
+
+
+class WorkflowTrigger(BaseModel):
+    event: Literal[
+        "lease_created",
+        "tenant_moved_out",
+        "unit_created",
+        "payment_received",
+        "payment_returned",
+        "work_order_closed",
+    ]
+    conditions: Optional[dict] = None
+
+
+class WorkflowCreate(BaseModel):
+    name: str
+    trigger: WorkflowTrigger
+    actions: list[WorkflowAction] = Field(default_factory=list)
+
+
+class WorkflowUpdate(BaseModel):
+    name: Optional[str] = None
+    trigger: Optional[WorkflowTrigger] = None
+    actions: Optional[list[WorkflowAction]] = None
+    status: Optional[Literal["draft", "published", "paused"]] = None
+
+
+class Workflow(BaseModel):
+    id: str
+    org_id: str
+    name: str
+    trigger: WorkflowTrigger
+    actions: list[WorkflowAction] = Field(default_factory=list)
+    status: Literal["draft", "published", "paused"] = "draft"
+    created_at: str = ""
+    updated_at: str = ""
