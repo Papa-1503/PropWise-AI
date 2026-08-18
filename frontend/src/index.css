@@ -39,3 +39,29 @@ a, [role="button"] {
   background-size: 22px 22px, 480px 220px;
   background-attachment: fixed, scroll;
 }
+
+/* Colorful stat card accents — used by StatCard tone variants */
+.stat-card-accent {
+  position: relative;
+  overflow: hidden;
+}
+.stat-card-accent::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent-from), var(--accent-to));
+}
+.stat-card-accent:hover {
+  transform: translateY(-2px);
+}
+
+/* Gradient text for headings */
+.gradient-heading {
+  background: linear-gradient(90deg, #0284c7, #c026d3);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
