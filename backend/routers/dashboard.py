@@ -321,3 +321,39 @@ async def get_dashboard_stats(propertyId: str | None = None, user: dict = Depend
         "urgentTickets": urgent_tickets,
         "inspectionsDue": inspections_due,
     }
+
+DEFAULT_WIDGETS = [
+    "healthScore", "occupancy", "revenue", "vacancies",
+    "openTickets", "urgentTickets", "inspectionsDue",
+    "workforce", "maintenanceTrends",
+]
+
+
+@router.get("/preferences")
+async def get_dashboard_preferences(user: dict = Depends(require_staff)):
+    prefs = await dashboard_prefs_col.find_one({"userId": user["id"]})
+    if not prefs:
+        return {
+            "visibleWidgets": DEFAULT_WIDGETS,
+            "widgetOrder": DEFAULT_WIDGETS,
+            "isDefault": True,
+        }
+    return {
+        "visibleWidgets": prefs.get("visibleWidgets", DEFAULT_WIDGETS),
+        "widgetOrder": prefs.get("widgetOrder", DEFAULT_WIDGETS),
+        "isDefault": False,
+    }
+
+
+@router.put("/preferences")
+async def update_dashboard_preferences(payload: DashboardPreferencesUpdate, user: dict = Depends(require_staff)):
+    updates = {
+        "userId": user["id"],
+        "visibleWidgets": payload.visibleWidgets,
+        "widgetOrder": payload.widgetOrder,
+        "updatedAt": datetime.now(timezone.utc),
+    }
+    await dashboard_prefs_col.update_one(
+        {"userId": user["id"]}, {"$set": updates}, upsert=True
+    )
+    return {"visibleWidgets": payload.visibleWidgets, "widgetOrder": payload.widgetOrder, "isDefault": False}
