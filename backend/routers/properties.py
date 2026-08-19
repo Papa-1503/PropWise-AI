@@ -18,6 +18,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
 
 from db import properties_col
+from services.events import emit_event
 from auth import require_staff
 from models import PropertyCreate, PropertyUpdate, UnitStatusUpdate,  OwnerAssign
 
@@ -36,14 +37,28 @@ async def list_properties(user: dict = Depends(require_staff)):
     return {"properties": [serialize(p) for p in props]}
 
 
-@router.get("/{property_id}")
-async def get_property(property_id: str, user: dict = Depends(require_staff)):
+@router.patch("/{property_id}/units/{unit_id}/status")
+async def update_unit_status(property_id: str, unit_id: str, payload: UnitStatusUpdate, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(property_id):
         raise HTTPException(status_code=400, detail="Invalid property ID")
-    prop = await properties_col.find_one({"_id": ObjectId(property_id)})
-    if not prop:
-        raise HTTPException(status_code=404, detail="Property not found")
-    return serialize(prop)
+    result = await properties_col.find_one_and_update(
+        {"_id": ObjectId(property_id), "units.unitId": unit_id},
+        {"$set": {"units.$.status": payload.status}},
+        return_document=True,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Property or unit not found")
+
+    if payload.status == "vacant":
+        try:
+            await emit_event("tenant_moved_out", {
+                "propertyId": property_id,
+                "unitId": unit_id,
+            })
+        except Exception as e:
+            print(f"Workflow dispatch failed: {e}")
+
+    return serialize(result)
 
 
 @router.post("")
