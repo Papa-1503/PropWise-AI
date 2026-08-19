@@ -14,7 +14,7 @@ from db import leases_col, documents_col
 from models import LeaseCreate, LeaseUpdate
 from date_utils import parse_date_utc
 from auth import require_staff
-
+from services.events import emit_event
 router = APIRouter(prefix="/api/leases", tags=["leases"])
 
 
@@ -48,6 +48,18 @@ async def create_lease(payload: LeaseCreate, user: dict = Depends(require_staff)
     doc["createdAt"] = datetime.now(timezone.utc)
     result = await leases_col.insert_one(doc)
     doc["_id"] = result.inserted_id
+
+    try:
+        await emit_event("lease_created", {
+            "leaseId": str(result.inserted_id),
+            "propertyId": doc.get("propertyId"),
+            "unitId": doc.get("unitId"),
+            "residentEmail": doc.get("residentEmail"),
+            "residentName": doc.get("residentName"),
+        })
+    except Exception as e:
+        print(f"Workflow dispatch failed: {e}")
+
     return serialize(doc)
 
 
