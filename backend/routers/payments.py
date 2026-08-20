@@ -58,7 +58,7 @@ async def create_charge(payload: ChargeCreate, user: dict = Depends(require_staf
     result = await payments_col.insert_one(doc)
     doc["_id"] = result.inserted_id
     return serialize(doc)
-    @router.get("")
+@router.get("")
 async def list_charges(
     propertyId: str | None = None,
     unitId: str | None = None,
