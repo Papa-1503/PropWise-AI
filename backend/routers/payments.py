@@ -21,6 +21,7 @@ from db import payments_col
 from date_utils import parse_date_utc
 from models import ChargeCreate, PaymentRecord, CheckoutSessionCreate
 from auth import require_staff, get_current_user
+from services.events import emit_event
 import notifications_service
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
@@ -122,13 +123,25 @@ async def record_payment(charge_id: str, payload: PaymentRecord, user: dict = De
         {"_id": ObjectId(charge_id)}, {"$set": updates}, return_document=True
     )
 
-    await notifications_service.notify_unit_resident(
+   await notifications_service.notify_unit_resident(
         charge.get("propertyId"), charge.get("unitId"),
         type="payment_received",
         title="Payment received",
         body=f"${payload.amountPaid:.2f} recorded for {charge.get('description', 'your charge')}",
         link="/payments",
     )
+
+    try:
+        await emit_event("payment_received", {
+            "chargeId": charge_id,
+            "propertyId": charge.get("propertyId"),
+            "unitId": charge.get("unitId"),
+            "amountPaid": payload.amountPaid,
+            "totalPaid": new_amount_paid,
+            "amountDue": charge.get("amountDue"),
+        })
+    except Exception as e:
+        print(f"Workflow dispatch failed: {e}")
 
     return serialize(result)
 
