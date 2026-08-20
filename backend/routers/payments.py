@@ -25,8 +25,6 @@ from services.events import emit_event
 import notifications_service
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
-
-
 def compute_status(charge: dict) -> str:
     if charge.get("amountPaid", 0) >= charge.get("amountDue", 0):
         return "paid"
