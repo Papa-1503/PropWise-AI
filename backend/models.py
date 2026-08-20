@@ -286,6 +286,10 @@ class PaymentRecord(BaseModel):
     paidDate: Optional[str] = None  # defaults to now if omitted
     method: Optional[Literal["ach", "card", "check", "cash", "other"]] = None
     note: Optional[str] = None
+
+class PaymentReturn(BaseModel):
+    amount: float = Field(gt=0)
+    reason: Optional[str] = None
     
 class CheckoutSessionCreate(BaseModel):
     successUrl: Optional[str] = None
