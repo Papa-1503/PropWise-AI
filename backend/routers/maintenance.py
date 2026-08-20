@@ -81,7 +81,7 @@ async def update_ticket(ticket_id: str, payload: TicketUpdate, user: dict = Depe
     if not result:
         raise HTTPException(status_code=404, detail="Ticket not found")
 
-    if updates.get("status") == "closed":
+    if updates.get("status") == "done":
         try:
             await emit_event("work_order_closed", {
                 "ticketId": ticket_id,
