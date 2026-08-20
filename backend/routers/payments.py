@@ -123,7 +123,7 @@ async def record_payment(charge_id: str, payload: PaymentRecord, user: dict = De
         {"_id": ObjectId(charge_id)}, {"$set": updates}, return_document=True
     )
 
-   await notifications_service.notify_unit_resident(
+    await notifications_service.notify_unit_resident(
         charge.get("propertyId"), charge.get("unitId"),
         type="payment_received",
         title="Payment received",
