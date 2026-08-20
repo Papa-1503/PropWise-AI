@@ -19,12 +19,14 @@ from bson import ObjectId
 
 from db import payments_col
 from date_utils import parse_date_utc
-from models import ChargeCreate, PaymentRecord, CheckoutSessionCreate
+from models import ChargeCreate, PaymentRecord, CheckoutSessionCreate, PaymentReturn
 from auth import require_staff, get_current_user
 from services.events import emit_event
 import notifications_service
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
+
+
 def compute_status(charge: dict) -> str:
     if charge.get("amountPaid", 0) >= charge.get("amountDue", 0):
         return "paid"
@@ -56,9 +58,7 @@ async def create_charge(payload: ChargeCreate, user: dict = Depends(require_staf
     result = await payments_col.insert_one(doc)
     doc["_id"] = result.inserted_id
     return serialize(doc)
-
-
-@router.get("")
+    @router.get("")
 async def list_charges(
     propertyId: str | None = None,
     unitId: str | None = None,
@@ -137,6 +137,50 @@ async def record_payment(charge_id: str, payload: PaymentRecord, user: dict = De
             "amountPaid": payload.amountPaid,
             "totalPaid": new_amount_paid,
             "amountDue": charge.get("amountDue"),
+        })
+    except Exception as e:
+        print(f"Workflow dispatch failed: {e}")
+
+    return serialize(result)
+
+
+@router.patch("/{charge_id}/return")
+async def return_payment(charge_id: str, payload: PaymentReturn, user: dict = Depends(require_staff)):
+    if not ObjectId.is_valid(charge_id):
+        raise HTTPException(status_code=400, detail="Invalid charge ID")
+
+    charge = await payments_col.find_one({"_id": ObjectId(charge_id)})
+    if not charge:
+        raise HTTPException(status_code=404, detail="Charge not found")
+
+    new_amount_paid = max(0, charge.get("amountPaid", 0) - payload.amount)
+
+    updates = {
+        "amountPaid": new_amount_paid,
+        "returnedAt": datetime.now(timezone.utc),
+        "returnReason": payload.reason,
+        "updatedAt": datetime.now(timezone.utc),
+    }
+
+    result = await payments_col.find_one_and_update(
+        {"_id": ObjectId(charge_id)}, {"$set": updates}, return_document=True
+    )
+
+    await notifications_service.notify_unit_resident(
+        charge.get("propertyId"), charge.get("unitId"),
+        type="payment_returned",
+        title="Payment returned",
+        body=f"${payload.amount:.2f} was returned for {charge.get('description', 'your charge')}",
+        link="/payments",
+    )
+
+    try:
+        await emit_event("payment_returned", {
+            "chargeId": charge_id,
+            "propertyId": charge.get("propertyId"),
+            "unitId": charge.get("unitId"),
+            "amountReturned": payload.amount,
+            "reason": payload.reason,
         })
     except Exception as e:
         print(f"Workflow dispatch failed: {e}")
