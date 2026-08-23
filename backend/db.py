@@ -33,6 +33,7 @@ bank_lines_col = db["bank_statement_lines"]
 dashboard_prefs_col = db["dashboard_preferences"]
 workflows_col = db["workflows"]
 workflow_runs_col = db["workflow_runs"]
+maintenance_schedules_col = db["maintenance_schedules"]
 async def ensure_indexes():
     """Call once at app startup (see main.py) to keep queries fast."""
     await inspections_col.create_index([("propertyId", 1), ("unitId", 1)])
@@ -48,3 +49,4 @@ async def ensure_indexes():
     await posts_col.create_index([("createdAt", -1)])
     await workflows_col.create_index([("status", 1)])
     await workflow_runs_col.create_index([("workflowId", 1), ("startedAt", -1)])
+    await maintenance_schedules_col.create_index([("propertyId", 1), ("nextDueDate", 1)])
