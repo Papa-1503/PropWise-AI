@@ -15,7 +15,8 @@ class InspectionCreate(BaseModel):
     propertyId: str
     unitId: str
     inspectorName: str = ""
-    type: Literal["move-in", "move-out", "annual"] = "annual"
+    type: Literal["move-in", "move-out", "annual", "turnover"] = "annual"
+    
     items: list[InspectionItemIn]
 
 
