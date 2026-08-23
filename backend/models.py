@@ -354,7 +354,7 @@ class DashboardPreferencesUpdate(BaseModel):
 # ---------- Workflows ----------
 
 class WorkflowAction(BaseModel):
-    type: Literal["send_email", "create_task", "assign_user", "set_status", "webhook"]
+    type: Literal["send_email", "create_task", "create_turnover_checklist", "assign_user", "set_status", "webhook"]
     config: dict = Field(default_factory=dict)
     order: int
 
