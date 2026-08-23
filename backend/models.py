@@ -31,7 +31,7 @@ class TicketCreate(BaseModel):
     unitId: str
     title: str
     priority: Literal["normal", "urgent"] = "normal"
-    source: Literal["resident", "inspection", "staff"] = "staff"
+    source: Literal["resident", "inspection", "staff", "preventive_maintenance"] = "staff"
     sourceInspectionId: Optional[str] = None
     room: Optional[str] = None
     assignee: Optional[str] = None
