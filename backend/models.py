@@ -392,3 +392,8 @@ class Workflow(BaseModel):
     status: Literal["draft", "published", "paused"] = "draft"
     created_at: str = ""
     updated_at: str = ""
+
+# ---------- Staff / Maintenance Tech Assignment ----------
+
+class StaffPropertyAssignment(BaseModel):
+    assignedProperties: list[str] = Field(default_factory=list)
