@@ -397,3 +397,7 @@ class Workflow(BaseModel):
 
 class StaffPropertyAssignment(BaseModel):
     assignedProperties: list[str] = Field(default_factory=list)
+
+class TimeEntryCreate(BaseModel):
+    hours: float = Field(gt=0)
+    note: Optional[str] = None
