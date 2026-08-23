@@ -5,13 +5,19 @@ GET   /api/maintenance/tickets            -> list, filterable by propertyId/stat
 POST  /api/maintenance/tickets            -> create a ticket (used directly by staff,
                                               and auto-called from the inspection flow)
 PATCH /api/maintenance/tickets/:id        -> update status/assignee/priority
+
+Resident-submitted tickets (source == "resident") are auto-assigned to a
+staff member whose assignedProperties includes the ticket's propertyId,
+via routers/staff.py. If no tech is assigned to that property yet, falls
+back to the existing notify_all_staff behavior rather than leaving the
+ticket silently unassigned.
 """
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
 
-from db import tickets_col
+from db import tickets_col, users_col
 from models import TicketCreate, TicketUpdate
 import notifications_service
 from auth import require_staff, get_current_user
@@ -23,6 +29,11 @@ router = APIRouter(prefix="/api/maintenance/tickets", tags=["maintenance"])
 def serialize(ticket: dict) -> dict:
     ticket["id"] = str(ticket.pop("_id"))
     return ticket
+
+
+async def find_tech_for_property(property_id: str) -> dict | None:
+    """Returns the first staff user assigned to this property, or None."""
+    return await users_col.find_one({"role": "staff", "assignedProperties": property_id})
 
 
 @router.get("")
@@ -53,15 +64,40 @@ async def create_ticket(payload: TicketCreate, user: dict = Depends(get_current_
         doc["propertyId"] = user.get("propertyId")
         doc["unitId"] = user.get("unitId")
         doc["source"] = "resident"
+
+    assigned_tech = None
+    if doc.get("source") == "resident" and doc.get("propertyId"):
+        assigned_tech = await find_tech_for_property(doc["propertyId"])
+        if assigned_tech:
+            doc["assignee"] = assigned_tech.get("email")
+
     result = await tickets_col.insert_one(doc)
     doc["_id"] = result.inserted_id
-    if doc.get("priority") == "urgent":
+
+    if doc.get("source") == "resident":
+        if assigned_tech:
+            await notifications_service.notify_user(
+                str(assigned_tech["_id"]),
+                type="urgent_ticket" if doc.get("priority") == "urgent" else "general",
+                title=f"New maintenance request: {doc['title']}",
+                body=f"Unit {doc['unitId']} — assigned to you",
+                link=f"/maintenance/{str(result.inserted_id)}",
+            )
+        else:
+            await notifications_service.notify_all_staff(
+                type="urgent_ticket" if doc.get("priority") == "urgent" else "general",
+                title=f"Unassigned request: {doc['title']}",
+                body=f"Unit {doc['unitId']} — no tech assigned to this property yet",
+                link=f"/maintenance/{str(result.inserted_id)}",
+            )
+    elif doc.get("priority") == "urgent":
         await notifications_service.notify_all_staff(
             type="urgent_ticket",
             title=f"Urgent: {doc['title']}",
             body=f"Unit {doc['unitId']} — reported via {doc.get('source', 'staff')}",
             link=f"/maintenance/{str(result.inserted_id)}",
         )
+
     return serialize(doc)
 
 
