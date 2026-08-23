@@ -5,12 +5,18 @@ GET   /api/maintenance/tickets            -> list, filterable by propertyId/stat
 POST  /api/maintenance/tickets            -> create a ticket (used directly by staff,
                                               and auto-called from the inspection flow)
 PATCH /api/maintenance/tickets/:id        -> update status/assignee/priority
+POST  /api/maintenance/tickets/:id/time   -> log hours worked against a ticket
 
 Resident-submitted tickets (source == "resident") are auto-assigned to a
 staff member whose assignedProperties includes the ticket's propertyId,
 via routers/staff.py. If no tech is assigned to that property yet, falls
 back to the existing notify_all_staff behavior rather than leaving the
 ticket silently unassigned.
+
+Time logging is intentionally simple — hours entered directly, not a
+running timer. No payroll, tax, or workers' comp logic; this is purely
+for internal labor-cost accuracy, feeding the estimate-vs-actual
+comparison planned in the damage cost estimates feature.
 """
 from datetime import datetime, timezone
 
@@ -18,7 +24,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
 
 from db import tickets_col, users_col
-from models import TicketCreate, TicketUpdate
+from models import TicketCreate, TicketUpdate, TimeEntryCreate
 import notifications_service
 from auth import require_staff, get_current_user
 from services.events import emit_event
@@ -128,4 +134,29 @@ async def update_ticket(ticket_id: str, payload: TicketUpdate, user: dict = Depe
         except Exception as e:
             print(f"Workflow dispatch failed: {e}")
 
+    return serialize(result)
+
+
+@router.post("/{ticket_id}/time")
+async def log_time(ticket_id: str, payload: TimeEntryCreate, user: dict = Depends(require_staff)):
+    if not ObjectId.is_valid(ticket_id):
+        raise HTTPException(status_code=400, detail="Invalid ticket ID")
+
+    entry = {
+        "hours": payload.hours,
+        "note": payload.note,
+        "loggedBy": user.get("email"),
+        "loggedAt": datetime.now(timezone.utc),
+    }
+
+    result = await tickets_col.find_one_and_update(
+        {"_id": ObjectId(ticket_id)},
+        {
+            "$push": {"timeEntries": entry},
+            "$inc": {"totalHours": payload.hours},
+        },
+        return_document=True,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Ticket not found")
     return serialize(result)
