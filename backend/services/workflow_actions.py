@@ -8,7 +8,7 @@ payload = the event data (e.g. the unit/lease/tenant that triggered it)
 import uuid
 from datetime import datetime, timezone
 
-from db import tickets_col, inspections_col, users_col
+from db import tickets_col, inspections_col, users_col, properties_col
 from email_service import send_email_async, EmailNotConfigured, EmailSendError
 import notifications_service
 
@@ -62,7 +62,10 @@ async def create_turnover_checklist_action(config: dict, payload: dict):
     """Replaces the generic 'prep unit' task with a full structured
     turnover checklist (housekeeping + maintenance), assigned to
     whichever tech covers this property, same lookup as resident-
-    submitted tickets and preventive maintenance."""
+    submitted tickets and preventive maintenance. Also marks the unit
+    not-ready-to-list until the checklist is completed (see
+    routers/inspections.py update_inspection_item, which flips this
+    back once every item is checked off)."""
     property_id = payload.get("propertyId")
     unit_id = payload.get("unitId")
 
@@ -82,6 +85,12 @@ async def create_turnover_checklist_action(config: dict, payload: dict):
     }
     result = await inspections_col.insert_one(doc)
     inspection_id = str(result.inserted_id)
+
+    if property_id and unit_id:
+        await properties_col.update_one(
+            {"_id": property_id, "units.unitId": unit_id},
+            {"$set": {"units.$.readyToList": False}},
+        )
 
     assigned_tech = None
     if property_id:
