@@ -401,3 +401,19 @@ class StaffPropertyAssignment(BaseModel):
 class TimeEntryCreate(BaseModel):
     hours: float = Field(gt=0)
     note: Optional[str] = None
+# ---------- Preventive Maintenance Schedules ----------
+
+class MaintenanceScheduleCreate(BaseModel):
+    propertyId: str
+    unitId: Optional[str] = None  # omit for property-wide items (e.g. shared HVAC, common areas)
+    title: str
+    category: Literal["plumbing", "electrical", "hvac", "general", "landscaping", "locksmith"] = "general"
+    intervalDays: int = Field(gt=0)
+    nextDueDate: str  # ISO date string
+
+
+class MaintenanceScheduleUpdate(BaseModel):
+    title: Optional[str] = None
+    intervalDays: Optional[int] = None
+    nextDueDate: Optional[str] = None
+    active: Optional[bool] = None
