@@ -29,8 +29,8 @@ from reportlab.platypus import (
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-from db import inspections_col, photos_col
-from models import InspectionCreate, PhotoAnalysisResult
+from db import inspections_col, photos_col, properties_col
+from models import InspectionCreate, PhotoAnalysisResult, ItemStatusUpdate
 from auth import require_staff
 
 router = APIRouter(prefix="/api/inspections", tags=["inspections"])
@@ -397,4 +397,30 @@ async def list_inspections(propertyId: str | None = None, unitId: str | None = N
     for r in results:
         r["_id"] = str(r["_id"])
     return {"inspections": results}
+
+@router.patch("/{inspection_id}/items/{item_id}")
+async def update_inspection_item(inspection_id: str, item_id: str, payload: ItemStatusUpdate, user: dict = Depends(require_staff)):
+    if not ObjectId.is_valid(inspection_id):
+        raise HTTPException(status_code=400, detail="Invalid inspection ID")
+
+    inspection = await inspections_col.find_one_and_update(
+        {"_id": ObjectId(inspection_id), "items.id": item_id},
+        {"$set": {"items.$.status": payload.status}},
+        return_document=True,
+    )
+    if not inspection:
+        raise HTTPException(status_code=404, detail="Inspection or item not found")
+
+    # If this is a turnover checklist, recompute whether the unit is
+    # ready to list based on whether every item has been checked off
+    # (no longer "pending"), and reflect that on the property's unit.
+    if inspection.get("type") == "turnover" and inspection.get("propertyId") and inspection.get("unitId"):
+        all_done = all(item.get("status") != "pending" for item in inspection.get("items", []))
+        await properties_col.update_one(
+            {"_id": inspection["propertyId"], "units.unitId": inspection["unitId"]},
+            {"$set": {"units.$.readyToList": all_done}},
+        )
+
+    inspection["_id"] = str(inspection["_id"])
+    return inspection
 
