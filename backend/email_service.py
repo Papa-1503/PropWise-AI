@@ -1,21 +1,32 @@
 """
-Email sending via plain SMTP — works with any provider (Gmail, SendGrid's
-SMTP relay, Mailgun, your own mail server, etc.) by just changing env vars,
-rather than locking the codebase to one vendor's API.
+Email sending via Mailgun's HTTP API.
+
+CHANGED from plain SMTP (Aug 24, 2026): Render's free tier blocks all
+outbound traffic to SMTP ports 25, 465, and 587 (confirmed via Render's
+own changelog, effective Sept 26, 2025) — SMTP simply cannot work here
+without upgrading to a paid Render instance. Mailgun's API sends over
+HTTPS (port 443), which isn't blocked, so this keeps email working on
+the free tier. All function names/signatures are unchanged from the old
+SMTP version — callers (workflow_actions.py, communications.py) needed
+zero changes.
 
 Required environment variables (see .env.example):
-    SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, FROM_EMAIL
+    MAILGUN_API_KEY, MAILGUN_DOMAIN, FROM_EMAIL
+
+MAILGUN_DOMAIN can be Mailgun's own sandbox domain (works immediately,
+but can only send to pre-authorized recipient addresses — add
+recipients in the Mailgun dashboard under the sandbox domain's
+"Authorized Recipients") or a real verified custom domain once DNS is
+set up, which can send to anyone.
 
 If these aren't set, send_email() raises a clear error rather than
-silently pretending to send — callers (the AI action executors) catch
-this and report it honestly instead of marking an action "completed"
-when nothing actually went out.
+silently pretending to send — callers catch this and report it
+honestly instead of marking an action "completed" when nothing
+actually went out.
 """
 import os
 import asyncio
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import httpx
 
 
 class EmailNotConfigured(Exception):
@@ -27,39 +38,42 @@ class EmailSendError(Exception):
 
 
 def _get_config():
-    host = os.getenv("SMTP_HOST")
-    port = os.getenv("SMTP_PORT")
-    user = os.getenv("SMTP_USER")
-    password = os.getenv("SMTP_PASSWORD")
-    from_email = os.getenv("FROM_EMAIL", user)
+    api_key = os.getenv("MAILGUN_API_KEY")
+    domain = os.getenv("MAILGUN_DOMAIN")
+    from_email = os.getenv("FROM_EMAIL")
 
-    if not all([host, port, user, password]):
+    if not all([api_key, domain, from_email]):
         raise EmailNotConfigured(
-            "SMTP_HOST, SMTP_PORT, SMTP_USER, and SMTP_PASSWORD must all be set in the "
+            "MAILGUN_API_KEY, MAILGUN_DOMAIN, and FROM_EMAIL must all be set in the "
             "environment for email sending to work. See backend/.env.example."
         )
-    return host, int(port), user, password, from_email
+    return api_key, domain, from_email
 
 
 def send_email(to: str, subject: str, body_text: str, body_html: str | None = None) -> None:
-    """Sends a single email. Raises EmailNotConfigured or EmailSendError on failure —
-    callers must handle these rather than assuming success."""
-    host, port, user, password, from_email = _get_config()
+    """Sends a single email via Mailgun's HTTP API. Raises EmailNotConfigured or
+    EmailSendError on failure — callers must handle these rather than assuming success."""
+    api_key, domain, from_email = _get_config()
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = from_email
-    msg["To"] = to
-    msg.attach(MIMEText(body_text, "plain"))
+    data = {
+        "from": from_email,
+        "to": to,
+        "subject": subject,
+        "text": body_text,
+    }
     if body_html:
-        msg.attach(MIMEText(body_html, "html"))
+        data["html"] = body_html
 
     try:
-        with smtplib.SMTP(host, port, timeout=10) as server:
-            server.starttls()
-            server.login(user, password)
-            server.sendmail(from_email, [to], msg.as_string())
-    except Exception as exc:
+        with httpx.Client(timeout=10) as client:
+            resp = client.post(
+                f"https://api.mailgun.net/v3/{domain}/messages",
+                auth=("api", api_key),
+                data=data,
+            )
+        if resp.status_code >= 400:
+            raise EmailSendError(f"Failed to send email to {to}: Mailgun returned {resp.status_code}: {resp.text}")
+    except httpx.HTTPError as exc:
         raise EmailSendError(f"Failed to send email to {to}: {exc}") from exc
 
 
@@ -69,7 +83,7 @@ def send_bulk(recipients: list[dict]) -> dict:
     Returns {"sent": [...], "failed": [{"to": ..., "error": ...}, ...]} — never raises,
     so a batch send reports partial success honestly instead of all-or-nothing.
 
-    NOTE: this function is BLOCKING (smtplib has no async API). Callers in
+    NOTE: this function is BLOCKING (uses a sync httpx.Client). Callers in
     FastAPI async routes should use send_bulk_async() below instead of
     calling this directly, or every other request will stall while a
     bulk send is in progress.
@@ -85,7 +99,7 @@ def send_bulk(recipients: list[dict]) -> dict:
 
 
 async def send_email_async(to: str, subject: str, body_text: str, body_html: str | None = None) -> None:
-    """Async-safe wrapper — runs the blocking SMTP call in a thread pool
+    """Async-safe wrapper — runs the blocking HTTP call in a thread pool
     so it doesn't stall the FastAPI event loop."""
     await asyncio.to_thread(send_email, to, subject, body_text, body_html)
 
