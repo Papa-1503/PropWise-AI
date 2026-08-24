@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, MoreHorizontal } from "lucide-react";
+import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, MoreHorizontal, GitBranch } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";import Avatar from "./Avatar";
 import LeadCaptureForm from "./LeadCaptureForm";
 import Documents from "./Documents";
@@ -19,6 +19,7 @@ import ConfidenceDistribution from "./ConfidenceDistribution";
 import MaintenanceTrendAlert from "./MaintenanceTrendAlert";
 import SocialFeed from "./SocialFeed";
 import NotificationBell from "./NotificationBell";
+import Workflows from "./Workflows";
 
 /**
  * App
@@ -28,7 +29,7 @@ import NotificationBell from "./NotificationBell";
  * tab state below for your actual router (React Router, etc.) as needed.
  */
 
-const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "documents", "gallery", "feed", "ai"];
+const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "documents", "gallery", "feed", "ai"];
 const TENANT_TABS = ["documents", "maintenance", "payments", "gallery", "ai"];
 const PRIMARY_STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments"];
 const PRIMARY_TENANT_TABS = ["maintenance", "payments"];
@@ -42,6 +43,7 @@ const TAB_ICONS = {
   ai: Sparkles,
   documents: FileText,
   gallery: Image,
+  workflows: GitBranch,
 };
 function AppShell() {
   const { user, loading, logout } = useAuth();
@@ -151,6 +153,7 @@ function AppShell() {
         )}
         {activeTab === "maintenance" && <MaintenanceTickets propertyId={user.propertyId} />}
         {activeTab === "payments" && <PaymentsPanel propertyId={user.propertyId} />}
+        {activeTab === "workflows" && <Workflows />}
         {activeTab === "documents" && <Documents />}
         {activeTab === "gallery" && <Gallery />}
         {activeTab === "feed" && <SocialFeed />}
