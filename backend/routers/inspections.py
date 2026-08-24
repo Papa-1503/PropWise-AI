@@ -29,7 +29,8 @@ from reportlab.platypus import (
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-from db import inspections_col, photos_col, properties_col
+from db import inspections_col, photos_col, properties_col, tickets_col, users_col
+import notifications_service
 from models import InspectionCreate, PhotoAnalysisResult, ItemStatusUpdate
 from auth import require_staff
 
@@ -403,23 +404,76 @@ async def update_inspection_item(inspection_id: str, item_id: str, payload: Item
     if not ObjectId.is_valid(inspection_id):
         raise HTTPException(status_code=400, detail="Invalid inspection ID")
 
-    inspection = await inspections_col.find_one_and_update(
+    inspection = await inspections_col.find_one({"_id": ObjectId(inspection_id)})
+    if not inspection:
+        raise HTTPException(status_code=404, detail="Inspection not found")
+
+    item = next((i for i in inspection.get("items", []) if i.get("id") == item_id), None)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found on this inspection")
+
+    update_fields = {"items.$.status": payload.status}
+    new_ticket_id = None
+
+    # Flagging or failing an item auto-generates a maintenance ticket,
+    # once per item (won't create duplicates if the item is updated
+    # again while already flagged/failed).
+    if payload.status in ("flag", "fail") and not item.get("ticketId"):
+        ticket = {
+            "propertyId": inspection.get("propertyId"),
+            "unitId": inspection.get("unitId"),
+            "title": item.get("description") or f"{item.get('room', 'Unit')} issue flagged during inspection",
+            "priority": "urgent" if payload.status == "fail" else "normal",
+            "source": "inspection",
+            "sourceInspectionId": inspection_id,
+            "room": item.get("room"),
+            "assignee": None,
+            "category": "general",
+            "status": "open",
+            "createdAt": datetime.now(timezone.utc),
+        }
+
+        assigned_tech = None
+        if inspection.get("propertyId"):
+            assigned_tech = await users_col.find_one({"role": "staff", "assignedProperties": inspection["propertyId"]})
+        if assigned_tech:
+            ticket["assignee"] = assigned_tech.get("email")
+
+        result = await tickets_col.insert_one(ticket)
+        new_ticket_id = str(result.inserted_id)
+        update_fields["items.$.ticketId"] = new_ticket_id
+
+        if assigned_tech:
+            await notifications_service.notify_user(
+                str(assigned_tech["_id"]),
+                type="urgent_ticket" if payload.status == "fail" else "general",
+                title=f"Inspection issue: {ticket['title']}",
+                body=f"Unit {inspection.get('unitId')} — flagged during inspection",
+                link=f"/maintenance/{new_ticket_id}",
+            )
+        else:
+            await notifications_service.notify_all_staff(
+                type="urgent_ticket" if payload.status == "fail" else "general",
+                title=f"Inspection issue: {ticket['title']}",
+                body=f"Unit {inspection.get('unitId')} — no tech assigned to this property yet",
+                link=f"/maintenance/{new_ticket_id}",
+            )
+
+    updated = await inspections_col.find_one_and_update(
         {"_id": ObjectId(inspection_id), "items.id": item_id},
-        {"$set": {"items.$.status": payload.status}},
+        {"$set": update_fields},
         return_document=True,
     )
-    if not inspection:
-        raise HTTPException(status_code=404, detail="Inspection or item not found")
 
-    # If this is a turnover checklist, recompute whether the unit is
-    # ready to list based on whether every item has been checked off
-    # (no longer "pending"), and reflect that on the property's unit.
-    if inspection.get("type") == "turnover" and inspection.get("propertyId") and inspection.get("unitId"):
-        all_done = all(item.get("status") != "pending" for item in inspection.get("items", []))
+    if updated.get("type") == "turnover" and updated.get("propertyId") and updated.get("unitId"):
+        all_done = all(i.get("status") != "pending" for i in updated.get("items", []))
         await properties_col.update_one(
-            {"_id": inspection["propertyId"], "units.unitId": inspection["unitId"]},
+            {"_id": updated["propertyId"], "units.unitId": updated["unitId"]},
             {"$set": {"units.$.readyToList": all_done}},
         )
+
+    updated["_id"] = str(updated["_id"])
+    return updated
 
     inspection["_id"] = str(inspection["_id"])
     return inspection
