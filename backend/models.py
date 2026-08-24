@@ -444,3 +444,11 @@ class CommunicationCreate(BaseModel):
     direction: Literal["outbound", "inbound"] = "outbound"
     subject: Optional[str] = None
     body: str
+
+
+class SendEmailCommunication(BaseModel):
+    propertyId: str
+    unitId: str
+    to: str
+    subject: str
+    body: str
