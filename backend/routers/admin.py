@@ -10,6 +10,12 @@ than called from the app itself.
                            due, creates a ticket for each, advances their
                            next due date. Safe to run repeatedly — only
                            acts on schedules that are actually due.
+/seed-scale-test        -> generates 12 additional properties (~1,838
+                           units) with leases, payment history, tickets,
+                           a rotating tech pool, and owner accounts, to
+                           test the data model at real portfolio scale.
+                           Can take a while to run given the volume —
+                           safe to re-run, skips existing properties.
 """
 import os
 from datetime import datetime, timezone, timedelta
@@ -36,6 +42,14 @@ async def seed_demo(key: str = ""):
     from scripts.seed_property_data import seed
     await seed()
     return {"status": "done", "message": "Simulation data seeded. Refresh the app to see it."}
+
+
+@router.get("/seed-scale-test")
+async def seed_scale_test(key: str = ""):
+    check_key(key)
+    from scripts.seed_scale_test import seed
+    await seed()
+    return {"status": "done", "message": "Scale test data seeded — 12 new properties, ~1,838 units."}
 
 
 @router.get("/run-maintenance-check")
