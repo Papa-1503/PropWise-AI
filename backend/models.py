@@ -427,3 +427,20 @@ class MaintenanceScheduleUpdate(BaseModel):
     intervalDays: Optional[int] = None
     nextDueDate: Optional[str] = None
     active: Optional[bool] = None
+
+
+# ---------- Unified Communication Hub ----------
+#
+# Step 1 of the communication hub: data model + manual logging only.
+# Real SMS/email sending (Twilio, SendGrid) comes in later steps — for
+# now this just gives staff one merged timeline per unit/tenant, and a
+# way to log a communication that happened outside the app (a phone
+# call, an in-person conversation) alongside ones sent through it later.
+
+class CommunicationCreate(BaseModel):
+    propertyId: str
+    unitId: str
+    channel: Literal["email", "sms", "call"]
+    direction: Literal["outbound", "inbound"] = "outbound"
+    subject: Optional[str] = None
+    body: str
