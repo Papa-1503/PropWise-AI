@@ -30,7 +30,7 @@ const STATUS_STYLE = {
   done: "bg-emerald-50 text-emerald-700 border-emerald-200",
 };
 
-function TicketRow({ ticket, onUpdateStatus, onVendorAssigned, isStaff }) {
+function TicketRow({ ticket, onUpdateStatus, onVendorAssigned, isStaff, buildingName }) {
   const [updating, setUpdating] = useState(false);
   const [showVendorPanel, setShowVendorPanel] = useState(false);
 
@@ -61,6 +61,8 @@ function TicketRow({ ticket, onUpdateStatus, onVendorAssigned, isStaff }) {
             )}
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
+            {buildingName && <span className="font-medium text-slate-600">{buildingName}</span>}
+            {buildingName && " · "}
             Unit {ticket.unitId} · {ticket.assignee || "Unassigned"} ·{" "}
             {ticket.createdAt ? new Date(ticket.createdAt).toLocaleDateString() : ""}
           </p>
@@ -112,7 +114,7 @@ export default function MaintenanceTickets({ propertyId }) {
   const [error, setError] = useState(null);
   const [statusFilter, setStatusFilter] = useState("all");
   const [refreshKey, setRefreshKey] = useState(0);
-  const { authFetch, user } = useAuth();
+  const { authFetch, user, getPropertyName } = useAuth();
   const isStaff = user?.role === "staff";
 
   function handleVendorAssigned(updatedTicket) {
@@ -215,6 +217,7 @@ export default function MaintenanceTickets({ propertyId }) {
             onUpdateStatus={handleUpdateStatus}
             onVendorAssigned={handleVendorAssigned}
             isStaff={isStaff}
+            buildingName={isStaff ? getPropertyName(ticket.propertyId) : null}
           />
         ))}
     </div>

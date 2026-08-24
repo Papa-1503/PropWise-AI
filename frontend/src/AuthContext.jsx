@@ -12,6 +12,18 @@ import { createContext, useContext, useState, useCallback, useEffect } from "rea
  *   - register(payload)
  *   - logout()
  *   - authFetch(url, options)   fetch() wrapper that attaches the Bearer token
+ *   - properties           staff-only: list of all buildings [{id, name}], for the
+ *                          building selector and for looking up a building's name
+ *                          from a propertyId when displaying tickets/charges/etc.
+ *   - selectedProperty     the currently active building context, {id, name} | null.
+ *                          null means "All Buildings" (portfolio-wide view).
+ *   - setSelectedProperty  updates the selection, persisted to localStorage so it
+ *                          survives a page reload
+ *   - getPropertyName(id)  looks up a building's display name from its propertyId —
+ *                          use this anywhere a ticket/charge/lease shows "Unit X" so
+ *                          it can also show which building that unit belongs to.
+ *                          Multiple buildings can share the same unit number, so
+ *                          unitId alone is never enough to identify a unit.
  *
  * IMPORTANT: swap the other components' bare `fetch(...)` calls (in
  * InspectionChecklist.jsx, MaintenanceTickets.jsx, AICopilot.jsx, Dashboard.jsx)
@@ -22,6 +34,7 @@ import { createContext, useContext, useState, useCallback, useEffect } from "rea
 import { API_BASE } from "./config";
 
 const TOKEN_KEY = "rentflow_token";
+const SELECTED_PROPERTY_KEY = "rentflow_selected_property";
 
 const AuthContext = createContext(null);
 
@@ -29,6 +42,15 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY));
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [properties, setProperties] = useState([]);
+  const [selectedProperty, setSelectedPropertyState] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SELECTED_PROPERTY_KEY);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
 
   const authFetch = useCallback(
     (url, options = {}) => {
@@ -61,6 +83,46 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     fetchMe();
   }, [fetchMe]);
+
+  // Staff can see every building, so load the full list once they're logged
+  // in — used for the building selector dropdown and for looking up a
+  // building's name anywhere a unit is shown, so "Unit 101" never appears
+  // without saying which building it's in.
+  const fetchProperties = useCallback(async () => {
+    if (!token || user?.role !== "staff") {
+      setProperties([]);
+      return;
+    }
+    try {
+      const res = await authFetch(`${API_BASE}/properties`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const list = (data.properties || []).map((p) => ({ id: p.id, name: p.name }));
+      setProperties(list);
+    } catch {
+      // fail quietly — the building selector just won't populate; existing
+      // "All Buildings" behavior still works via propertyId=null
+    }
+  }, [token, user, authFetch]);
+
+  useEffect(() => {
+    fetchProperties();
+  }, [fetchProperties]);
+
+  function setSelectedProperty(prop) {
+    setSelectedPropertyState(prop);
+    if (prop) {
+      localStorage.setItem(SELECTED_PROPERTY_KEY, JSON.stringify(prop));
+    } else {
+      localStorage.removeItem(SELECTED_PROPERTY_KEY);
+    }
+  }
+
+  function getPropertyName(propertyId) {
+    if (!propertyId) return null;
+    const match = properties.find((p) => p.id === propertyId);
+    return match ? match.name : propertyId;
+  }
 
   async function login(email, password) {
     const res = await fetch(`${API_BASE}/auth/login`, {
@@ -100,10 +162,25 @@ export function AuthProvider({ children }) {
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);
     setUser(null);
+    setProperties([]);
+    setSelectedPropertyState(null);
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, authFetch }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        login,
+        register,
+        logout,
+        authFetch,
+        properties,
+        selectedProperty,
+        setSelectedProperty,
+        getPropertyName,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

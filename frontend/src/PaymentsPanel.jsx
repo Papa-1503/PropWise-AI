@@ -68,7 +68,7 @@ export default function PaymentsPanel({ propertyId }) {
   const [charges, setCharges] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
-  const { authFetch, user } = useAuth();
+  const { authFetch, user, getPropertyName } = useAuth();
   const isStaff = user?.role === "staff";
 
   const fetchCharges = useCallback(async () => {
@@ -134,6 +134,9 @@ export default function PaymentsPanel({ propertyId }) {
             <div key={c.id} className="border border-slate-100 rounded-lg px-3 py-2.5">
               <div className="flex items-center justify-between">
                 <div>
+                  {isStaff && getPropertyName(c.propertyId) && (
+                    <span className="text-xs text-slate-500 block">{getPropertyName(c.propertyId)}</span>
+                  )}
                   <span className="text-sm font-medium">Unit {c.unitId}</span>
                   <span className="text-xs text-slate-500 ml-2">{c.description}</span>
                 </div>

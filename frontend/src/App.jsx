@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, MoreHorizontal, GitBranch } from "lucide-react";
-import { AuthProvider, useAuth } from "./AuthContext";import Avatar from "./Avatar";
+import { AuthProvider, useAuth } from "./AuthContext";
+import Avatar from "./Avatar";
 import LeadCaptureForm from "./LeadCaptureForm";
 import Documents from "./Documents";
 import Gallery from "./Gallery";
@@ -20,6 +21,7 @@ import MaintenanceTrendAlert from "./MaintenanceTrendAlert";
 import SocialFeed from "./SocialFeed";
 import NotificationBell from "./NotificationBell";
 import Workflows from "./Workflows";
+import BuildingSelector from "./BuildingSelector";
 
 /**
  * App
@@ -27,6 +29,16 @@ import Workflows from "./Workflows";
  * Ties everything together: shows LoginScreen until authenticated, then
  * routes staff vs tenant into the right set of screens. Swap the simple
  * tab state below for your actual router (React Router, etc.) as needed.
+ *
+ * Building context: staff can see every property, and several buildings
+ * can share the same unit numbers (e.g. multiple "Unit 101"s across the
+ * portfolio), so which building is "active" matters. Staff pick a
+ * building via BuildingSelector in the header; every panel below is
+ * scoped to that selection via effectivePropertyId. Picking "All
+ * Buildings" (selectedProperty = null) shows the portfolio-wide
+ * aggregate view, same as the previous default behavior. Tenants don't
+ * see the selector at all — they're always scoped to their own unit's
+ * property, same as before.
  */
 
 const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "documents", "gallery", "feed", "ai"];
@@ -46,7 +58,7 @@ const TAB_ICONS = {
   workflows: GitBranch,
 };
 function AppShell() {
-  const { user, loading, logout } = useAuth();
+  const { user, loading, logout, selectedProperty } = useAuth();
   const [tab, setTab] = useState("dashboard");
   const [moreOpen, setMoreOpen] = useState(false);
   if (window.location.pathname === "/apply") return <LeadCaptureForm />;
@@ -56,11 +68,17 @@ function AppShell() {
   const tabs = user.role === "staff" ? STAFF_TABS : TENANT_TABS;
   const activeTab = tabs.includes(tab) ? tab : tabs[0];
 
+  // Staff: scoped to whatever building they've selected (or null = all
+  // buildings, aggregated). Tenants: always scoped to their own unit's
+  // property — the selector doesn't apply to them.
+  const effectivePropertyId = user.role === "staff" ? (selectedProperty?.id || null) : user.propertyId;
+
   return (
     <div className="min-h-screen app-bg">
       <header className="bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 text-white px-6 py-3 flex items-center justify-between shadow-md">
         <h1 className="font-serif font-bold text-lg">RentFlow AI</h1>
         <div className="flex items-center gap-3 text-sm">
+          {user.role === "staff" && <BuildingSelector />}
           <NotificationBell />
           <div className="flex items-center gap-2">
             <Avatar name={user.name} size={26} />
@@ -131,33 +149,33 @@ function AppShell() {
         {activeTab === "dashboard" && (
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5">
             <div className="space-y-5">
-              <PortfolioHealthHeader propertyId={user.propertyId} userName={user.name} />
-              <Dashboard propertyId={user.propertyId} />
-              <OccupancyInsight propertyId={user.propertyId} />
-              <AIWorkforcePanel propertyId={user.propertyId} />
+              <PortfolioHealthHeader propertyId={effectivePropertyId} userName={user.name} />
+              <Dashboard propertyId={effectivePropertyId} />
+              <OccupancyInsight propertyId={effectivePropertyId} />
+              <AIWorkforcePanel propertyId={effectivePropertyId} />
             </div>
             <div className="space-y-5">
-              <AskRentFlowSidebar propertyId={user.propertyId} />
-              <MaintenanceTrendAlert propertyId={user.propertyId} />
-              <ConfidenceDistribution propertyId={user.propertyId} />
+              <AskRentFlowSidebar propertyId={effectivePropertyId} />
+              <MaintenanceTrendAlert propertyId={effectivePropertyId} />
+              <ConfidenceDistribution propertyId={effectivePropertyId} />
             </div>
           </div>
         )}
-        {activeTab === "actions" && <AIActionsPanel propertyId={user.propertyId} />}
+        {activeTab === "actions" && <AIActionsPanel propertyId={effectivePropertyId} />}
         {activeTab === "inspections" && (
           <InspectionChecklist
-            propertyId={user.propertyId}
+            propertyId={effectivePropertyId}
             unitId={user.unitId || "TBD"}
             inspectorName={user.name}
           />
         )}
-        {activeTab === "maintenance" && <MaintenanceTickets propertyId={user.propertyId} />}
-        {activeTab === "payments" && <PaymentsPanel propertyId={user.propertyId} />}
+        {activeTab === "maintenance" && <MaintenanceTickets propertyId={effectivePropertyId} />}
+        {activeTab === "payments" && <PaymentsPanel propertyId={effectivePropertyId} />}
         {activeTab === "workflows" && <Workflows />}
         {activeTab === "documents" && <Documents />}
         {activeTab === "gallery" && <Gallery />}
         {activeTab === "feed" && <SocialFeed />}
-        {activeTab === "ai" && <AICopilot propertyId={user.propertyId} />}
+        {activeTab === "ai" && <AICopilot propertyId={effectivePropertyId} />}
       </main>
     </div>
   );
