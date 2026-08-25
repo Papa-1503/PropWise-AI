@@ -73,13 +73,6 @@ class UnitIn(BaseModel):
     rent: float = Field(ge=0, default=0)
     bedrooms: int = Field(ge=0, default=0)
     bathrooms: float = 0
-
-class UnitIn(BaseModel):
-    unitId: str
-    status: Literal["occupied", "vacant", "maintenance_hold"] = "vacant"
-    rent: float = Field(ge=0, default=0)
-    bedrooms: int = Field(ge=0, default=0)
-    bathrooms: float = 0
     readyToList: bool = True
 
 
