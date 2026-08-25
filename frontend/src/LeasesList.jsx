@@ -238,9 +238,11 @@ export default function LeasesList({ propertyId }) {
 
   async function handleGenerateDocument(leaseId) {
     const res = await authFetch(`${API_BASE}/leases/${leaseId}/generate-document`, { method: "POST" });
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
       alert(data.detail || "Couldn't generate the document.");
+    } else if (data.alreadyExisted) {
+      alert("A lease document was already generated and is still pending signature — check the Documents tab.");
     } else {
       alert("Lease document generated — check the Documents tab.");
     }

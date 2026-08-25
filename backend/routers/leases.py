@@ -86,6 +86,17 @@ async def generate_lease_document(lease_id: str, user: dict = Depends(require_st
     lease = await leases_col.find_one({"_id": ObjectId(lease_id)})
     if not lease:
         raise HTTPException(status_code=404, detail="Lease not found")
+
+    # Idempotency: if an unsigned document already exists for this lease,
+    # return it instead of creating another one. Without this, clicking
+    # "Generate document" more than once (easy to do — no visible sign
+    # a document already exists) silently creates duplicate pending
+    # documents, which would confuse a tenant seeing multiple "please
+    # sign" requests for the same lease.
+    existing = await documents_col.find_one({"leaseId": lease_id, "status": "pending"})
+    if existing:
+        return {"documentId": str(existing["_id"]), "alreadyExisted": True}
+
     if not lease.get("residentEmail"):
         raise HTTPException(status_code=400, detail="Lease has no resident email on file")
 
@@ -114,5 +125,5 @@ async def generate_lease_document(lease_id: str, user: dict = Depends(require_st
         "createdAt": datetime.now(timezone.utc),
     }
     result = await documents_col.insert_one(doc)
-    return {"documentId": str(result.inserted_id)}
+    return {"documentId": str(result.inserted_id), "alreadyExisted": False}
  
