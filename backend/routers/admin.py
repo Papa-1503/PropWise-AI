@@ -16,13 +16,19 @@ than called from the app itself.
                            test the data model at real portfolio scale.
                            Can take a while to run given the volume —
                            safe to re-run, skips existing properties.
+/run-lease-renewal-check -> finds leases expiring within a window (default
+                           60 days) that haven't been notified yet
+                           (renewalStatus == "not_sent"), notifies both
+                           the resident and the property's assigned tech,
+                           then marks renewalStatus "sent" so the same
+                           lease doesn't get renotified every run.
 """
 import os
 from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, HTTPException
 
-from db import maintenance_schedules_col, tickets_col, users_col
+from db import maintenance_schedules_col, tickets_col, users_col, leases_col
 import notifications_service
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -110,4 +116,59 @@ async def run_maintenance_check(key: str = ""):
         "schedulesChecked": len(due_schedules),
         "ticketsCreated": len(created),
         "ticketIds": created,
+    }
+
+
+@router.get("/run-lease-renewal-check")
+async def run_lease_renewal_check(key: str = "", windowDays: int = 60):
+    check_key(key)
+
+    now = datetime.now(timezone.utc)
+    cutoff = now + timedelta(days=windowDays)
+    cursor = leases_col.find({
+        "renewalStatus": "not_sent",
+        "endDate": {"$gte": now, "$lte": cutoff},
+    })
+    expiring_leases = await cursor.to_list(length=1000)
+
+    notified = []
+    for lease in expiring_leases:
+        property_id = lease.get("propertyId")
+        unit_id = lease.get("unitId")
+        end_date_str = lease["endDate"].strftime("%B %d, %Y") if isinstance(lease.get("endDate"), datetime) else str(lease.get("endDate"))
+
+        if property_id and unit_id:
+            await notifications_service.notify_unit_resident(
+                property_id, unit_id,
+                type="lease_expiring",
+                title="Your lease is expiring soon",
+                body=f"Your lease ends {end_date_str} — contact us about renewal options",
+                link="/payments",
+            )
+
+        assigned_tech = await users_col.find_one({"role": "staff", "assignedProperties": property_id}) if property_id else None
+        if assigned_tech:
+            await notifications_service.notify_user(
+                str(assigned_tech["_id"]),
+                type="lease_expiring",
+                title=f"Lease renewal needed: Unit {unit_id}",
+                body=f"Property {property_id} — lease ends {end_date_str}",
+                link="/dashboard",
+            )
+        else:
+            await notifications_service.notify_all_staff(
+                type="lease_expiring",
+                title=f"Lease renewal needed: Unit {unit_id}",
+                body=f"Property {property_id} — lease ends {end_date_str} — no tech assigned to this property yet",
+                link="/dashboard",
+            )
+
+        await leases_col.update_one({"_id": lease["_id"]}, {"$set": {"renewalStatus": "sent"}})
+        notified.append(str(lease["_id"]))
+
+    return {
+        "status": "done",
+        "leasesChecked": len(expiring_leases),
+        "notified": len(notified),
+        "leaseIds": notified,
     }
