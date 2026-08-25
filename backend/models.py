@@ -25,6 +25,7 @@ class PhotoMark(BaseModel):
     y: float
 class ItemStatusUpdate(BaseModel):
     status: Literal["pass", "flag", "fail", "pending"]
+    description: Optional[str] = None
 
 # ---------- Maintenance ----------
 

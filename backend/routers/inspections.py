@@ -414,6 +414,9 @@ async def update_inspection_item(inspection_id: str, item_id: str, payload: Item
 
     update_fields = {"items.$.status": payload.status}
     new_ticket_id = None
+    effective_description = payload.description if payload.description is not None else item.get("description")
+    if payload.description is not None:
+        update_fields["items.$.description"] = payload.description
 
     # Flagging or failing an item auto-generates a maintenance ticket,
     # once per item (won't create duplicates if the item is updated
@@ -422,7 +425,7 @@ async def update_inspection_item(inspection_id: str, item_id: str, payload: Item
         ticket = {
             "propertyId": inspection.get("propertyId"),
             "unitId": inspection.get("unitId"),
-            "title": item.get("description") or f"{item.get('room', 'Unit')} issue flagged during inspection",
+            "title": effective_description or f"{item.get('room', 'Unit')} issue flagged during inspection",
             "priority": "urgent" if payload.status == "fail" else "normal",
             "source": "inspection",
             "sourceInspectionId": inspection_id,
@@ -474,7 +477,4 @@ async def update_inspection_item(inspection_id: str, item_id: str, payload: Item
 
     updated["_id"] = str(updated["_id"])
     return updated
-
-    inspection["_id"] = str(inspection["_id"])
-    return inspection
 
