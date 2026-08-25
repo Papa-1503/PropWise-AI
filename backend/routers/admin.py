@@ -27,14 +27,25 @@ than called from the app itself.
                            been reminded yet, notifies the resident, then
                            marks reminderSent so the same charge doesn't
                            get renotified every run.
+/run-late-fee-check     -> finds unpaid charges whose grace period has
+                           passed, adds a late fee to amountDue (amount
+                           and grace period configurable per property via
+                           lateFeeAmount/lateFeeGraceDays fields, default
+                           $50 / 5 days if a property hasn't set its own),
+                           notifies the resident, marks lateFeeApplied so
+                           it's only ever charged once per charge.
 """
 import os
 from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, HTTPException
+from bson import ObjectId
 
-from db import maintenance_schedules_col, tickets_col, users_col, leases_col, payments_col
+from db import maintenance_schedules_col, tickets_col, users_col, leases_col, payments_col, properties_col
 import notifications_service
+
+DEFAULT_LATE_FEE_AMOUNT = 50.0
+DEFAULT_LATE_FEE_GRACE_DAYS = 5
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -218,4 +229,68 @@ async def run_payment_reminder_check(key: str = "", windowDays: int = 5):
         "chargesChecked": len(upcoming_charges),
         "notified": len(notified),
         "chargeIds": notified,
+    }
+
+
+async def _find_property(property_id: str | None) -> dict | None:
+    """Property _id may be a real ObjectId or a plain string (e.g. seeded
+    demo/scale-test data) — try string first (the common case here), fall
+    back to ObjectId only if the string itself looks like a valid one."""
+    if not property_id:
+        return None
+    prop = await properties_col.find_one({"_id": property_id})
+    if prop:
+        return prop
+    if ObjectId.is_valid(property_id):
+        return await properties_col.find_one({"_id": ObjectId(property_id)})
+    return None
+
+
+@router.get("/run-late-fee-check")
+async def run_late_fee_check(key: str = ""):
+    check_key(key)
+
+    now = datetime.now(timezone.utc)
+    cursor = payments_col.find({"lateFeeApplied": {"$ne": True}})
+    all_unpaid_candidates = await cursor.to_list(length=2000)
+
+    charged = []
+    for charge in all_unpaid_candidates:
+        if charge.get("amountPaid", 0) >= charge.get("amountDue", 0):
+            continue  # already paid, not late
+        due_date = charge.get("dueDate")
+        if not isinstance(due_date, datetime):
+            continue
+
+        property_id = charge.get("propertyId")
+        prop = await _find_property(property_id)
+        grace_days = (prop or {}).get("lateFeeGraceDays", DEFAULT_LATE_FEE_GRACE_DAYS)
+        late_fee_amount = (prop or {}).get("lateFeeAmount", DEFAULT_LATE_FEE_AMOUNT)
+
+        if (now - due_date).days < grace_days:
+            continue  # still within grace period
+
+        new_amount_due = charge["amountDue"] + late_fee_amount
+        await payments_col.update_one(
+            {"_id": charge["_id"]},
+            {"$set": {"amountDue": new_amount_due, "lateFeeApplied": True, "lateFeeAmount": late_fee_amount}},
+        )
+
+        unit_id = charge.get("unitId")
+        if property_id and unit_id:
+            await notifications_service.notify_unit_resident(
+                property_id, unit_id,
+                type="general",
+                title="Late fee applied",
+                body=f"A ${late_fee_amount:.2f} late fee was added to your {charge.get('description', 'charge')} — new amount due: ${new_amount_due:.2f}",
+                link="/payments",
+            )
+
+        charged.append(str(charge["_id"]))
+
+    return {
+        "status": "done",
+        "chargesChecked": len(all_unpaid_candidates),
+        "lateFeesApplied": len(charged),
+        "chargeIds": charged,
     }
