@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, MoreHorizontal, GitBranch, MessageSquare } from "lucide-react";
+import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, MoreHorizontal, GitBranch, MessageSquare, FileSignature } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";
 import Avatar from "./Avatar";
 import LeadCaptureForm from "./LeadCaptureForm";
@@ -22,6 +22,7 @@ import SocialFeed from "./SocialFeed";
 import NotificationBell from "./NotificationBell";
 import Workflows from "./Workflows";
 import CommunicationsPanel from "./CommunicationsPanel";
+import LeasesList from "./LeasesList";
 import BuildingSelector from "./BuildingSelector";
 import OwnerPortal from "./OwnerPortal";
 
@@ -43,7 +44,7 @@ import OwnerPortal from "./OwnerPortal";
  * property, same as before.
  */
 
-const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "communications", "documents", "gallery", "feed", "ai"];
+const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "communications", "leases", "documents", "gallery", "feed", "ai"];
 const TENANT_TABS = ["documents", "maintenance", "payments", "gallery", "ai"];
 const PRIMARY_STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments"];
 const PRIMARY_TENANT_TABS = ["maintenance", "payments"];
@@ -59,6 +60,7 @@ const TAB_ICONS = {
   gallery: Image,
   workflows: GitBranch,
   communications: MessageSquare,
+  leases: FileSignature,
 };
 function AppShell() {
   const { user, loading, logout, selectedProperty } = useAuth();
@@ -176,6 +178,7 @@ function AppShell() {
         {activeTab === "payments" && <PaymentsPanel propertyId={effectivePropertyId} />}
         {activeTab === "workflows" && <Workflows />}
         {activeTab === "communications" && <CommunicationsPanel propertyId={effectivePropertyId} />}
+        {activeTab === "leases" && <LeasesList propertyId={effectivePropertyId} />}
         {activeTab === "documents" && <Documents />}
         {activeTab === "gallery" && <Gallery />}
         {activeTab === "feed" && <SocialFeed />}
