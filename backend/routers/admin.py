@@ -267,7 +267,12 @@ async def run_late_fee_check(key: str = ""):
         grace_days = (prop or {}).get("lateFeeGraceDays", DEFAULT_LATE_FEE_GRACE_DAYS)
         late_fee_amount = (prop or {}).get("lateFeeAmount", DEFAULT_LATE_FEE_AMOUNT)
 
-        if (now - due_date).days < grace_days:
+        # MongoDB via Motor returns naive datetimes by default (no tzinfo),
+        # while `now` here is timezone-aware — subtracting them directly
+        # raises TypeError. Normalize both to naive before comparing.
+        due_date_naive = due_date.replace(tzinfo=None) if due_date.tzinfo else due_date
+        now_naive = now.replace(tzinfo=None)
+        if (now_naive - due_date_naive).days < grace_days:
             continue  # still within grace period
 
         new_amount_due = charge["amountDue"] + late_fee_amount
