@@ -1,24 +1,28 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useAuth } from "./AuthContext";
 
 /**
  * InspectionChecklist
  *
- * Real inspection workflow component:
+ * Real inspection workflow component. Two modes:
+ *
+ *   NEW (no inspectionId prop): starts from a blank checklist, batches
+ *   everything into one POST /api/inspections when "Submit inspection"
+ *   is clicked. This was the original, already-tested behavior.
+ *
+ *   EXISTING (inspectionId prop provided): loads a real inspection
+ *   record via GET /api/inspections/:id — used for opening an
+ *   already-created inspection (e.g. an auto-generated turnover
+ *   checklist) to actually complete it. Every status/description change
+ *   saves immediately via PATCH /api/inspections/:id/items/:itemId
+ *   rather than batching, since the record already exists server-side
+ *   and may be worked on across multiple sessions. Photo uploads also
+ *   post immediately in this mode rather than staging locally.
+ *
  * - Room-by-room checklist with pass/flag/fail states
  * - Photo upload with actual click-to-annotate (canvas-based, not decorative CSS)
- * - Submits to your FastAPI backend; auto-creates maintenance tickets for flagged items
- *
- * Assumptions (adjust to match your actual backend):
- *   POST /api/inspections                -> create/save an inspection record
- *   POST /api/inspections/:id/photos     -> upload a photo (multipart/form-data)
- *   POST /api/maintenance/tickets        -> auto-create a ticket from a flagged item
- *
- * Expected inspection record shape sent to the API:
- * {
- *   propertyId, unitId, inspectorName, type: "move-in"|"move-out"|"annual",
- *   items: [{ room, description, status: "pass"|"flag"|"fail", photoIds: [] }]
- * }
+ * - New-mode: auto-creates maintenance tickets for flagged items on submit
+ * - Existing-mode: the server already auto-creates tickets on each PATCH
  */
 
 import { API_BASE } from "./config";
@@ -173,7 +177,7 @@ function AnnotatablePhoto({ photo, room, onAddMark, onRemove, onApplyAISummary, 
   );
 }
 
-function ChecklistRow({ item, onChangeStatus, onChangeDesc, onPhotoUpload, onAddMark, onRemovePhoto, authFetch }) {
+function ChecklistRow({ item, onChangeStatus, onChangeDesc, onDescBlur, onPhotoUpload, onAddMark, onRemovePhoto, authFetch }) {
   const fileInputRef = useRef(null);
 
   function handleApplyAISummary(aiResult) {
@@ -197,6 +201,7 @@ function ChecklistRow({ item, onChangeStatus, onChangeDesc, onPhotoUpload, onAdd
         <input
           value={item.description}
           onChange={(e) => onChangeDesc(item.id, e.target.value)}
+          onBlur={() => onDescBlur && onDescBlur(item.id)}
           placeholder="Describe condition or issue..."
           className="flex-1 text-sm border border-slate-200 rounded px-2 py-1.5"
         />
@@ -253,13 +258,24 @@ export default function InspectionChecklist({
   unitId,
   inspectorName = "",
   inspectionType = "annual",
+  inspectionId = null,
+  onBack = null,
 }) {
-  const [items, setItems] = useState([
-    { id: crypto.randomUUID(), room: "Kitchen", description: "", status: "pending", photos: [] },
-    { id: crypto.randomUUID(), room: "Bathroom", description: "", status: "pending", photos: [] },
-    { id: crypto.randomUUID(), room: "Bedroom 1", description: "", status: "pending", photos: [] },
-    { id: crypto.randomUUID(), room: "Living room", description: "", status: "pending", photos: [] },
-  ]);
+  const isExisting = !!inspectionId;
+
+  const [items, setItems] = useState(
+    isExisting
+      ? []
+      : [
+          { id: crypto.randomUUID(), room: "Kitchen", description: "", status: "pending", photos: [] },
+          { id: crypto.randomUUID(), room: "Bathroom", description: "", status: "pending", photos: [] },
+          { id: crypto.randomUUID(), room: "Bedroom 1", description: "", status: "pending", photos: [] },
+          { id: crypto.randomUUID(), room: "Living room", description: "", status: "pending", photos: [] },
+        ]
+  );
+  const [loadingExisting, setLoadingExisting] = useState(isExisting);
+  const [loadError, setLoadError] = useState(null);
+  const [existingMeta, setExistingMeta] = useState(null); // { unitId, propertyId, type }
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [submitted, setSubmitted] = useState(false);
@@ -267,13 +283,73 @@ export default function InspectionChecklist({
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const { authFetch } = useAuth();
 
+  // Load the real record when opening an existing inspection.
+  useEffect(() => {
+    if (!isExisting) return;
+    let cancelled = false;
+    (async () => {
+      setLoadingExisting(true);
+      setLoadError(null);
+      try {
+        const res = await authFetch(`${API_BASE}/inspections/${inspectionId}`);
+        if (!res.ok) throw new Error("Couldn't load this inspection");
+        const data = await res.json();
+        if (cancelled) return;
+        setExistingMeta({ unitId: data.unitId, propertyId: data.propertyId, type: data.type });
+        setItems(
+          (data.items || []).map((it) => ({
+            id: it.id,
+            room: it.room,
+            description: it.description || "",
+            status: it.status || "pending",
+            photos: [], // existing uploaded photos aren't reloaded into the annotate UI — new photos can still be added
+          }))
+        );
+      } catch (err) {
+        if (!cancelled) setLoadError(err.message || "Failed to load inspection");
+      } finally {
+        if (!cancelled) setLoadingExisting(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isExisting, inspectionId, authFetch]);
+
   const updateItem = (id, patch) =>
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
 
-  const handleChangeStatus = (id, status) => updateItem(id, { status });
-  const handleChangeDesc = (id, description) => updateItem(id, { description });
+  /** Live-saves a single item's status (and optionally description) to
+   * the server — used only in existing-mode, where the record already
+   * exists and each change should persist immediately. */
+  async function patchExistingItem(id, extra = {}) {
+    const current = items.find((it) => it.id === id);
+    if (!current) return;
+    const body = { status: extra.status ?? current.status };
+    if (extra.description !== undefined) body.description = extra.description;
+    try {
+      await authFetch(`${API_BASE}/inspections/${inspectionId}/items/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      // best-effort — local state already reflects the change; a failed
+      // save here isn't fatal since the person can retry the action
+    }
+  }
 
-  const handlePhotoUpload = (itemId, fileList) => {
+  const handleChangeStatus = (id, status) => {
+    updateItem(id, { status });
+    if (isExisting) patchExistingItem(id, { status });
+  };
+  const handleChangeDesc = (id, description) => updateItem(id, { description });
+  const handleDescBlur = (id) => {
+    if (isExisting) {
+      const current = items.find((it) => it.id === id);
+      if (current) patchExistingItem(id, { description: current.description });
+    }
+  };
+
+  const handlePhotoUpload = async (itemId, fileList) => {
     const newPhotos = Array.from(fileList).map((file) => ({
       id: crypto.randomUUID(),
       file,
@@ -284,6 +360,27 @@ export default function InspectionChecklist({
     setItems((prev) =>
       prev.map((it) => (it.id === itemId ? { ...it, photos: [...it.photos, ...newPhotos] } : it))
     );
+
+    // In existing-mode the inspection record already exists server-side,
+    // so upload immediately rather than waiting for a final submit step
+    // that doesn't exist in this mode.
+    if (isExisting) {
+      for (const photo of newPhotos) {
+        try {
+          const form = new FormData();
+          form.append("file", photo.file);
+          form.append("marks", JSON.stringify(photo.marks));
+          const item = items.find((it) => it.id === itemId);
+          form.append("room", item ? item.room : "");
+          await authFetch(`${API_BASE}/inspections/${inspectionId}/photos`, {
+            method: "POST",
+            body: form,
+          });
+        } catch {
+          // best-effort — photo stays visible locally even if the upload failed
+        }
+      }
+    }
   };
 
   const handleAddMark = (itemId, photoId, mark) => {
@@ -317,15 +414,15 @@ export default function InspectionChecklist({
     ]);
   };
 
-  /** Uploads any pending photo files for an item, returns array of server photo IDs. */
-  async function uploadPhotosForItem(inspectionId, item) {
+  /** Uploads any pending photo files for an item, returns array of server photo IDs. (new-mode only) */
+  async function uploadPhotosForItem(newInspectionId, item) {
     const uploaded = [];
     for (const photo of item.photos) {
       const form = new FormData();
       form.append("file", photo.file);
       form.append("marks", JSON.stringify(photo.marks));
       form.append("room", item.room);
-      const res = await authFetch(`${API_BASE}/inspections/${inspectionId}/photos`, {
+      const res = await authFetch(`${API_BASE}/inspections/${newInspectionId}/photos`, {
         method: "POST",
         body: form,
       });
@@ -336,8 +433,9 @@ export default function InspectionChecklist({
     return uploaded;
   }
 
-  /** Auto-creates a maintenance ticket for any item flagged or failed. */
-  async function autoCreateTickets(inspectionId, flaggedItems) {
+  /** Auto-creates a maintenance ticket for any item flagged or failed. (new-mode only —
+   * existing-mode relies on the server doing this automatically on each PATCH.) */
+  async function autoCreateTickets(newInspectionId, flaggedItems) {
     return Promise.all(
       flaggedItems.map((item) =>
         authFetch(`${API_BASE}/maintenance/tickets`, {
@@ -348,7 +446,7 @@ export default function InspectionChecklist({
             unitId,
             title: item.description || `${item.room} — flagged in inspection`,
             priority: item.status === "fail" ? "urgent" : "normal",
-            sourceInspectionId: inspectionId,
+            sourceInspectionId: newInspectionId,
             room: item.room,
           }),
         })
@@ -360,7 +458,6 @@ export default function InspectionChecklist({
     setSubmitting(true);
     setSubmitError(null);
     try {
-      // 1. Create the inspection record
       const res = await authFetch(`${API_BASE}/inspections`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -373,19 +470,16 @@ export default function InspectionChecklist({
         }),
       });
       if (!res.ok) throw new Error("Failed to save inspection");
-      const { inspectionId } = await res.json();
+      const { inspectionId: newId } = await res.json();
 
-      // 2. Upload photos for any flagged/failed items
       const flaggedItems = items.filter((it) => it.status === "flag" || it.status === "fail");
       for (const item of flaggedItems) {
-        if (item.photos.length) await uploadPhotosForItem(inspectionId, item);
+        if (item.photos.length) await uploadPhotosForItem(newId, item);
       }
-
-      // 3. Auto-create maintenance tickets from flagged items
-      if (flaggedItems.length) await autoCreateTickets(inspectionId, flaggedItems);
+      if (flaggedItems.length) await autoCreateTickets(newId, flaggedItems);
 
       setSubmitted(true);
-      setSubmittedInspectionId(inspectionId);
+      setSubmittedInspectionId(newId);
     } catch (err) {
       setSubmitError(err.message || "Something went wrong submitting the inspection.");
     } finally {
@@ -394,18 +488,20 @@ export default function InspectionChecklist({
   }
 
   const flaggedCount = items.filter((i) => i.status === "flag" || i.status === "fail").length;
+  const completedCount = items.filter((i) => i.status !== "pending").length;
+  const displayUnitId = isExisting ? (existingMeta?.unitId ?? unitId) : unitId;
 
-  async function handleDownloadPdf() {
-    if (!submittedInspectionId) return;
+  async function handleDownloadPdf(idToUse) {
+    if (!idToUse) return;
     setDownloadingPdf(true);
     try {
-      const res = await authFetch(`${API_BASE}/inspections/${submittedInspectionId}/pdf`);
+      const res = await authFetch(`${API_BASE}/inspections/${idToUse}/pdf`);
       if (!res.ok) throw new Error("Couldn't generate the report");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `inspection_${unitId}.pdf`;
+      a.download = `inspection_${displayUnitId}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -417,7 +513,24 @@ export default function InspectionChecklist({
     }
   }
 
-  if (submitted) {
+  if (isExisting && loadingExisting) {
+    return <div className="max-w-2xl mx-auto p-6 text-sm text-slate-400">Loading inspection…</div>;
+  }
+
+  if (isExisting && loadError) {
+    return (
+      <div className="max-w-2xl mx-auto p-6 text-center">
+        <p className="text-sm text-rose-600">{loadError}</p>
+        {onBack && (
+          <button onClick={onBack} className="mt-3 text-sm text-slate-500 underline">
+            ← Back to inspections
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  if (!isExisting && submitted) {
     return (
       <div className="max-w-2xl mx-auto p-6 text-center">
         <div className="text-2xl mb-2">✓</div>
@@ -428,7 +541,7 @@ export default function InspectionChecklist({
             : "No issues flagged — no maintenance tickets were needed."}
         </p>
         <button
-          onClick={handleDownloadPdf}
+          onClick={() => handleDownloadPdf(submittedInspectionId)}
           disabled={downloadingPdf}
           className="mt-4 text-sm font-semibold bg-slate-900 disabled:bg-slate-300 text-white px-4 py-2 rounded-lg"
         >
@@ -440,18 +553,32 @@ export default function InspectionChecklist({
 
   return (
     <div className="max-w-2xl mx-auto p-5 bg-white rounded-xl border border-slate-200">
+      {onBack && (
+        <button onClick={onBack} className="text-xs text-slate-500 hover:text-slate-700 mb-2">
+          ← Back to inspections
+        </button>
+      )}
       <div className="flex items-center justify-between mb-1">
         <h2 className="text-lg font-semibold">
-          Unit {unitId} <span className="text-slate-400 font-normal">· {inspectionType} inspection</span>
+          Unit {displayUnitId} <span className="text-slate-400 font-normal">· {(isExisting ? existingMeta?.type : inspectionType) || inspectionType} inspection</span>
         </h2>
-        {flaggedCount > 0 && (
-          <span className="text-xs font-mono text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
-            {flaggedCount} flagged
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {isExisting && (
+            <span className="text-xs font-mono text-slate-500 bg-slate-50 border border-slate-200 rounded-full px-2 py-0.5">
+              {completedCount}/{items.length} complete
+            </span>
+          )}
+          {flaggedCount > 0 && (
+            <span className="text-xs font-mono text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+              {flaggedCount} flagged
+            </span>
+          )}
+        </div>
       </div>
       <p className="text-xs text-slate-500 mb-4">
-        Click directly on a photo to mark a damage point. Flagged or failed items auto-generate maintenance tickets on submit.
+        {isExisting
+          ? "Changes save automatically as you go. Flagged or failed items auto-generate maintenance tickets."
+          : "Click directly on a photo to mark a damage point. Flagged or failed items auto-generate maintenance tickets on submit."}
       </p>
 
       <div>
@@ -461,6 +588,7 @@ export default function InspectionChecklist({
             item={item}
             onChangeStatus={handleChangeStatus}
             onChangeDesc={handleChangeDesc}
+            onDescBlur={isExisting ? handleDescBlur : undefined}
             onPhotoUpload={handlePhotoUpload}
             onAddMark={handleAddMark}
             onRemovePhoto={handleRemovePhoto}
@@ -469,9 +597,11 @@ export default function InspectionChecklist({
         ))}
       </div>
 
-      <button onClick={addRoom} className="text-xs text-slate-500 mt-3 hover:text-amber-600">
-        + Add room
-      </button>
+      {!isExisting && (
+        <button onClick={addRoom} className="text-xs text-slate-500 mt-3 hover:text-amber-600">
+          + Add room
+        </button>
+      )}
 
       {submitError && (
         <p className="text-xs text-rose-600 mt-3 bg-rose-50 border border-rose-200 rounded px-3 py-2">
@@ -479,13 +609,23 @@ export default function InspectionChecklist({
         </p>
       )}
 
-      <button
-        onClick={handleSubmit}
-        disabled={submitting || items.some((i) => i.status === "pending")}
-        className="mt-4 w-full bg-slate-900 disabled:bg-slate-300 text-white text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-800"
-      >
-        {submitting ? "Submitting..." : "Submit inspection"}
-      </button>
+      {isExisting ? (
+        <button
+          onClick={() => handleDownloadPdf(inspectionId)}
+          disabled={downloadingPdf}
+          className="mt-4 w-full bg-slate-900 disabled:bg-slate-300 text-white text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-800"
+        >
+          {downloadingPdf ? "Generating…" : "Download PDF report"}
+        </button>
+      ) : (
+        <button
+          onClick={handleSubmit}
+          disabled={submitting || items.some((i) => i.status === "pending")}
+          className="mt-4 w-full bg-slate-900 disabled:bg-slate-300 text-white text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-800"
+        >
+          {submitting ? "Submitting..." : "Submit inspection"}
+        </button>
+      )}
     </div>
   );
 }

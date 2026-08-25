@@ -8,7 +8,7 @@ import Gallery from "./Gallery";
 import LoginScreen from "./LoginScreen";
 import Dashboard from "./Dashboard";
 import MaintenanceTickets from "./MaintenanceTickets";
-import InspectionChecklist from "./InspectionChecklist";
+import InspectionsList from "./InspectionsList";
 import AICopilot from "./AICopilot";
 import AIActionsPanel from "./AIActionsPanel";
 import PaymentsPanel from "./PaymentsPanel";
@@ -163,9 +163,8 @@ function AppShell() {
         )}
         {activeTab === "actions" && <AIActionsPanel propertyId={effectivePropertyId} />}
         {activeTab === "inspections" && (
-          <InspectionChecklist
+          <InspectionsList
             propertyId={effectivePropertyId}
-            unitId={user.unitId || "TBD"}
             inspectorName={user.name}
           />
         )}
