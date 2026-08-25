@@ -119,28 +119,11 @@ class LeaseUpdate(BaseModel):
 
 # ---------- Auth ----------
 
-class UserRegister(BaseModel):
-    email: str
-    password: str
-    name: str
-    role: Literal["staff", "tenant"] = "tenant"
-    # tenant accounts should be scoped to the unit they live in
-    propertyId: Optional[str] = None
-    unitId: Optional[str] = None
-
-
 class UserLogin(BaseModel):
     email: str
     password: str
 
 
-class UserOut(BaseModel):
-    id: str
-    email: str
-    name: str
-    role: Literal["staff", "tenant"]
-    propertyId: Optional[str] = None
-    unitId: Optional[str] = None
 class UserRegister(BaseModel):
     email: str
     password: str
