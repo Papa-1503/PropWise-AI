@@ -22,13 +22,18 @@ than called from the app itself.
                            the resident and the property's assigned tech,
                            then marks renewalStatus "sent" so the same
                            lease doesn't get renotified every run.
+/run-payment-reminder-check -> finds charges due within a window (default
+                           5 days) that aren't fully paid and haven't
+                           been reminded yet, notifies the resident, then
+                           marks reminderSent so the same charge doesn't
+                           get renotified every run.
 """
 import os
 from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, HTTPException
 
-from db import maintenance_schedules_col, tickets_col, users_col, leases_col
+from db import maintenance_schedules_col, tickets_col, users_col, leases_col, payments_col
 import notifications_service
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -171,4 +176,46 @@ async def run_lease_renewal_check(key: str = "", windowDays: int = 60):
         "leasesChecked": len(expiring_leases),
         "notified": len(notified),
         "leaseIds": notified,
+    }
+
+
+@router.get("/run-payment-reminder-check")
+async def run_payment_reminder_check(key: str = "", windowDays: int = 5):
+    check_key(key)
+
+    now = datetime.now(timezone.utc)
+    cutoff = now + timedelta(days=windowDays)
+    cursor = payments_col.find({
+        "dueDate": {"$gte": now, "$lte": cutoff},
+        "reminderSent": {"$ne": True},
+    })
+    upcoming_charges = await cursor.to_list(length=1000)
+
+    notified = []
+    for charge in upcoming_charges:
+        if charge.get("amountPaid", 0) >= charge.get("amountDue", 0):
+            continue  # already paid in full, nothing to remind about
+
+        property_id = charge.get("propertyId")
+        unit_id = charge.get("unitId")
+        due_str = charge["dueDate"].strftime("%B %d, %Y") if isinstance(charge.get("dueDate"), datetime) else str(charge.get("dueDate"))
+        amount_owed = charge.get("amountDue", 0) - charge.get("amountPaid", 0)
+
+        if property_id and unit_id:
+            await notifications_service.notify_unit_resident(
+                property_id, unit_id,
+                type="general",
+                title="Upcoming payment due",
+                body=f"${amount_owed:.2f} due {due_str} for {charge.get('description', 'your charge')}",
+                link="/payments",
+            )
+
+        await payments_col.update_one({"_id": charge["_id"]}, {"$set": {"reminderSent": True}})
+        notified.append(str(charge["_id"]))
+
+    return {
+        "status": "done",
+        "chargesChecked": len(upcoming_charges),
+        "notified": len(notified),
+        "chargeIds": notified,
     }
