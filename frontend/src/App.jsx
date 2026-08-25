@@ -22,6 +22,7 @@ import SocialFeed from "./SocialFeed";
 import NotificationBell from "./NotificationBell";
 import Workflows from "./Workflows";
 import BuildingSelector from "./BuildingSelector";
+import OwnerPortal from "./OwnerPortal";
 
 /**
  * App
@@ -64,6 +65,7 @@ function AppShell() {
   if (window.location.pathname === "/apply") return <LeadCaptureForm />;
   if (loading) return <p className="p-6 text-sm text-slate-400">Loading…</p>;
   if (!user) return <LoginScreen />;
+  if (user.role === "owner") return <OwnerPortal user={user} logout={logout} />;
 
   const tabs = user.role === "staff" ? STAFF_TABS : TENANT_TABS;
   const activeTab = tabs.includes(tab) ? tab : tabs[0];
