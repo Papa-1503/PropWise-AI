@@ -149,6 +149,7 @@ function NewLeaseModal({ propertyId, onClose, onSaved }) {
 
 function LeaseRow({ lease, buildingName, onRenewalChange, onGenerateDocument }) {
   const [generating, setGenerating] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   async function handleGenerate() {
     setGenerating(true);
@@ -184,15 +185,30 @@ function LeaseRow({ lease, buildingName, onRenewalChange, onGenerateDocument }) 
           {new Date(lease.startDate).toLocaleDateString()} – {new Date(lease.endDate).toLocaleDateString()} ·{" "}
           ${lease.rent.toLocaleString()}/mo
         </p>
-        <button
-          onClick={handleGenerate}
-          disabled={generating || !lease.residentEmail}
-          title={!lease.residentEmail ? "No resident email on file" : "Generate lease document"}
-          className="flex items-center gap-1 text-[11px] text-indigo-700 hover:underline disabled:text-slate-300 disabled:cursor-not-allowed"
-        >
-          <FileText size={12} />
-          {generating ? "Generating…" : "Generate document"}
-        </button>
+        <div className="flex items-center gap-3">
+          {lease.inviteCode && (
+            <button
+              onClick={() => {
+                navigator.clipboard?.writeText(lease.inviteCode);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              }}
+              title="Copy invite code to share with the resident"
+              className="text-[11px] font-mono text-slate-500 hover:text-slate-700 tracking-wider"
+            >
+              {copied ? "Copied!" : lease.inviteCode}
+            </button>
+          )}
+          <button
+            onClick={handleGenerate}
+            disabled={generating || !lease.residentEmail}
+            title={!lease.residentEmail ? "No resident email on file" : "Generate lease document"}
+            className="flex items-center gap-1 text-[11px] text-indigo-700 hover:underline disabled:text-slate-300 disabled:cursor-not-allowed"
+          >
+            <FileText size={12} />
+            {generating ? "Generating…" : "Generate document"}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -6,6 +6,8 @@ POST  /api/leases                                   -> create a lease
 PATCH /api/leases/:id                                -> update renewal status / balance
 """
 from datetime import datetime, timedelta, timezone
+import secrets
+import string
 
 from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
@@ -16,6 +18,15 @@ from date_utils import parse_date_utc
 from auth import require_staff
 from services.events import emit_event
 router = APIRouter(prefix="/api/leases", tags=["leases"])
+
+# Excludes visually ambiguous characters (0/O, 1/I/l) so a resident can
+# type the code correctly from a printed/texted invite without confusion.
+_INVITE_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+
+def generate_invite_code() -> str:
+    return "".join(secrets.choice(_INVITE_CODE_ALPHABET) for _ in range(8))
+
 
 
 def serialize(lease: dict) -> dict:
@@ -45,6 +56,7 @@ async def create_lease(payload: LeaseCreate, user: dict = Depends(require_staff)
     doc["startDate"] = parse_date_utc(doc["startDate"])
     doc["endDate"] = parse_date_utc(doc["endDate"])
     doc["balance"] = 0
+    doc["inviteCode"] = generate_invite_code()
     doc["createdAt"] = datetime.now(timezone.utc)
     result = await leases_col.insert_one(doc)
     doc["_id"] = result.inserted_id

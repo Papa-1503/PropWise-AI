@@ -1,41 +1,51 @@
 """
 Auth endpoints.
 
-POST /api/auth/register         -> create an account. SECURITY: always
-                                    creates a "tenant" role, regardless of
-                                    what the client requests. If propertyId
-                                    and unitId are provided, they are only
-                                    honored if a lease exists matching that
-                                    property/unit with residentEmail equal
-                                    to the registering email — see the
-                                    security note below.
+POST /api/auth/register         -> public resident activation via invite
+                                    code (see TenantActivate model).
+                                    CHANGED Aug 25, 2026: previously
+                                    accepted client-submitted propertyId/
+                                    unitId and only trusted them if they
+                                    matched an existing lease's
+                                    residentEmail — now replaced entirely
+                                    with an invite-code flow. The client
+                                    NEVER submits propertyId/unitId/role
+                                    for this endpoint anymore; the invite
+                                    code (generated server-side when staff
+                                    create a lease) is the only thing that
+                                    determines unit binding. This closes
+                                    that surface completely rather than
+                                    just verifying it.
 POST /api/auth/register-staff   -> create a staff account. Requires an
                                     existing staff member's token — this
                                     is how you provision additional staff
                                     users, not through public registration.
+POST /api/auth/register-owner   -> same, for owner accounts.
 POST /api/auth/login            -> returns a JWT + user profile
 GET  /api/auth/me               -> current user, given a valid Bearer token
 
-SECURITY NOTES (both found in live-testing passes, both fixed here):
+SECURITY HISTORY (kept for context — the first two were found and fixed
+in an earlier session, the third is today's further hardening):
 
 1. The original version passed the client-supplied `role` field straight
    to the database on the public /register endpoint, so anyone could
    self-register with {"role": "staff"} and get full staff access.
-   /register now hardcodes role="tenant" unconditionally.
+   Fixed by hardcoding role="tenant" unconditionally on that path.
 
 2. Even after fixing (1), /register still let a client supply ANY
-   propertyId/unitId with no verification — meaning anyone (including
-   multiple different people simultaneously) could self-register
-   claiming to live in any unit, and payments.py / maintenance.py both
-   scope tenant access by that self-reported propertyId/unitId. This
-   was confirmed live: two different accounts both successfully claimed
-   the same unit and both got 200 OK access to that unit's data.
-   Fixed: propertyId/unitId are now only attached to the account if a
-   lease already exists (created by staff) with a matching
-   propertyId + unitId + residentEmail. Otherwise the account is still
-   created — so registration itself doesn't fail — but with no unit
-   binding, meaning it has no access to any unit's payments or tickets
-   until staff creates a matching lease record for that email.
+   propertyId/unitId with no verification — meaning anyone could
+   self-register claiming to live in any unit. Confirmed live: two
+   different accounts both successfully claimed the same unit. Fixed
+   (at the time) by only trusting propertyId/unitId if they matched an
+   existing lease's residentEmail.
+
+3. Aug 25, 2026: replaced that email-matching approach entirely with
+   invite codes, per Priority 34 (also flagged independently by two
+   external audits as "Property ID/Unit ID" being raw, resident-unfriendly
+   implementation details in the sign-up form — this fixes both the
+   security surface and the UX issue in one change). The public
+   TenantActivate model no longer has propertyId/unitId/role fields at
+   all, so there's nothing left for a client to even attempt to spoof.
 """
 from datetime import datetime, timezone
 
@@ -43,7 +53,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pymongo.errors import DuplicateKeyError
 
 from db import users_col, leases_col
-from models import UserRegister, UserLogin, TokenResponse, UserOut
+from models import UserRegister, TenantActivate, UserLogin, TokenResponse, UserOut
 from auth import hash_password, verify_password, create_access_token, get_current_user, require_staff
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -60,28 +70,11 @@ def to_user_out(user: dict) -> UserOut:
     )
 
 
-async def _create_user(payload: UserRegister, forced_role: str | None = None, verify_unit: bool = False) -> TokenResponse:
-    """Shared creation logic.
-
-    forced_role: if set, overrides whatever role was in the request payload.
-    verify_unit: if True (used on the public /register path), propertyId/
-    unitId are only kept if a matching lease record exists for this email —
-    otherwise they're silently dropped so the account has no unit access.
-    """
+async def _create_staff_or_owner(payload: UserRegister, forced_role: str) -> TokenResponse:
+    """Used only by the staff-authenticated register-staff/register-owner
+    paths below — the public tenant path has its own function now."""
     doc = payload.model_dump()
-    if forced_role is not None:
-        doc["role"] = forced_role
-
-    if verify_unit and doc.get("propertyId") and doc.get("unitId"):
-        matching_lease = await leases_col.find_one({
-            "propertyId": doc["propertyId"],
-            "unitId": doc["unitId"],
-            "residentEmail": doc["email"],
-        })
-        if not matching_lease:
-            doc["propertyId"] = None
-            doc["unitId"] = None
-
+    doc["role"] = forced_role
     doc["password"] = hash_password(doc.pop("password"))
     doc["createdAt"] = datetime.now(timezone.utc)
     try:
@@ -95,22 +88,47 @@ async def _create_user(payload: UserRegister, forced_role: str | None = None, ve
 
 
 @router.post("/register", response_model=TokenResponse)
-async def register(payload: UserRegister):
-    # SECURITY: force tenant role, and only bind to a unit if a matching
-    # lease record proves this email actually belongs to that unit's
-    # resident. See module docstring.
-    return await _create_user(payload, forced_role="tenant", verify_unit=True)
+async def register(payload: TenantActivate):
+    """Public resident activation. The invite code is the sole source of
+    truth for which unit this account binds to — nothing client-submitted
+    is trusted for that purpose."""
+    lease = await leases_col.find_one({"inviteCode": payload.inviteCode})
+    if not lease:
+        raise HTTPException(status_code=400, detail="Invalid invite code")
+
+    doc = {
+        "email": payload.email,
+        "password": hash_password(payload.password),
+        "name": payload.name,
+        "role": "tenant",
+        "propertyId": lease["propertyId"],
+        "unitId": lease["unitId"],
+        "createdAt": datetime.now(timezone.utc),
+    }
+    try:
+        result = await users_col.insert_one(doc)
+    except DuplicateKeyError:
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+
+    # Keep the lease's own residentEmail in sync if it wasn't already
+    # set — helps other features that look up a resident by lease email.
+    if not lease.get("residentEmail"):
+        await leases_col.update_one({"_id": lease["_id"]}, {"$set": {"residentEmail": payload.email}})
+
+    doc["id"] = str(result.inserted_id)
+    token = create_access_token(doc["id"], doc["role"])
+    return TokenResponse(accessToken=token, user=to_user_out(doc))
 
 
 @router.post("/register-staff", response_model=TokenResponse)
 async def register_staff(payload: UserRegister, current_user: dict = Depends(require_staff)):
     """Only an already-authenticated staff member can create another staff account."""
-    return await _create_user(payload, forced_role="staff")
+    return await _create_staff_or_owner(payload, forced_role="staff")
 
 @router.post("/register-owner", response_model=TokenResponse)
 async def register_owner(payload: UserRegister, current_user: dict = Depends(require_staff)):
     """Only an already-authenticated staff member can create an owner account."""
-    return await _create_user(payload, forced_role="owner")
+    return await _create_staff_or_owner(payload, forced_role="owner")
 
 
 @router.post("/login", response_model=TokenResponse)

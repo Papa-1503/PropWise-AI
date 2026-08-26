@@ -8,12 +8,15 @@ import { useAuth } from "./AuthContext";
  * real JWT via AuthContext. Role is determined by the account itself
  * (returned from the backend), not chosen client-side.
  *
- * Sign-up is for tenants: the backend always forces role="tenant" on
- * /register regardless of what's submitted here, and propertyId/unitId
- * only take effect if a matching lease record (created by staff) already
- * exists for that email — otherwise the account is created with no unit
- * access until staff sets that up. New staff accounts are provisioned by
- * an existing staff member, not through this public form.
+ * CHANGED Aug 25, 2026 (Priority 34): sign-up now uses a single invite
+ * code instead of raw "Property ID"/"Unit ID" fields — both a real
+ * security fix (the backend no longer trusts any client-submitted
+ * propertyId/unitId at all for this path) and the fix for a UX gap two
+ * external audits both flagged independently. Staff generate an invite
+ * code when creating a lease (Leases tab); a resident enters that code
+ * here to activate their account, already bound to the correct unit.
+ * New staff accounts are still provisioned by an existing staff member,
+ * not through this public form.
  */
 export default function LoginScreen() {
   const { login, register } = useAuth();
@@ -21,8 +24,7 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
-  const [propertyId, setPropertyId] = useState("");
-  const [unitId, setUnitId] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -34,13 +36,7 @@ export default function LoginScreen() {
       if (mode === "signin") {
         await login(email, password);
       } else {
-        await register({
-          email,
-          password,
-          name,
-          propertyId: propertyId || undefined,
-          unitId: unitId || undefined,
-        });
+        await register({ email, password, name, inviteCode });
       }
     } catch (err) {
       setError(err.message || "Something went wrong.");
@@ -50,10 +46,10 @@ export default function LoginScreen() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center app-bg">
+    <div className="min-h-screen flex items-center justify-center app-bg px-4">
       <form
         onSubmit={handleSubmit}
-        className="bg-white border border-slate-200 rounded-xl p-9 w-[340px] text-center shadow-sm"
+        className="bg-white border border-slate-200 rounded-xl p-9 w-full max-w-[340px] text-center shadow-sm"
       >
         <h1 className="text-2xl font-serif font-bold mb-1">RentFlow AI</h1>
         <p className="text-xs text-slate-500 mb-5">Property operations &amp; resident tools</p>
@@ -71,7 +67,7 @@ export default function LoginScreen() {
             onClick={() => { setMode("signup"); setError(null); }}
             className={`flex-1 py-1.5 rounded-md ${mode === "signup" ? "bg-white shadow-sm" : "text-slate-500"}`}
           >
-            Sign Up
+            Activate Resident Account
           </button>
         </div>
 
@@ -107,20 +103,14 @@ export default function LoginScreen() {
           <>
             <input
               type="text"
-              placeholder="Property ID (optional)"
-              value={propertyId}
-              onChange={(e) => setPropertyId(e.target.value)}
-              className="w-full text-sm border border-slate-200 rounded-md px-3 py-2 mb-2"
-            />
-            <input
-              type="text"
-              placeholder="Unit ID (optional)"
-              value={unitId}
-              onChange={(e) => setUnitId(e.target.value)}
-              className="w-full text-sm border border-slate-200 rounded-md px-3 py-2 mb-2"
+              required
+              placeholder="Invite code"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+              className="w-full text-sm border border-slate-200 rounded-md px-3 py-2 mb-2 tracking-widest text-center font-mono"
             />
             <p className="text-[10px] text-slate-400 mb-2 text-left">
-              Property/Unit only link your account if they match a lease your property manager already created for this email.
+              Get your invite code from your property manager — it links your account to your unit.
             </p>
           </>
         )}
@@ -137,8 +127,8 @@ export default function LoginScreen() {
           className="w-full mt-3 bg-amber-500 disabled:bg-slate-300 text-white text-sm font-semibold py-2.5 rounded-lg hover:bg-amber-600"
         >
           {submitting
-            ? mode === "signin" ? "Signing in…" : "Creating account…"
-            : mode === "signin" ? "Sign in" : "Create account"}
+            ? mode === "signin" ? "Signing in…" : "Activating…"
+            : mode === "signin" ? "Sign in" : "Activate account"}
         </button>
       </form>
     </div>

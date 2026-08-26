@@ -118,6 +118,19 @@ class UserLogin(BaseModel):
     password: str
 
 
+class TenantActivate(BaseModel):
+    """The public resident sign-up flow, replacing raw Property ID/Unit ID
+    fields with a single invite code — a real security fix (Priority 34),
+    not just a UX rename. The invite code is generated server-side when
+    staff create a lease and is the ONLY thing that determines which
+    unit an account binds to; no client-submitted propertyId/unitId is
+    trusted for this purpose at all."""
+    inviteCode: str
+    email: str
+    password: str
+    name: str
+
+
 class UserRegister(BaseModel):
     email: str
     password: str
