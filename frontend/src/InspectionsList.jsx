@@ -100,7 +100,7 @@ export default function InspectionsList({ propertyId, unitId, inspectorName }) {
       {loading ? (
         <div className="h-40 bg-slate-100 rounded-xl animate-pulse" />
       ) : error ? (
-        <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">{error}</p>
+        <p role="alert" aria-live="polite" className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">{error}</p>
       ) : inspections.length === 0 ? (
         <EmptyState
           icon={ClipboardCheck}

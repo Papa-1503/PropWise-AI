@@ -140,6 +140,12 @@ function AppGate() {
 
   return (
     <div className="min-h-screen app-bg">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-white focus:text-slate-900 focus:px-3 focus:py-2 focus:rounded-md focus:shadow-lg"
+      >
+        Skip to main content
+      </a>
       <header className="bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 text-white px-6 py-3 flex items-center justify-between shadow-md">
         <h1 className="font-serif font-bold text-lg">RentFlow AI</h1>
         <div className="flex items-center gap-3 text-sm">
@@ -210,7 +216,7 @@ function AppGate() {
         )}
       </nav>
 
-      <main className="px-6 pb-10">
+      <main id="main-content" tabIndex={-1} className="px-6 pb-10">
         <Outlet context={{ effectivePropertyId, userName: user.name }} />
       </main>
     </div>
