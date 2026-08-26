@@ -429,3 +429,12 @@ class SendEmailCommunication(BaseModel):
     to: str
     subject: str
     body: str
+
+
+# ---------- Admin ----------
+
+class AdminKeyPayload(BaseModel):
+    """Shared secret for admin trigger endpoints, sent in the request body
+    rather than a URL query parameter — query params can leak via browser
+    history, server access logs, and proxy/CDN caching."""
+    key: str

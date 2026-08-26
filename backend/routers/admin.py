@@ -1,9 +1,19 @@
 """
 One-off admin endpoints to trigger scheduled jobs without shell access
-(not available on Render's free tier). Protected by a shared secret in
-the URL, not staff auth, since these are meant to be visited directly
-in a browser or hit by an external scheduler (e.g. cron-job.org) rather
-than called from the app itself.
+(not available on Render's free tier). Protected by a shared secret,
+not staff auth, since these are meant to be called by an external
+scheduler (e.g. cron-job.org, configured to send a POST with the key
+in the JSON body) rather than from the app itself.
+
+CHANGED Aug 25, 2026: these were originally GET requests with the key
+in the URL — flagged independently by two external audits, verified as
+a real (if lower-severity, since the key check itself was always
+genuinely enforced) hardening gap: state-changing actions as GET
+requests risk the key leaking via browser history, server access logs,
+and proxy/CDN caching. Now POST, with the key in the request body. This
+does mean these can no longer be triggered by just visiting a URL in a
+browser tab — use ReqBin (or any HTTP client) with a POST + JSON body,
+or reconfigure any external cron service accordingly.
 
 /seed-demo             -> (existing) triggers demo simulation seed data
 /run-maintenance-check  -> finds preventive maintenance schedules that are
@@ -42,6 +52,7 @@ from fastapi import APIRouter, HTTPException
 from bson import ObjectId
 
 from db import maintenance_schedules_col, tickets_col, users_col, leases_col, payments_col, properties_col
+from models import AdminKeyPayload
 import notifications_service
 
 DEFAULT_LATE_FEE_AMOUNT = 50.0
@@ -58,25 +69,25 @@ def check_key(key: str):
         raise HTTPException(status_code=403, detail="Invalid key")
 
 
-@router.get("/seed-demo")
-async def seed_demo(key: str = ""):
-    check_key(key)
+@router.post("/seed-demo")
+async def seed_demo(payload: AdminKeyPayload):
+    check_key(payload.key)
     from scripts.seed_property_data import seed
     await seed()
     return {"status": "done", "message": "Simulation data seeded. Refresh the app to see it."}
 
 
-@router.get("/seed-scale-test")
-async def seed_scale_test(key: str = ""):
-    check_key(key)
+@router.post("/seed-scale-test")
+async def seed_scale_test(payload: AdminKeyPayload):
+    check_key(payload.key)
     from scripts.seed_scale_test import seed
     await seed()
     return {"status": "done", "message": "Scale test data seeded — 12 new properties, ~1,838 units."}
 
 
-@router.get("/run-maintenance-check")
-async def run_maintenance_check(key: str = ""):
-    check_key(key)
+@router.post("/run-maintenance-check")
+async def run_maintenance_check(payload: AdminKeyPayload):
+    check_key(payload.key)
 
     now = datetime.now(timezone.utc)
     cursor = maintenance_schedules_col.find({"active": True, "nextDueDate": {"$lte": now}})
@@ -135,9 +146,9 @@ async def run_maintenance_check(key: str = ""):
     }
 
 
-@router.get("/run-lease-renewal-check")
-async def run_lease_renewal_check(key: str = "", windowDays: int = 60):
-    check_key(key)
+@router.post("/run-lease-renewal-check")
+async def run_lease_renewal_check(payload: AdminKeyPayload, windowDays: int = 60):
+    check_key(payload.key)
 
     now = datetime.now(timezone.utc)
     cutoff = now + timedelta(days=windowDays)
@@ -190,9 +201,9 @@ async def run_lease_renewal_check(key: str = "", windowDays: int = 60):
     }
 
 
-@router.get("/run-payment-reminder-check")
-async def run_payment_reminder_check(key: str = "", windowDays: int = 5):
-    check_key(key)
+@router.post("/run-payment-reminder-check")
+async def run_payment_reminder_check(payload: AdminKeyPayload, windowDays: int = 5):
+    check_key(payload.key)
 
     now = datetime.now(timezone.utc)
     cutoff = now + timedelta(days=windowDays)
@@ -246,9 +257,9 @@ async def _find_property(property_id: str | None) -> dict | None:
     return None
 
 
-@router.get("/run-late-fee-check")
-async def run_late_fee_check(key: str = ""):
-    check_key(key)
+@router.post("/run-late-fee-check")
+async def run_late_fee_check(payload: AdminKeyPayload):
+    check_key(payload.key)
 
     now = datetime.now(timezone.utc)
     cursor = payments_col.find({"lateFeeApplied": {"$ne": True}})
