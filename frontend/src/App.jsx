@@ -94,6 +94,16 @@ const TAB_ICONS = {
 /** Auth gate + layout for everything under /app. Renders LoginScreen
  * (at the same URL) if not authenticated, the separate OwnerPortal
  * shell for owners, or the staff/tenant header+nav+Outlet layout. */
+/** Redirects to the current user's own first tab, not a hardcoded one —
+ * the original bug: this was <Navigate to="dashboard" replace /> always,
+ * regardless of role. For a tenant (whose tabs don't include "dashboard"
+ * at all), that silently sent them to a staff-only page. */
+function IndexRedirect() {
+  const { user } = useAuth();
+  const tabs = user?.role === "staff" ? STAFF_TABS : TENANT_TABS;
+  return <Navigate to={tabs[0]} replace />;
+}
+
 function AppGate() {
   const { user, loading, logout, selectedProperty } = useAuth();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -108,6 +118,19 @@ function AppGate() {
   const currentSegment = location.pathname.replace(/^\/app\/?/, "");
   const activeTab = tabs.includes(currentSegment) ? currentSegment : null;
   const primaryTabs = user.role === "staff" ? PRIMARY_STAFF_TABS : PRIMARY_TENANT_TABS;
+
+  // Guard against a wrong-role path — e.g. a tenant with a stale
+  // bookmark/browser-history entry pointing at a staff-only tab like
+  // /app/leases. Any recognized tab name that isn't in THIS user's own
+  // allowed list gets redirected, rather than rendering that content —
+  // this is the real fix for the bug where a tenant briefly saw the
+  // staff-only Leases page. The ALL_TABS check below distinguishes "a
+  // real tab that just isn't yours" from "a genuinely unknown path",
+  // which should still fall through to TabNotFound instead.
+  const allKnownTabs = [...new Set([...STAFF_TABS, ...TENANT_TABS])];
+  if (currentSegment && allKnownTabs.includes(currentSegment) && !tabs.includes(currentSegment)) {
+    return <Navigate to={`/app/${tabs[0]}`} replace />;
+  }
   const effectivePropertyId = user.role === "staff" ? (selectedProperty?.id || null) : user.propertyId;
 
   const goTo = (t) => {
@@ -221,7 +244,7 @@ export default function App() {
           <Route path="/" element={<Navigate to="/app/dashboard" replace />} />
 
           <Route path="/app" element={<AppGate />}>
-            <Route index element={<Navigate to="dashboard" replace />} />
+            <Route index element={<IndexRedirect />} />
             <Route path="dashboard" element={<DashboardTabWrapper />} />
             <Route path="actions" element={<AIActionsPanelWrapper />} />
             <Route path="inspections" element={<InspectionsListWrapper />} />

@@ -199,10 +199,12 @@ export default function CommunicationsPanel({ propertyId }) {
   const [comms, setComms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [composeMode, setComposeMode] = useState(null); // null | "log" | "email"
+  const [error, setError] = useState(null);
   const { authFetch, getPropertyName } = useAuth();
 
   const fetchComms = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const params = new URLSearchParams();
       if (propertyId) params.set("propertyId", propertyId);
@@ -210,7 +212,11 @@ export default function CommunicationsPanel({ propertyId }) {
       if (res.ok) {
         const data = await res.json();
         setComms(data.communications || []);
+      } else {
+        setError(res.status === 403 ? "You don't have access to this." : "Couldn't load communications — try again.");
       }
+    } catch {
+      setError("Couldn't load communications — check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -254,6 +260,8 @@ export default function CommunicationsPanel({ propertyId }) {
 
       {loading ? (
         <div className="h-40 bg-slate-100 rounded-xl animate-pulse" />
+      ) : error ? (
+        <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">{error}</p>
       ) : comms.length === 0 ? (
         <EmptyState
           icon={MessageSquare}

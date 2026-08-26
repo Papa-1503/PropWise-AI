@@ -283,10 +283,12 @@ export default function ScreeningList({ propertyId }) {
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [scoringRequest, setScoringRequest] = useState(null);
+  const [error, setError] = useState(null);
   const { authFetch } = useAuth();
 
   const fetchRequests = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await authFetch(`${API_BASE}/screening`);
       if (res.ok) {
@@ -294,7 +296,11 @@ export default function ScreeningList({ propertyId }) {
         let list = data.screeningRequests || [];
         if (propertyId) list = list.filter((r) => r.propertyId === propertyId);
         setRequests(list);
+      } else {
+        setError(res.status === 403 ? "You don't have access to this." : "Couldn't load screening requests — try again.");
       }
+    } catch {
+      setError("Couldn't load screening requests — check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -336,6 +342,8 @@ export default function ScreeningList({ propertyId }) {
 
       {loading ? (
         <div className="h-40 bg-slate-100 rounded-xl animate-pulse" />
+      ) : error ? (
+        <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">{error}</p>
       ) : requests.length === 0 ? (
         <EmptyState
           icon={UserSearch}

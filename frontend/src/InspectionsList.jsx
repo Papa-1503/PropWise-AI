@@ -33,10 +33,12 @@ export default function InspectionsList({ propertyId, unitId, inspectorName }) {
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
   const [creatingNew, setCreatingNew] = useState(false);
+  const [error, setError] = useState(null);
   const { authFetch } = useAuth();
 
   const fetchInspections = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const params = new URLSearchParams();
       if (propertyId) params.set("propertyId", propertyId);
@@ -45,7 +47,11 @@ export default function InspectionsList({ propertyId, unitId, inspectorName }) {
       if (res.ok) {
         const data = await res.json();
         setInspections(data.inspections || []);
+      } else {
+        setError(res.status === 403 ? "You don't have access to this." : "Couldn't load inspections — try again.");
       }
+    } catch {
+      setError("Couldn't load inspections — check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -93,6 +99,8 @@ export default function InspectionsList({ propertyId, unitId, inspectorName }) {
 
       {loading ? (
         <div className="h-40 bg-slate-100 rounded-xl animate-pulse" />
+      ) : error ? (
+        <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">{error}</p>
       ) : inspections.length === 0 ? (
         <EmptyState
           icon={ClipboardCheck}
