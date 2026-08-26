@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Outlet, useOutletContext } from "react-router-dom";
 import { useState } from "react";
-import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, MoreHorizontal, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users } from "lucide-react";
+import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, MoreHorizontal, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";
 import Avatar from "./Avatar";
 import LeadCaptureForm from "./LeadCaptureForm";
@@ -27,6 +27,7 @@ import LeasesList from "./LeasesList";
 import ScreeningList from "./ScreeningList";
 import LeadsList from "./LeadsList";
 import StaffAssignments from "./StaffAssignments";
+import MaintenanceSchedules from "./MaintenanceSchedules";
 import BuildingSelector from "./BuildingSelector";
 import OwnerPortal from "./OwnerPortal";
 import NotFound from "./NotFound";
@@ -73,7 +74,7 @@ function TabNotFound() {
  * their own unit's property.
  */
 
-const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "communications", "leases", "screening", "leads", "staff", "documents", "gallery", "feed", "ai"];
+const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "communications", "leases", "screening", "leads", "staff", "schedules", "documents", "gallery", "feed", "ai"];
 const TENANT_TABS = ["documents", "maintenance", "payments", "gallery", "ai"];
 const PRIMARY_STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments"];
 const PRIMARY_TENANT_TABS = ["maintenance", "payments"];
@@ -93,6 +94,7 @@ const TAB_ICONS = {
   screening: UserSearch,
   leads: UserPlus2,
   staff: Users,
+  schedules: CalendarClock,
 };
 
 /** Auth gate + layout for everything under /app. Renders LoginScreen
@@ -266,6 +268,7 @@ export default function App() {
             <Route path="screening" element={<ScreeningListWrapper />} />
             <Route path="leads" element={<LeadsListWrapper />} />
             <Route path="staff" element={<StaffAssignments />} />
+            <Route path="schedules" element={<MaintenanceSchedulesWrapper />} />
             <Route path="documents" element={<Documents />} />
             <Route path="gallery" element={<Gallery />} />
             <Route path="feed" element={<SocialFeed />} />
@@ -319,6 +322,10 @@ function ScreeningListWrapper() {
 function LeadsListWrapper() {
   const { effectivePropertyId } = useOutletContext();
   return <LeadsList propertyId={effectivePropertyId} />;
+}
+function MaintenanceSchedulesWrapper() {
+  const { effectivePropertyId } = useOutletContext();
+  return <MaintenanceSchedules propertyId={effectivePropertyId} />;
 }
 function AICopilotWrapper() {
   const { effectivePropertyId } = useOutletContext();
