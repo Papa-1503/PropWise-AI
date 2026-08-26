@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Outlet, useOutletContext } from "react-router-dom";
 import { useState } from "react";
 import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, MoreHorizontal, GitBranch, MessageSquare, FileSignature, UserSearch } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";
@@ -29,22 +29,37 @@ import BuildingSelector from "./BuildingSelector";
 import OwnerPortal from "./OwnerPortal";
 import NotFound from "./NotFound";
 
+/** Simpler 404 for an unmatched path *within* the already-authenticated
+ * app shell — the real header/nav are already showing via AppGate, so
+ * this doesn't repeat the full standalone NotFound page's own title. */
+function TabNotFound() {
+  return (
+    <div className="text-center py-16">
+      <p className="text-slate-500">We couldn't find that page.</p>
+    </div>
+  );
+}
+
 /**
  * App
  *
- * CHANGED Aug 25, 2026: real URL-based routing (React Router), replacing
- * the previous useState-based tab switching — flagged by an external
- * audit as a real gap: refresh, browser back/forward, bookmarking, and
- * link-sharing didn't work for any tab before this change, and a direct
- * load of /apply 404'd (fixed alongside this, plus a Render rewrite
- * rule). Every staff/tenant tab is now a real path under /app/, e.g.
- * /app/leases, /app/maintenance.
+ * CHANGED Aug 25, 2026: real URL-based routing (React Router).
  *
- * Auth handling: visiting a protected path while logged out renders
- * LoginScreen at that same URL (rather than redirecting away first) —
- * once login succeeds, the already-correct URL just renders its real
- * content, which naturally preserves "where you were headed" through
- * sign-in without extra redirect logic.
+ * CORRECTED same day: the first version had AppShell call its own
+ * independent <Routes> nested inside a wildcard parent route
+ * ("descendant routes"). That structure had a real, confirmed bug —
+ * unmatched paths like /app/nonsense rendered the Dashboard route
+ * instead of the catch-all NotFound route. Rather than patch around a
+ * subtlety I couldn't fully diagnose without a live browser, rebuilt
+ * using React Router's officially recommended pattern instead: real
+ * nested <Route> children at the top level, with the layout
+ * (header/nav) rendering its children via <Outlet />. This avoids the
+ * whole class of bug the previous structure had.
+ *
+ * Auth handling: the /app parent route always renders AppGate, which
+ * checks auth and either shows LoginScreen or the real layout — at the
+ * SAME url the person was trying to reach, so after logging in they
+ * land exactly where they were headed, no separate redirect needed.
  *
  * Building context: staff can see every property, and several buildings
  * can share the same unit numbers (e.g. multiple "Unit 101"s across the
@@ -52,9 +67,8 @@ import NotFound from "./NotFound";
  * building via BuildingSelector in the header; every panel below is
  * scoped to that selection via effectivePropertyId. Picking "All
  * Buildings" (selectedProperty = null) shows the portfolio-wide
- * aggregate view, same as the previous default behavior. Tenants don't
- * see the selector at all — they're always scoped to their own unit's
- * property, same as before.
+ * aggregate view. Tenants don't see the selector — always scoped to
+ * their own unit's property.
  */
 
 const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "communications", "leases", "screening", "documents", "gallery", "feed", "ai"];
@@ -77,7 +91,10 @@ const TAB_ICONS = {
   screening: UserSearch,
 };
 
-function AppShell() {
+/** Auth gate + layout for everything under /app. Renders LoginScreen
+ * (at the same URL) if not authenticated, the separate OwnerPortal
+ * shell for owners, or the staff/tenant header+nav+Outlet layout. */
+function AppGate() {
   const { user, loading, logout, selectedProperty } = useAuth();
   const [moreOpen, setMoreOpen] = useState(false);
   const navigate = useNavigate();
@@ -89,12 +106,8 @@ function AppShell() {
 
   const tabs = user.role === "staff" ? STAFF_TABS : TENANT_TABS;
   const currentSegment = location.pathname.replace(/^\/app\/?/, "");
-  const activeTab = tabs.includes(currentSegment) ? currentSegment : tabs[0];
+  const activeTab = tabs.includes(currentSegment) ? currentSegment : null;
   const primaryTabs = user.role === "staff" ? PRIMARY_STAFF_TABS : PRIMARY_TENANT_TABS;
-
-  // Staff: scoped to whatever building they've selected (or null = all
-  // buildings, aggregated). Tenants: always scoped to their own unit's
-  // property — the selector doesn't apply to them.
   const effectivePropertyId = user.role === "staff" ? (selectedProperty?.id || null) : user.propertyId;
 
   const goTo = (t) => {
@@ -175,44 +188,26 @@ function AppShell() {
       </nav>
 
       <main className="px-6 pb-10">
-        <Routes>
-          <Route
-            path="dashboard"
-            element={
-              <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5">
-                <div className="space-y-5">
-                  <PortfolioHealthHeader propertyId={effectivePropertyId} userName={user.name} />
-                  <Dashboard propertyId={effectivePropertyId} />
-                  <OccupancyInsight propertyId={effectivePropertyId} />
-                  <AIWorkforcePanel propertyId={effectivePropertyId} />
-                </div>
-                <div className="space-y-5">
-                  <AskRentFlowSidebar propertyId={effectivePropertyId} />
-                  <MaintenanceTrendAlert propertyId={effectivePropertyId} />
-                  <ConfidenceDistribution propertyId={effectivePropertyId} />
-                </div>
-              </div>
-            }
-          />
-          <Route path="actions" element={<AIActionsPanel propertyId={effectivePropertyId} />} />
-          <Route
-            path="inspections"
-            element={<InspectionsList propertyId={effectivePropertyId} inspectorName={user.name} />}
-          />
-          <Route path="maintenance" element={<MaintenanceTickets propertyId={effectivePropertyId} />} />
-          <Route path="payments" element={<PaymentsPanel propertyId={effectivePropertyId} />} />
-          <Route path="workflows" element={<Workflows />} />
-          <Route path="communications" element={<CommunicationsPanel propertyId={effectivePropertyId} />} />
-          <Route path="leases" element={<LeasesList propertyId={effectivePropertyId} />} />
-          <Route path="screening" element={<ScreeningList propertyId={effectivePropertyId} />} />
-          <Route path="documents" element={<Documents />} />
-          <Route path="gallery" element={<Gallery />} />
-          <Route path="feed" element={<SocialFeed />} />
-          <Route path="ai" element={<AICopilot propertyId={effectivePropertyId} />} />
-          <Route path="" element={<Navigate to={`/app/${tabs[0]}`} replace />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <Outlet context={{ effectivePropertyId, userName: user.name }} />
       </main>
+    </div>
+  );
+}
+
+function DashboardTab({ effectivePropertyId, userName }) {
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5">
+      <div className="space-y-5">
+        <PortfolioHealthHeader propertyId={effectivePropertyId} userName={userName} />
+        <Dashboard propertyId={effectivePropertyId} />
+        <OccupancyInsight propertyId={effectivePropertyId} />
+        <AIWorkforcePanel propertyId={effectivePropertyId} />
+      </div>
+      <div className="space-y-5">
+        <AskRentFlowSidebar propertyId={effectivePropertyId} />
+        <MaintenanceTrendAlert propertyId={effectivePropertyId} />
+        <ConfidenceDistribution propertyId={effectivePropertyId} />
+      </div>
     </div>
   );
 }
@@ -223,11 +218,70 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/apply" element={<LeadCaptureForm />} />
-          <Route path="/app/*" element={<AppShell />} />
           <Route path="/" element={<Navigate to="/app/dashboard" replace />} />
+
+          <Route path="/app" element={<AppGate />}>
+            <Route index element={<Navigate to="dashboard" replace />} />
+            <Route path="dashboard" element={<DashboardTabWrapper />} />
+            <Route path="actions" element={<AIActionsPanelWrapper />} />
+            <Route path="inspections" element={<InspectionsListWrapper />} />
+            <Route path="maintenance" element={<MaintenanceTicketsWrapper />} />
+            <Route path="payments" element={<PaymentsPanelWrapper />} />
+            <Route path="workflows" element={<Workflows />} />
+            <Route path="communications" element={<CommunicationsPanelWrapper />} />
+            <Route path="leases" element={<LeasesListWrapper />} />
+            <Route path="screening" element={<ScreeningListWrapper />} />
+            <Route path="documents" element={<Documents />} />
+            <Route path="gallery" element={<Gallery />} />
+            <Route path="feed" element={<SocialFeed />} />
+            <Route path="ai" element={<AICopilotWrapper />} />
+            <Route path="*" element={<TabNotFound />} />
+          </Route>
+
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
   );
+}
+
+// Small wrapper components pull effectivePropertyId/userName from the
+// Outlet context set by AppGate, so each panel below keeps the exact
+// same props/behavior it already had — only how it's reached changed.
+
+function DashboardTabWrapper() {
+  const { effectivePropertyId, userName } = useOutletContext();
+  return <DashboardTab effectivePropertyId={effectivePropertyId} userName={userName} />;
+}
+function AIActionsPanelWrapper() {
+  const { effectivePropertyId } = useOutletContext();
+  return <AIActionsPanel propertyId={effectivePropertyId} />;
+}
+function InspectionsListWrapper() {
+  const { effectivePropertyId, userName } = useOutletContext();
+  return <InspectionsList propertyId={effectivePropertyId} inspectorName={userName} />;
+}
+function MaintenanceTicketsWrapper() {
+  const { effectivePropertyId } = useOutletContext();
+  return <MaintenanceTickets propertyId={effectivePropertyId} />;
+}
+function PaymentsPanelWrapper() {
+  const { effectivePropertyId } = useOutletContext();
+  return <PaymentsPanel propertyId={effectivePropertyId} />;
+}
+function CommunicationsPanelWrapper() {
+  const { effectivePropertyId } = useOutletContext();
+  return <CommunicationsPanel propertyId={effectivePropertyId} />;
+}
+function LeasesListWrapper() {
+  const { effectivePropertyId } = useOutletContext();
+  return <LeasesList propertyId={effectivePropertyId} />;
+}
+function ScreeningListWrapper() {
+  const { effectivePropertyId } = useOutletContext();
+  return <ScreeningList propertyId={effectivePropertyId} />;
+}
+function AICopilotWrapper() {
+  const { effectivePropertyId } = useOutletContext();
+  return <AICopilot propertyId={effectivePropertyId} />;
 }
