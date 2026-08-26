@@ -29,7 +29,12 @@ async def create_lead(payload: LeadCreate):
 
 @router.get("")
 async def list_leads(propertyId: str | None = None, user: dict = Depends(require_staff)):
-    query = {"propertyId": propertyId} if propertyId else {}
+    # A lead's propertyId is null when the public form was submitted as
+    # a general inquiry (not tied to a specific listing) — an exact-match
+    # filter would make these invisible whenever staff have any specific
+    # building selected, which is the most common state to be in. Show
+    # both: leads for this exact property AND unassigned general ones.
+    query = {"$or": [{"propertyId": propertyId}, {"propertyId": None}]} if propertyId else {}
     cursor = leads_col.find(query).sort("createdAt", -1).limit(200)
     results = await cursor.to_list(length=200)
     for r in results:

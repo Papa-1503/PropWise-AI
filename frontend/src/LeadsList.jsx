@@ -64,7 +64,7 @@ function LeadRow({ lead, buildingName, onStatusChange }) {
       </div>
       {lead.message && <p className="text-xs text-slate-600 mt-1 italic">"{lead.message}"</p>}
       <p className="text-[11px] text-slate-400 mt-1">
-        {buildingName && <span>{buildingName} · </span>}
+        {buildingName ? <span>{buildingName} · </span> : !lead.propertyId && <span>General inquiry · </span>}
         {lead.unitId && <span>Unit {lead.unitId} · </span>}
         {lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : ""}
       </p>
