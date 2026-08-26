@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "./AuthContext";
 import EmptyState from "./EmptyState";
-import { FileSignature, Plus, X, FileText } from "lucide-react";
+import { FileSignature, Plus, X, FileText, History } from "lucide-react";
 import { API_BASE } from "./config";
+import Resident360Modal from "./Resident360Modal";
 
 /**
  * LeasesList
@@ -147,7 +148,7 @@ function NewLeaseModal({ propertyId, onClose, onSaved }) {
   );
 }
 
-function LeaseRow({ lease, buildingName, onRenewalChange, onGenerateDocument }) {
+function LeaseRow({ lease, buildingName, onRenewalChange, onGenerateDocument, onViewHistory }) {
   const [generating, setGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -169,6 +170,15 @@ function LeaseRow({ lease, buildingName, onRenewalChange, onGenerateDocument }) 
             {buildingName && <span>{buildingName} · </span>}
             Unit {lease.unitId}
           </span>
+          {lease.residentEmail && (
+            <button
+              onClick={() => onViewHistory(lease.residentEmail, lease.residentName)}
+              title="View this resident's full history"
+              className="ml-2 text-slate-300 hover:text-indigo-600 align-middle"
+            >
+              <History size={13} />
+            </button>
+          )}
         </div>
         <select
           value={lease.renewalStatus}
@@ -219,6 +229,7 @@ export default function LeasesList({ propertyId }) {
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [error, setError] = useState(null);
+  const [historyTarget, setHistoryTarget] = useState(null); // { email, name } | null
   const { authFetch, getPropertyName } = useAuth();
 
   const fetchLeases = useCallback(async () => {
@@ -310,6 +321,7 @@ export default function LeasesList({ propertyId }) {
               buildingName={!propertyId ? getPropertyName(l.propertyId) : null}
               onRenewalChange={handleRenewalChange}
               onGenerateDocument={handleGenerateDocument}
+              onViewHistory={(email, name) => setHistoryTarget({ email, name })}
             />
           ))}
         </div>
@@ -317,6 +329,13 @@ export default function LeasesList({ propertyId }) {
 
       {showNew && (
         <NewLeaseModal propertyId={propertyId} onClose={() => setShowNew(false)} onSaved={fetchLeases} />
+      )}
+      {historyTarget && (
+        <Resident360Modal
+          email={historyTarget.email}
+          name={historyTarget.name}
+          onClose={() => setHistoryTarget(null)}
+        />
       )}
     </div>
   );
