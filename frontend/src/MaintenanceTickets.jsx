@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useId } from "react";
 import { useAuth } from "./AuthContext";
 import VendorAssignment from "./VendorAssignment";
 import EmptyState from "./EmptyState";
-import { Wrench } from "lucide-react";
+import { Wrench, Plus, X } from "lucide-react";
 
 /**
  * MaintenanceTickets
@@ -186,6 +186,114 @@ function TicketRow({ ticket, onUpdateStatus, onVendorAssigned, isStaff, building
   );
 }
 
+function NewTicketModal({ propertyId, onClose, onSaved }) {
+  const [unitId, setUnitId] = useState("");
+  const [title, setTitle] = useState("");
+  const [category, setCategory] = useState("general");
+  const [priority, setPriority] = useState("normal");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const { authFetch } = useAuth();
+  const idPrefix = useId();
+
+  async function handleSave() {
+    if (!unitId.trim() || !title.trim()) {
+      setError("Unit and title are required.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await authFetch(`${API_BASE}/maintenance/tickets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ propertyId, unitId, title, category, priority, source: "staff" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "Something went wrong");
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30 p-4">
+      <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold">New ticket</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label htmlFor={`${idPrefix}-unit`} className="text-xs text-slate-500">Unit</label>
+            <input
+              id={`${idPrefix}-unit`}
+              value={unitId}
+              onChange={(e) => setUnitId(e.target.value)}
+              placeholder="e.g. 104"
+              className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
+            />
+          </div>
+          <div>
+            <label htmlFor={`${idPrefix}-title`} className="text-xs text-slate-500">Title</label>
+            <input
+              id={`${idPrefix}-title`}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Kitchen faucet leaking"
+              className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
+            />
+          </div>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label htmlFor={`${idPrefix}-category`} className="text-xs text-slate-500">Category</label>
+              <select
+                id={`${idPrefix}-category`}
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5 capitalize"
+              >
+                {["plumbing", "electrical", "hvac", "general", "landscaping", "locksmith"].map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex-1">
+              <label htmlFor={`${idPrefix}-priority`} className="text-xs text-slate-500">Priority</label>
+              <select
+                id={`${idPrefix}-priority`}
+                value={priority}
+                onChange={(e) => setPriority(e.target.value)}
+                className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5 capitalize"
+              >
+                <option value="normal">Normal</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {error && <p role="alert" className="text-xs text-rose-600 mt-3 bg-rose-50 border border-rose-200 rounded px-3 py-2">{error}</p>}
+
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="mt-4 w-full bg-slate-900 disabled:bg-slate-300 text-white text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-800"
+        >
+          {saving ? "Creating…" : "Create ticket"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function MaintenanceTickets({ propertyId }) {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -194,6 +302,7 @@ export default function MaintenanceTickets({ propertyId }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [confirmingBulk, setConfirmingBulk] = useState(null); // target status | null
+  const [showNewTicket, setShowNewTicket] = useState(false);
   const [undoState, setUndoState] = useState(null); // { previousStatuses: Map, message } | null
   const { authFetch, user, getPropertyName } = useAuth();
   const isStaff = user?.role === "staff";
@@ -348,20 +457,41 @@ export default function MaintenanceTickets({ propertyId }) {
             <p className="text-xs text-rose-600 mt-0.5">{urgentOpenCount} urgent ticket{urgentOpenCount !== 1 ? "s" : ""} open</p>
           )}
         </div>
-        <div className="flex gap-1">
-          {["all", "open", "in_progress", "done"].map((s) => (
+        <div className="flex items-center gap-2">
+          {isStaff && (
             <button
-              key={s}
-              onClick={() => setStatusFilter(s)}
-              className={`text-[11px] px-2.5 py-1 rounded-full border ${
-                statusFilter === s ? "bg-slate-900 text-white border-slate-900" : "border-slate-200 text-slate-500"
-              }`}
+              onClick={() => setShowNewTicket(true)}
+              disabled={!propertyId}
+              title={!propertyId ? "Pick a specific building first" : undefined}
+              className="flex items-center gap-1 text-[11px] font-semibold bg-slate-900 disabled:bg-slate-300 text-white px-2.5 py-1 rounded-full"
             >
-              {s === "all" ? "All" : STATUS_LABEL[s]}
+              <Plus size={12} />
+              New ticket
             </button>
-          ))}
+          )}
+          <div className="flex gap-1">
+            {["all", "open", "in_progress", "done"].map((s) => (
+              <button
+                key={s}
+                onClick={() => setStatusFilter(s)}
+                className={`text-[11px] px-2.5 py-1 rounded-full border ${
+                  statusFilter === s ? "bg-slate-900 text-white border-slate-900" : "border-slate-200 text-slate-500"
+                }`}
+              >
+                {s === "all" ? "All" : STATUS_LABEL[s]}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
+
+      {showNewTicket && (
+        <NewTicketModal
+          propertyId={propertyId}
+          onClose={() => setShowNewTicket(false)}
+          onSaved={() => setRefreshKey((k) => k + 1)}
+        />
+      )}
 
       {isStaff && selectedIds.size > 0 && (
         <div className="flex items-center justify-between bg-slate-900 text-white rounded-lg px-4 py-2.5 mb-3 text-sm">
