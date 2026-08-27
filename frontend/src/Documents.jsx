@@ -11,7 +11,7 @@ import EmptyState from "./EmptyState";
  * does not generate lease language, only the workflow around it.
  */
 export default function Documents() {
-  const { user } = useAuth();
+  const { user, authFetch } = useAuth();
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -28,9 +28,7 @@ export default function Documents() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/documents`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("rentflow_token")}` },
-      });
+      const res = await authFetch(`${API_BASE}/documents`);
       if (!res.ok) throw new Error("Couldn't load documents.");
       const data = await res.json();
       setDocuments(data.documents || []);
@@ -39,7 +37,7 @@ export default function Documents() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [authFetch]);
 
   useEffect(() => {
     fetchDocuments();
@@ -49,12 +47,9 @@ export default function Documents() {
     e.preventDefault();
     setCreating(true);
     try {
-      const res = await fetch(`${API_BASE}/documents`, {
+      const res = await authFetch(`${API_BASE}/documents`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("rentflow_token")}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
       if (!res.ok) throw new Error("Couldn't create document.");
@@ -71,12 +66,9 @@ export default function Documents() {
   async function handleSign(docId) {
     setSigning(true);
     try {
-      const res = await fetch(`${API_BASE}/documents/${docId}/sign`, {
+      const res = await authFetch(`${API_BASE}/documents/${docId}/sign`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("rentflow_token")}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ signedByName: signName }),
       });
       if (!res.ok) throw new Error("Couldn't sign document.");
@@ -91,9 +83,7 @@ export default function Documents() {
   }
 
   function downloadPdf(docId) {
-    fetch(`${API_BASE}/documents/${docId}/pdf`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem("rentflow_token")}` },
-    })
+    authFetch(`${API_BASE}/documents/${docId}/pdf`)
       .then((res) => res.blob())
       .then((blob) => {
         const url = URL.createObjectURL(blob);

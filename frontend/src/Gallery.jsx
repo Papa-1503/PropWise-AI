@@ -1,6 +1,4 @@
-
-
-    import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Image as ImageIcon, Trash2, Upload } from "lucide-react";
 import { useAuth } from "./AuthContext";
 import { API_BASE } from "./config";
@@ -11,7 +9,7 @@ import EmptyState from "./EmptyState";
  * can upload/delete; tenants can view.
  */
 export default function Gallery() {
-  const { user } = useAuth();
+  const { user, authFetch } = useAuth();
   const [photos, setPhotos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -22,9 +20,7 @@ export default function Gallery() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/gallery/${user.propertyId}/photos`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("rentflow_token")}` },
-      });
+      const res = await authFetch(`${API_BASE}/gallery/${user.propertyId}/photos`);
       if (!res.ok) throw new Error("Couldn't load gallery.");
       const data = await res.json();
       setPhotos(data.photos || []);
@@ -33,7 +29,7 @@ export default function Gallery() {
     } finally {
       setLoading(false);
     }
-  }, [user.propertyId]);
+  }, [user.propertyId, authFetch]);
 
   useEffect(() => {
     fetchPhotos();
@@ -48,9 +44,8 @@ export default function Gallery() {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("caption", caption);
-      const res = await fetch(`${API_BASE}/gallery/${user.propertyId}/photos`, {
+      const res = await authFetch(`${API_BASE}/gallery/${user.propertyId}/photos`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${localStorage.getItem("rentflow_token")}` },
         body: formData,
       });
       if (!res.ok) throw new Error("Upload failed.");
@@ -66,10 +61,7 @@ export default function Gallery() {
 
   async function handleDelete(photoId) {
     try {
-      const res = await fetch(`${API_BASE}/gallery/photos/${photoId}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${localStorage.getItem("rentflow_token")}` },
-      });
+      const res = await authFetch(`${API_BASE}/gallery/photos/${photoId}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Couldn't delete photo.");
       setPhotos((p) => p.filter((ph) => ph._id !== photoId));
     } catch (err) {
@@ -126,4 +118,3 @@ export default function Gallery() {
     </div>
   );
 }
-    
