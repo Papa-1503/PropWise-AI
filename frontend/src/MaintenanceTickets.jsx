@@ -400,14 +400,6 @@ export default function MaintenanceTickets({ propertyId }) {
         </div>
       )}
 
-      {/* TEMPORARY DIAGNOSTIC — remove once the undo-toast bug is found.
-          Not fixed-positioned, so it can't be hidden by any CSS/z-index
-          issue — proves whether undoState itself is set, separate from
-          whether the actual toast below is visually rendering. */}
-      <p className="text-xs bg-yellow-200 text-black p-2 my-2">
-        DIAGNOSTIC: undoState is currently {undoState ? `SET ("${undoState.message}")` : "null"}
-      </p>
-
       {undoState && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-3 z-30">
           <span>{undoState.message}</span>
