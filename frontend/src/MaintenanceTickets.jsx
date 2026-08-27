@@ -45,7 +45,11 @@ function TicketRow({ ticket, onUpdateStatus, onVendorAssigned, isStaff, building
   return (
     <div className="border-b border-slate-200 last:border-none py-3">
       <div className="flex items-start gap-4">
-        <span className="font-mono text-xs text-slate-400 min-w-[52px] pt-0.5">#{ticket.id}</span>
+        {isStaff && (
+          <span className="font-mono text-xs text-slate-400 pt-0.5" title={ticket.id}>
+            #{ticket.id.slice(-6)}
+          </span>
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium">{ticket.title}</span>
