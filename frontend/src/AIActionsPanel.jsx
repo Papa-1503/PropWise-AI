@@ -181,7 +181,9 @@ function ActionCard({ action, onDecide }) {
 
       {(action.approvedBy || action.rejectedBy) && (
         <p className="text-[10px] text-slate-400 mt-2">
-          {action.approvedBy ? `Approved by ${action.approvedBy}` : `Rejected by ${action.rejectedBy}`}
+          {action.approvedBy
+            ? `Approved by ${action.approvedBy}${action.approvedAt ? ` on ${new Date(action.approvedAt).toLocaleString()}` : ""}`
+            : `Rejected by ${action.rejectedBy}${action.rejectedAt ? ` on ${new Date(action.rejectedAt).toLocaleString()}` : ""}`}
         </p>
       )}
 
@@ -197,24 +199,31 @@ export default function AIActionsPanel({ propertyId }) {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(null);
+  const [view, setView] = useState("pending"); // "pending" | "history"
   const { authFetch } = useAuth();
 
   const fetchActions = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ status: "suggested" });
+      const params = new URLSearchParams();
+      if (view === "pending") params.set("status", "suggested");
       if (propertyId) params.set("propertyId", propertyId);
       const res = await authFetch(`${API_BASE}/ai/actions?${params.toString()}`);
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
       const data = await res.json();
-      setActions(data.actions || []);
+      let list = data.actions || [];
+      // History mode fetches every status (the backend only supports one
+      // exact status filter at a time) — exclude "suggested" ones here
+      // since those already show under Pending.
+      if (view === "history") list = list.filter((a) => a.status !== "suggested");
+      setActions(list);
     } catch (err) {
       setError(err.message || "Couldn't load AI actions.");
     } finally {
       setLoading(false);
     }
-  }, [propertyId, authFetch]);
+  }, [propertyId, view, authFetch]);
 
   useEffect(() => {
     fetchActions();
@@ -276,6 +285,21 @@ export default function AIActionsPanel({ propertyId }) {
         </button>
       </div>
 
+      <div className="flex bg-slate-100 rounded-lg p-1 mb-4 text-xs font-semibold w-fit">
+        <button
+          onClick={() => setView("pending")}
+          className={`px-3 py-1 rounded-md ${view === "pending" ? "bg-white shadow-sm" : "text-slate-500"}`}
+        >
+          Pending
+        </button>
+        <button
+          onClick={() => setView("history")}
+          className={`px-3 py-1 rounded-md ${view === "history" ? "bg-white shadow-sm" : "text-slate-500"}`}
+        >
+          Decision History
+        </button>
+      </div>
+
       {loading && <p className="text-sm text-slate-400">Loading…</p>}
       {error && (
         <p className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2 mb-3">
@@ -285,8 +309,10 @@ export default function AIActionsPanel({ propertyId }) {
     {!loading && actions.length === 0 && !error && (
         <EmptyState
           icon={Sparkles}
-          title="No pending recommendations"
-          subtitle='Click "Generate new recommendations" to have AI analyze current data.'
+          title={view === "pending" ? "No pending recommendations" : "No decisions yet"}
+          subtitle={view === "pending"
+            ? 'Click "Generate new recommendations" to have AI analyze current data.'
+            : "Approved and rejected recommendations will show up here as a decision history."}
         />
       )}
 
