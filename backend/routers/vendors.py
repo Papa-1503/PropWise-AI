@@ -36,6 +36,72 @@ async def list_vendors(category: str | None = None, user: dict = Depends(require
     return {"vendors": [serialize(v) for v in vendors]}
 
 
+def _normalize_lower_better(value, values):
+    """1.0 = best (lowest) in the set, 0.0 = worst (highest). None values
+    get a neutral 0.5 rather than being penalized or excluded — a vendor
+    that simply hasn't had a field filled in shouldn't rank artificially
+    low against ones that have."""
+    present = [v for v in values if v is not None]
+    if value is None or len(present) < 2:
+        return 0.5
+    lo, hi = min(present), max(present)
+    if hi == lo:
+        return 0.5
+    return 1 - ((value - lo) / (hi - lo))
+
+
+@router.get("/recommended")
+async def recommended_vendors(category: str, user: dict = Depends(require_staff)):
+    """Ranks active vendors in a category by a single transparent composite
+    score, rather than staff having to pick one factor (rating, cost,
+    distance, arrival) at a time and manually weigh trade-offs themselves.
+
+    Same philosophy as the dashboard health score and the applicant
+    screening score elsewhere in this app: a simple, explainable weighted
+    formula, not a statistical model — the weights are a starting point,
+    not a claim of optimality. All four factors are normalized relative
+    to the other candidates in this specific category (not an absolute
+    scale), since "cheap" or "close" means different things for a
+    locksmith than for an HVAC contractor.
+    """
+    cursor = vendors_col.find({"active": True, "category": category})
+    vendors = await cursor.to_list(length=200)
+    if not vendors:
+        return {"vendors": []}
+
+    ratings = [v.get("rating") for v in vendors]
+    arrivals = [v.get("avgArrivalHours") for v in vendors]
+    costs = [v.get("baseCost") for v in vendors]
+    distances = [v.get("distanceMiles") for v in vendors]
+
+    scored = []
+    for v in vendors:
+        rating_component = ((v.get("rating") or 0) / 5) * 40
+        speed_component = _normalize_lower_better(v.get("avgArrivalHours"), arrivals) * 25
+        cost_component = _normalize_lower_better(v.get("baseCost"), costs) * 20
+        distance_component = _normalize_lower_better(v.get("distanceMiles"), distances) * 15
+        score = round(rating_component + speed_component + cost_component + distance_component, 1)
+
+        reason_parts = [f"{v.get('rating', '?')}★ rating"]
+        if v.get("baseCost") is not None:
+            cheapest = min((c for c in costs if c is not None), default=None)
+            reason_parts.append(f"${v['baseCost']:.0f}" + (" (cheapest)" if v["baseCost"] == cheapest else ""))
+        if v.get("distanceMiles") is not None:
+            closest = min((d for d in distances if d is not None), default=None)
+            reason_parts.append(f"{v['distanceMiles']}mi" + (" (closest)" if v["distanceMiles"] == closest else ""))
+        if v.get("avgArrivalHours") is not None:
+            fastest = min((a for a in arrivals if a is not None), default=None)
+            reason_parts.append(f"~{v['avgArrivalHours']}h arrival" + (" (fastest)" if v["avgArrivalHours"] == fastest else ""))
+
+        vs = serialize({**v})
+        vs["score"] = score
+        vs["reason"] = ", ".join(reason_parts)
+        scored.append(vs)
+
+    scored.sort(key=lambda v: v["score"], reverse=True)
+    return {"vendors": scored}
+
+
 @router.post("")
 async def create_vendor(payload: VendorCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()

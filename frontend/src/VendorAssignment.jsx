@@ -14,15 +14,16 @@ export default function VendorAssignment({ ticketId, category, onAssigned }) {
   const [vendors, setVendors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [assigningId, setAssigningId] = useState(null);
-  const [sortBy, setSortBy] = useState("rating");
+  const [sortBy, setSortBy] = useState("recommended");
   const { authFetch } = useAuth();
 
   const fetchVendors = useCallback(async () => {
     setLoading(true);
     try {
+      const endpoint = sortBy === "recommended" ? "recommended" : "";
       const params = new URLSearchParams();
       if (category) params.set("category", category);
-      const res = await authFetch(`${API_BASE}/vendors?${params.toString()}`);
+      const res = await authFetch(`${API_BASE}/vendors/${endpoint}?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
         setVendors(data.vendors || []);
@@ -30,13 +31,13 @@ export default function VendorAssignment({ ticketId, category, onAssigned }) {
     } finally {
       setLoading(false);
     }
-  }, [category, authFetch]);
+  }, [category, sortBy, authFetch]);
 
   useEffect(() => {
     fetchVendors();
   }, [fetchVendors]);
 
-  const sorted = [...vendors].sort((a, b) => {
+  const sorted = sortBy === "recommended" ? vendors : [...vendors].sort((a, b) => {
     if (sortBy === "rating") return (b.rating || 0) - (a.rating || 0);
     if (sortBy === "distance") return (a.distanceMiles ?? 999) - (b.distanceMiles ?? 999);
     if (sortBy === "cost") return (a.baseCost ?? 999999) - (b.baseCost ?? 999999);
@@ -73,6 +74,7 @@ export default function VendorAssignment({ ticketId, category, onAssigned }) {
           onChange={(e) => setSortBy(e.target.value)}
           className="text-xs border border-slate-200 rounded px-2 py-1"
         >
+          <option value="recommended">Recommended</option>
           <option value="rating">Sort: Rating</option>
           <option value="distance">Sort: Distance</option>
           <option value="cost">Sort: Cost</option>
@@ -81,15 +83,27 @@ export default function VendorAssignment({ ticketId, category, onAssigned }) {
       </div>
 
       <div className="space-y-2">
-        {sorted.map((v) => (
+        {sorted.map((v, i) => (
           <div key={v.id} className="flex items-center justify-between border border-slate-100 rounded-lg px-3 py-2">
             <div>
-              <div className="text-sm font-medium">{v.name}</div>
+              <div className="text-sm font-medium flex items-center gap-1.5">
+                {sortBy === "recommended" && i === 0 && (
+                  <span className="text-[10px] font-mono bg-emerald-50 text-emerald-700 rounded-full px-2 py-0.5">Best match</span>
+                )}
+                {v.name}
+                {sortBy === "recommended" && <span className="text-[11px] text-slate-400 font-normal">score {v.score}/100</span>}
+              </div>
               <div className="text-[11px] text-slate-500 flex gap-3 mt-0.5">
-                <span>★ {v.rating}</span>
-                {v.distanceMiles != null && <span>{v.distanceMiles} mi</span>}
-                {v.avgArrivalHours != null && <span>~{v.avgArrivalHours}h arrival</span>}
-                {v.baseCost != null && <span>${v.baseCost}</span>}
+                {sortBy === "recommended" ? (
+                  <span>{v.reason}</span>
+                ) : (
+                  <>
+                    <span>★ {v.rating}</span>
+                    {v.distanceMiles != null && <span>{v.distanceMiles} mi</span>}
+                    {v.avgArrivalHours != null && <span>~{v.avgArrivalHours}h arrival</span>}
+                    {v.baseCost != null && <span>${v.baseCost}</span>}
+                  </>
+                )}
               </div>
             </div>
             <button
