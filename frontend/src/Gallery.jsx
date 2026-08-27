@@ -8,8 +8,16 @@ import EmptyState from "./EmptyState";
  * Property-wide photo gallery — units, amenities, common areas. Staff
  * can upload/delete; tenants can view.
  */
-export default function Gallery() {
+export default function Gallery({ propertyId }) {
   const { user, authFetch } = useAuth();
+  // AppGate already computes the correct value for both roles (staff:
+  // selected building; tenant: their own unit's property) and passes it
+  // down as this prop — trust it directly, matching how every other
+  // shared staff/tenant panel (e.g. MaintenanceTickets) works. The
+  // actual bug this fixes: this component previously read
+  // user.propertyId directly instead of taking this prop at all — that
+  // field is only ever set for tenants, so for staff it was always
+  // null, silently uploading/fetching under the literal string "null".
   const [photos, setPhotos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -17,10 +25,15 @@ export default function Gallery() {
   const [caption, setCaption] = useState("");
 
   const fetchPhotos = useCallback(async () => {
+    if (!propertyId) {
+      setPhotos([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const res = await authFetch(`${API_BASE}/gallery/${user.propertyId}/photos`);
+      const res = await authFetch(`${API_BASE}/gallery/${propertyId}/photos`);
       if (!res.ok) throw new Error("Couldn't load gallery.");
       const data = await res.json();
       setPhotos(data.photos || []);
@@ -29,7 +42,7 @@ export default function Gallery() {
     } finally {
       setLoading(false);
     }
-  }, [user.propertyId, authFetch]);
+  }, [propertyId, authFetch]);
 
   useEffect(() => {
     fetchPhotos();
@@ -37,14 +50,14 @@ export default function Gallery() {
 
   async function handleUpload(e) {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !propertyId) return;
     setUploading(true);
     setError(null);
     try {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("caption", caption);
-      const res = await authFetch(`${API_BASE}/gallery/${user.propertyId}/photos`, {
+      const res = await authFetch(`${API_BASE}/gallery/${propertyId}/photos`, {
         method: "POST",
         body: formData,
       });
@@ -87,6 +100,12 @@ export default function Gallery() {
             <input type="file" accept="image/*" onChange={handleUpload} disabled={uploading} className="hidden" />
           </label>
         </div>
+      )}
+
+      {user.role === "staff" && !propertyId && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+          Pick a specific building from the selector in the header to view or upload photos.
+        </p>
       )}
 
       {error && <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2 mb-3">{error}</p>}

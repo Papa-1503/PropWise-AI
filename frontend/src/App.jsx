@@ -276,7 +276,7 @@ export default function App() {
             <Route path="reconciliation" element={<ReconciliationWrapper />} />
             <Route path="properties" element={<PropertyManagement />} />
             <Route path="documents" element={<Documents />} />
-            <Route path="gallery" element={<Gallery />} />
+            <Route path="gallery" element={<GalleryWrapper />} />
             <Route path="feed" element={<SocialFeed />} />
             <Route path="ai" element={<AICopilotWrapper />} />
             <Route path="*" element={<TabNotFound />} />
@@ -328,6 +328,10 @@ function ScreeningListWrapper() {
 function LeadsListWrapper() {
   const { effectivePropertyId } = useOutletContext();
   return <LeadsList propertyId={effectivePropertyId} />;
+}
+function GalleryWrapper() {
+  const { effectivePropertyId } = useOutletContext();
+  return <Gallery propertyId={effectivePropertyId} />;
 }
 function MaintenanceSchedulesWrapper() {
   const { effectivePropertyId } = useOutletContext();
