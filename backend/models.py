@@ -92,6 +92,15 @@ class UnitStatusUpdate(BaseModel):
     status: Literal["occupied", "vacant", "maintenance_hold"]
 
 
+class UnitDetailsUpdate(BaseModel):
+    """Editing a unit's actual details (rent, bed/bath) — distinct from
+    UnitStatusUpdate above, which only ever covered occupancy status.
+    No endpoint existed for this before Priority 48."""
+    rent: Optional[float] = None
+    bedrooms: Optional[int] = None
+    bathrooms: Optional[float] = None
+
+
 # ---------- Leases ----------
 
 class LeaseCreate(BaseModel):

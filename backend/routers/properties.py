@@ -20,7 +20,7 @@ from bson import ObjectId
 from db import properties_col
 from services.events import emit_event
 from auth import require_staff
-from models import PropertyCreate, PropertyUpdate, UnitStatusUpdate,  OwnerAssign
+from models import PropertyCreate, PropertyUpdate, UnitStatusUpdate, UnitDetailsUpdate, UnitIn, OwnerAssign
 
 router = APIRouter(prefix="/api/properties", tags=["properties"])
 
@@ -66,6 +66,61 @@ async def create_property(payload: PropertyCreate, user: dict = Depends(require_
     result = await properties_col.insert_one(doc)
     doc["_id"] = result.inserted_id
     return serialize(doc)
+
+
+@router.patch("/{property_id}")
+async def update_property(property_id: str, payload: PropertyUpdate, user: dict = Depends(require_staff)):
+    """PropertyUpdate existed as a model with no endpoint using it before
+    Priority 48 — genuinely dead code, now wired up."""
+    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    result = await properties_col.find_one_and_update(
+        {"_id": query_id}, {"$set": updates}, return_document=True
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Property not found")
+    return serialize(result)
+
+
+@router.post("/{property_id}/units")
+async def add_unit(property_id: str, payload: UnitIn, user: dict = Depends(require_staff)):
+    """No endpoint previously existed to add a new unit to an existing
+    property — only whole-property creation with an initial units array
+    was supported."""
+    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+    existing = await properties_col.find_one({"_id": query_id, "units.unitId": payload.unitId})
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Unit {payload.unitId} already exists on this property")
+    result = await properties_col.find_one_and_update(
+        {"_id": query_id},
+        {"$push": {"units": payload.model_dump()}},
+        return_document=True,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Property not found")
+    return serialize(result)
+
+
+@router.patch("/{property_id}/units/{unit_id}/details")
+async def update_unit_details(property_id: str, unit_id: str, payload: UnitDetailsUpdate, user: dict = Depends(require_staff)):
+    """Editing rent/bedrooms/bathrooms — distinct from the existing
+    status-only update endpoint above. No endpoint for this existed
+    before Priority 48; a unit's actual details could previously only
+    be set once, at creation."""
+    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+    updates = {f"units.$.{k}": v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    result = await properties_col.find_one_and_update(
+        {"_id": query_id, "units.unitId": unit_id},
+        {"$set": updates},
+        return_document=True,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Property or unit not found")
+    return serialize(result)
 
 
 @router.patch("/{property_id}/owner")
