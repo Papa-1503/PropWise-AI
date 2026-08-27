@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from db import tickets_col, inspections_col, users_col, properties_col
 from email_service import send_email_async, EmailNotConfigured, EmailSendError
 import notifications_service
+from services.ticket_dedup import find_existing_open_duplicate, record_duplicate_occurrence
 
 
 # Standard unit turnover checklist — housekeeping + maintenance items.
@@ -48,11 +49,21 @@ async def send_email_action(config: dict, payload: dict):
 
 
 async def create_task_action(config: dict, payload: dict):
+    property_id = payload.get("propertyId")
+    unit_id = payload.get("unitId")
+    title = config.get("title", "Automated task")
+
+    existing_duplicate = await find_existing_open_duplicate(property_id, unit_id, title)
+    if existing_duplicate:
+        await record_duplicate_occurrence(existing_duplicate)
+        return {"ticketId": str(existing_duplicate["_id"]), "wasExistingDuplicate": True}
+
     ticket = {
-        "title": config.get("title", "Automated task"),
-        "propertyId": payload.get("propertyId"),
-        "unitId": payload.get("unitId"),
+        "title": title,
+        "propertyId": property_id,
+        "unitId": unit_id,
         "status": "open",
+        "createdAt": datetime.now(timezone.utc),
     }
     result = await tickets_col.insert_one(ticket)
     return {"ticketId": str(result.inserted_id)}

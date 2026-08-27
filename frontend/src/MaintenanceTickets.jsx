@@ -31,6 +31,62 @@ const STATUS_STYLE = {
   done: "bg-emerald-50 text-emerald-700 border-emerald-200",
 };
 
+function GroupedTicketRow({ title, items, selectable, selectedIds, onToggleSelect, onUpdateStatus }) {
+  const [expanded, setExpanded] = useState(false);
+  const allSelected = items.every((t) => selectedIds.has(t.id));
+  const someSelected = items.some((t) => selectedIds.has(t.id));
+
+  function toggleGroupSelect() {
+    items.forEach((t) => {
+      const isSelected = selectedIds.has(t.id);
+      if (allSelected ? isSelected : !isSelected) onToggleSelect(t.id);
+    });
+  }
+
+  return (
+    <div className="border-b border-slate-200 last:border-none py-3 bg-slate-50/60 -mx-2 px-2 rounded-lg">
+      <div className="flex items-start gap-4">
+        {selectable && (
+          <input
+            type="checkbox"
+            checked={allSelected}
+            ref={(el) => el && (el.indeterminate = someSelected && !allSelected)}
+            onChange={toggleGroupSelect}
+            className="mt-1"
+            aria-label={`Select all ${items.length} ${title} tickets`}
+          />
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-medium">{title}</span>
+            <span className="text-[10px] font-mono bg-violet-50 text-violet-700 rounded-full px-2 py-0.5">
+              {items.length} units
+            </span>
+          </div>
+          <button onClick={() => setExpanded((e) => !e)} className="text-[11px] text-indigo-700 hover:underline mt-1">
+            {expanded ? "Hide units" : `Show units (${items.map((t) => t.unitId || "—").join(", ")})`}
+          </button>
+          {expanded && (
+            <div className="mt-2 space-y-2 pl-2 border-l-2 border-slate-200">
+              {items.map((t) => (
+                <TicketRow
+                  key={t.id}
+                  ticket={t}
+                  onUpdateStatus={onUpdateStatus}
+                  isStaff={true}
+                  selectable={selectable}
+                  selected={selectedIds.has(t.id)}
+                  onToggleSelect={onToggleSelect}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TicketRow({ ticket, onUpdateStatus, onVendorAssigned, isStaff, buildingName, selectable, selected, onToggleSelect }) {
   const [updating, setUpdating] = useState(false);
   const [showVendorPanel, setShowVendorPanel] = useState(false);
@@ -240,6 +296,34 @@ export default function MaintenanceTickets({ propertyId }) {
     [tickets, statusFilter]
   );
 
+  // Group same-title OPEN tickets together for display (e.g. the same
+  // workflow-triggered task landing on several units at once) rather than
+  // showing N nearly-identical cards. Only groups status === "open" —
+  // resolved/in-progress items always show individually, since grouping
+  // there adds no value. A title needs 2+ open tickets to become a group;
+  // a single occurrence renders normally via the ungrouped path below.
+  const { groups, ungrouped } = useMemo(() => {
+    const openByTitle = new Map();
+    const ungroupedList = [];
+    for (const t of filtered) {
+      if (t.status !== "open") {
+        ungroupedList.push(t);
+        continue;
+      }
+      if (!openByTitle.has(t.title)) openByTitle.set(t.title, []);
+      openByTitle.get(t.title).push(t);
+    }
+    const groupList = [];
+    for (const [title, items] of openByTitle) {
+      if (items.length >= 2) groupList.push({ title, items });
+      else ungroupedList.push(...items);
+    }
+    // Preserve original ordering for ungrouped items rather than the
+    // Map-insertion order that singling-out would otherwise produce.
+    ungroupedList.sort((a, b) => filtered.indexOf(a) - filtered.indexOf(b));
+    return { groups: groupList, ungrouped: ungroupedList };
+  }, [filtered]);
+
   const urgentOpenCount = tickets.filter((t) => t.status !== "done" && t.priority === "urgent").length;
 
   return (
@@ -345,21 +429,34 @@ export default function MaintenanceTickets({ propertyId }) {
         />
       )}
 
-      {!loading &&
-        !error &&
-        filtered.map((ticket) => (
-          <TicketRow
-            key={ticket.id}
-            ticket={ticket}
-            onUpdateStatus={handleUpdateStatus}
-            onVendorAssigned={handleVendorAssigned}
-            isStaff={isStaff}
-            buildingName={isStaff ? getPropertyName(ticket.propertyId) : null}
-            selectable={isStaff}
-            selected={selectedIds.has(ticket.id)}
-            onToggleSelect={toggleSelect}
-          />
-        ))}
+      {!loading && !error && (
+        <>
+          {groups.map((g) => (
+            <GroupedTicketRow
+              key={g.title}
+              title={g.title}
+              items={g.items}
+              selectable={isStaff}
+              selectedIds={selectedIds}
+              onToggleSelect={toggleSelect}
+              onUpdateStatus={handleUpdateStatus}
+            />
+          ))}
+          {ungrouped.map((ticket) => (
+            <TicketRow
+              key={ticket.id}
+              ticket={ticket}
+              onUpdateStatus={handleUpdateStatus}
+              onVendorAssigned={handleVendorAssigned}
+              isStaff={isStaff}
+              buildingName={isStaff ? getPropertyName(ticket.propertyId) : null}
+              selectable={isStaff}
+              selected={selectedIds.has(ticket.id)}
+              onToggleSelect={toggleSelect}
+            />
+          ))}
+        </>
+      )}
     </div>
   );
 }

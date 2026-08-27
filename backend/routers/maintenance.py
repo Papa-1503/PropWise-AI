@@ -28,6 +28,7 @@ from models import TicketCreate, TicketUpdate, TimeEntryCreate
 import notifications_service
 from auth import require_staff, get_current_user
 from services.events import emit_event
+from services.ticket_dedup import find_existing_open_duplicate, record_duplicate_occurrence
 
 router = APIRouter(prefix="/api/maintenance/tickets", tags=["maintenance"])
 
@@ -70,6 +71,14 @@ async def create_ticket(payload: TicketCreate, user: dict = Depends(get_current_
         doc["propertyId"] = user.get("propertyId")
         doc["unitId"] = user.get("unitId")
         doc["source"] = "resident"
+
+    existing_duplicate = await find_existing_open_duplicate(
+        doc.get("propertyId"), doc.get("unitId"), doc.get("title")
+    )
+    if existing_duplicate:
+        await record_duplicate_occurrence(existing_duplicate)
+        existing_duplicate["_id"] = str(existing_duplicate["_id"])
+        return {**existing_duplicate, "wasExistingDuplicate": True}
 
     assigned_tech = None
     if doc.get("source") == "resident" and doc.get("propertyId"):
