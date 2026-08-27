@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "./AuthContext";
-import { API_BASE } from "./config";import Avatar from "./Avatar";
+import { API_BASE } from "./config";
+import Avatar from "./Avatar";
 
 
 const CATEGORY_STYLE = {

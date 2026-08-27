@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "./AuthContext";
-import { API_BASE } from "./config";import EmptyState from "./EmptyState";
+import { API_BASE } from "./config";
+import EmptyState from "./EmptyState";
 import { DollarSign } from "lucide-react";
 
 
