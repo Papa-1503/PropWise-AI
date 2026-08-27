@@ -77,12 +77,18 @@ export default function AIWorkforcePanel({ propertyId }) {
         <AgentCard name="OperationsAI" tracked={data.operationsAI.tracked}>
           <StatLine label="Actions Suggested" value={data.operationsAI.actionsSuggested} />
           <StatLine label="Actions Approved" value={data.operationsAI.actionsApproved} />
-          <StatLine label="Revenue Protected" value={data.operationsAI.revenueProtected} />
+          <StatLine label="Est. Revenue Protected" value={data.operationsAI.revenueProtected} />
+          <p className="text-[10px] text-slate-400 italic mt-1">
+            AI-estimated impact of completed actions — not an independently verified figure.
+          </p>
         </AgentCard>
 
         <AgentCard name="CollectionsAI" tracked={data.collectionsAI.tracked} note={data.collectionsAI.note}>
           <StatLine label="Residents Contacted" value={data.collectionsAI.residentsContacted} />
           <StatLine label="Recovered Revenue" value={data.collectionsAI.recoveredRevenue} />
+          <p className="text-[10px] text-slate-400 italic mt-1">
+            Real, verified — sum of actual payments received after their due date.
+          </p>
         </AgentCard>
 
         <AgentCard name="MaintenanceAI" tracked={data.maintenanceAI.tracked}>

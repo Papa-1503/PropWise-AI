@@ -137,7 +137,6 @@ async def get_workforce_stats(propertyId: str | None = None, days: int = 30, use
     leases_signed = await leads_col.count_documents({**prop_filter, "signedAt": {"$gte": since}})
 
     # CollectionsAI — now real, computed from the payments ledger.
-    # CollectionsAI — now real, computed from the payments ledger.
     # "Residents contacted" counts distinct units that received a
     # collections_reminder email in the window (from completed ai_actions).
     # "Recovered revenue" sums payments recorded in the window for charges
