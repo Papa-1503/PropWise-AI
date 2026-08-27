@@ -244,7 +244,7 @@ export default function MaintenanceTickets({ propertyId }) {
   // selected ticket. "Undo" is possible because we record each ticket's
   // real previous status before changing it, then can PATCH each one
   // back individually if the person clicks undo.
-  async function applyBulkStatus(status) {
+  function applyBulkStatus(status) {
     const affectedIds = [...selectedIds];
     const previousStatuses = new Map(
       tickets.filter((t) => affectedIds.includes(t.id)).map((t) => [t.id, t.status])
@@ -254,7 +254,20 @@ export default function MaintenanceTickets({ propertyId }) {
     setSelectedIds(new Set());
     setConfirmingBulk(null);
 
-    await Promise.all(
+    // Set the undo toast immediately, before the network calls, not after
+    // awaiting them — real testing (Aug 25, 2026) showed setUndoState was
+    // genuinely being called with correct data after the await (confirmed
+    // via a diagnostic console.log), but the toast never actually
+    // persisted on screen, pointing to something in that async gap. This
+    // also gives the person instant feedback rather than waiting on the
+    // network for the undo option to appear.
+    setUndoState({
+      previousStatuses,
+      message: `${affectedIds.length} ticket${affectedIds.length !== 1 ? "s" : ""} marked ${STATUS_LABEL[status]}.`,
+    });
+    setTimeout(() => setUndoState((cur) => (cur?.previousStatuses === previousStatuses ? null : cur)), 8000);
+
+    Promise.all(
       affectedIds.map((id) =>
         authFetch(`${API_BASE}/maintenance/tickets/${id}`, {
           method: "PATCH",
@@ -263,14 +276,6 @@ export default function MaintenanceTickets({ propertyId }) {
         }).catch(() => null)
       )
     );
-
-    // TEMPORARY DIAGNOSTIC — remove once the undo-toast bug is found.
-    console.log("[DIAGNOSTIC] About to call setUndoState with:", affectedIds.length, "affected tickets");
-    setUndoState({
-      previousStatuses,
-      message: `${affectedIds.length} ticket${affectedIds.length !== 1 ? "s" : ""} marked ${STATUS_LABEL[status]}.`,
-    });
-    setTimeout(() => setUndoState((cur) => (cur?.previousStatuses === previousStatuses ? null : cur)), 8000);
   }
 
   async function handleUndo() {
