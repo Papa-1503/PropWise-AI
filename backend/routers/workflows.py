@@ -101,3 +101,46 @@ async def get_workflow_runs(workflow_id: str, user: dict = Depends(require_staff
     for run in runs:
         run["id"] = str(run.pop("_id"))
     return {"runs": runs}
+
+
+@router.get("/{workflow_id}/health")
+async def get_workflow_health(workflow_id: str, user: dict = Depends(require_staff)):
+    """Real health metrics computed from actual run history — completion
+    rate, exception rate, average duration, run count. No cost figure:
+    workflow_runs documents don't track any cost data at all, so a "cost
+    per run" metric would have to be fabricated. Only building what's
+    genuinely computable from what's actually stored."""
+    cursor = workflow_runs_col.find({"workflowId": workflow_id}).sort("startedAt", -1)
+    runs = await cursor.to_list(length=500)
+
+    if not runs:
+        return {
+            "runCount": 0,
+            "completionRate": None,
+            "exceptionRate": None,
+            "avgDurationMs": None,
+            "lastRunAt": None,
+        }
+
+    completed = 0
+    total_duration_ms = 0.0
+    duration_count = 0
+    for run in runs:
+        steps = run.get("steps", [])
+        all_succeeded = all(s.get("status") == "success" for s in steps) if steps else False
+        if all_succeeded:
+            completed += 1
+        started = run.get("startedAt")
+        finished = run.get("finishedAt")
+        if isinstance(started, datetime) and isinstance(finished, datetime):
+            total_duration_ms += (finished - started).total_seconds() * 1000
+            duration_count += 1
+
+    run_count = len(runs)
+    return {
+        "runCount": run_count,
+        "completionRate": round(completed / run_count * 100, 1),
+        "exceptionRate": round((run_count - completed) / run_count * 100, 1),
+        "avgDurationMs": round(total_duration_ms / duration_count, 1) if duration_count else None,
+        "lastRunAt": runs[0]["startedAt"].isoformat() if isinstance(runs[0].get("startedAt"), datetime) else None,
+    }

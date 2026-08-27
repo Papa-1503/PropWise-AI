@@ -54,12 +54,31 @@ function actionLabel(type) {
 
 function WorkflowRow({ workflow, onPublish, onPause, onDelete }) {
   const [busy, setBusy] = useState(false);
+  const [health, setHealth] = useState(null);
+  const [showHealth, setShowHealth] = useState(false);
+  const { authFetch } = useAuth();
 
   const run = async (fn) => {
     setBusy(true);
     await fn(workflow.id);
     setBusy(false);
   };
+
+  async function toggleHealth() {
+    if (showHealth) {
+      setShowHealth(false);
+      return;
+    }
+    setShowHealth(true);
+    if (!health) {
+      try {
+        const res = await authFetch(`${API_BASE}/workflows/${workflow.id}/health`);
+        if (res.ok) setHealth(await res.json());
+      } catch {
+        // leave health null — the UI below handles that as "couldn't load"
+      }
+    }
+  }
 
   return (
     <div className="border-b border-slate-200 last:border-none py-3">
@@ -79,6 +98,25 @@ function WorkflowRow({ workflow, onPublish, onPause, onDelete }) {
               ? "No actions configured"
               : workflow.actions.map((a) => actionLabel(a.type)).join(" → ")}
           </p>
+          <button onClick={toggleHealth} className="text-[11px] text-indigo-700 hover:underline mt-1">
+            {showHealth ? "Hide run history" : "View run history"}
+          </button>
+          {showHealth && (
+            <div className="mt-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs">
+              {!health ? (
+                <span className="text-slate-400">Loading…</span>
+              ) : health.runCount === 0 ? (
+                <span className="text-slate-400">This workflow hasn't run yet.</span>
+              ) : (
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                  <span className="text-slate-500">Total runs: <strong className="text-slate-700">{health.runCount}</strong></span>
+                  <span className="text-slate-500">Completion rate: <strong className="text-emerald-600">{health.completionRate}%</strong></span>
+                  <span className="text-slate-500">Exception rate: <strong className={health.exceptionRate > 0 ? "text-amber-600" : "text-slate-700"}>{health.exceptionRate}%</strong></span>
+                  <span className="text-slate-500">Avg duration: <strong className="text-slate-700">{health.avgDurationMs}ms</strong></span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex gap-2 shrink-0">
           {workflow.status !== "published" && (
