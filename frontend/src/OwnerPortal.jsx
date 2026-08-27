@@ -166,8 +166,9 @@ function OwnerTaxSummaryView() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <label className="text-sm text-slate-600">Tax year:</label>
+        <label htmlFor="owner-tax-year" className="text-sm text-slate-600">Tax year:</label>
         <select
+          id="owner-tax-year"
           value={year}
           onChange={(e) => setYear(Number(e.target.value))}
           className="text-sm border border-slate-200 rounded px-2 py-1"
