@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "./AuthContext";
-import { API_BASE } from "./config";import EmptyState from "./EmptyState";
+import { API_BASE } from "./config";
+import EmptyState from "./EmptyState";
 import { Sparkles } from "lucide-react";
 /**
  * AIActionsPanel
@@ -25,6 +26,11 @@ const PRIORITY_LABEL_STYLE = {
   high: "text-rose-700 bg-rose-100",
   medium: "text-amber-700 bg-amber-100",
   low: "text-slate-600 bg-slate-100",
+};
+const RISK_STYLE = {
+  high: "text-rose-600",
+  medium: "text-amber-600",
+  low: "text-emerald-600",
 };
 
 function ConfidenceBar({ value }) {
@@ -75,6 +81,24 @@ function ActionCard({ action, onDecide }) {
       )}
       <p className="text-xs text-slate-600 mt-1">{action.projectedOutcome}</p>
 
+      {/* Exception Desk framing (Priority 22): surface why this needs a
+          human — risk level and estimated value both already existed in
+          the data but were never actually shown here before today. */}
+      {(action.riskLevel || action.estimatedValue != null) && (
+        <div className="flex items-center gap-3 mt-1.5 text-[11px]">
+          {action.riskLevel && (
+            <span className={RISK_STYLE[action.riskLevel]}>
+              {action.riskLevel} risk
+            </span>
+          )}
+          {action.estimatedValue != null && (
+            <span className="text-slate-500">
+              Est. impact: ${action.estimatedValue.toLocaleString()}
+            </span>
+          )}
+        </div>
+      )}
+
       <button
         onClick={() => setExpanded((e) => !e)}
         className="text-[11px] text-slate-500 underline mt-2"
@@ -110,6 +134,7 @@ function ActionCard({ action, onDecide }) {
           <button
             onClick={() => handleDecision("approve")}
             disabled={busy}
+            title="Executes this action now"
             className="text-xs font-semibold bg-slate-900 text-white px-3 py-1.5 rounded-lg disabled:opacity-50"
           >
             {busy ? "…" : "Approve"}
@@ -117,6 +142,7 @@ function ActionCard({ action, onDecide }) {
           <button
             onClick={() => setEditing(true)}
             disabled={busy}
+            title="Change the title before approving"
             className="text-xs font-semibold bg-white border border-slate-300 px-3 py-1.5 rounded-lg disabled:opacity-50"
           >
             Edit
@@ -124,6 +150,7 @@ function ActionCard({ action, onDecide }) {
           <button
             onClick={() => handleDecision("reject")}
             disabled={busy}
+            title="Dismisses this suggestion — no action taken"
             className="text-xs font-semibold bg-white border border-slate-300 px-3 py-1.5 rounded-lg disabled:opacity-50"
           >
             Reject
