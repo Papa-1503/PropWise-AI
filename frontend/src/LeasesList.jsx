@@ -158,7 +158,7 @@ function NewLeaseModal({ propertyId, onClose, onSaved }) {
   );
 }
 
-function LeaseRow({ lease, buildingName, onRenewalChange, onGenerateDocument, onViewHistory }) {
+function LeaseRow({ lease, buildingName, onRenewalChange, onGenerateDocument, onViewHistory, selectable, selected, onToggleSelect }) {
   const [generating, setGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -174,10 +174,19 @@ function LeaseRow({ lease, buildingName, onRenewalChange, onGenerateDocument, on
   return (
     <div className="border-b border-slate-100 py-3 last:border-none">
       <div className="flex items-center justify-between">
-        <div>
-          <span className="text-sm font-medium">{lease.residentName}</span>
-          <span className="text-xs text-slate-500 ml-2">
-            {buildingName && <span>{buildingName} · </span>}
+        <div className="flex items-center gap-2">
+          {selectable && (
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={() => onToggleSelect(lease.id)}
+              aria-label={`Select ${lease.residentName}`}
+            />
+          )}
+          <div>
+            <span className="text-sm font-medium">{lease.residentName}</span>
+            <span className="text-xs text-slate-500 ml-2">
+              {buildingName && <span>{buildingName} · </span>}
             Unit {lease.unitId}
           </span>
           {lease.residentEmail && (
@@ -189,6 +198,7 @@ function LeaseRow({ lease, buildingName, onRenewalChange, onGenerateDocument, on
               <History size={13} />
             </button>
           )}
+          </div>
         </div>
         <select
           value={lease.renewalStatus}
@@ -240,6 +250,9 @@ export default function LeasesList({ propertyId }) {
   const [showNew, setShowNew] = useState(false);
   const [error, setError] = useState(null);
   const [historyTarget, setHistoryTarget] = useState(null); // { email, name } | null
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [confirmingBulk, setConfirmingBulk] = useState(null); // target renewalStatus | null
+  const [undoState, setUndoState] = useState(null);
   const { authFetch, getPropertyName } = useAuth();
 
   const fetchLeases = useCallback(async () => {
@@ -279,6 +292,67 @@ export default function LeasesList({ propertyId }) {
     }
   }
 
+  const RENEWAL_LABEL = { not_sent: "Not Sent", sent: "Sent", signed: "Signed" };
+
+  function toggleSelect(leaseId) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(leaseId)) next.delete(leaseId);
+      else next.add(leaseId);
+      return next;
+    });
+  }
+
+  function applyBulkRenewalStatus(renewalStatus) {
+    const affectedIds = [...selectedIds];
+    const previousStatuses = new Map(
+      leases.filter((l) => affectedIds.includes(l.id)).map((l) => [l.id, l.renewalStatus])
+    );
+
+    setLeases((prev) => prev.map((l) => (affectedIds.includes(l.id) ? { ...l, renewalStatus } : l)));
+    setSelectedIds(new Set());
+    setConfirmingBulk(null);
+
+    // Set undo state before awaiting the network calls, not after — see
+    // MaintenanceTickets.jsx's applyBulkStatus for why (real testing
+    // there showed the state wasn't reliably persisting when set after
+    // an await, even though it was genuinely being called with correct
+    // data). This also gives instant feedback either way.
+    setUndoState({
+      previousStatuses,
+      message: `${affectedIds.length} lease${affectedIds.length !== 1 ? "s" : ""} marked ${RENEWAL_LABEL[renewalStatus]}.`,
+    });
+    setTimeout(() => setUndoState((cur) => (cur?.previousStatuses === previousStatuses ? null : cur)), 8000);
+
+    Promise.all(
+      affectedIds.map((id) =>
+        authFetch(`${API_BASE}/leases/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ renewalStatus }),
+        }).catch(() => null)
+      )
+    );
+  }
+
+  async function handleUndo() {
+    if (!undoState) return;
+    const { previousStatuses } = undoState;
+    setLeases((prev) =>
+      prev.map((l) => (previousStatuses.has(l.id) ? { ...l, renewalStatus: previousStatuses.get(l.id) } : l))
+    );
+    setUndoState(null);
+    await Promise.all(
+      [...previousStatuses.entries()].map(([id, renewalStatus]) =>
+        authFetch(`${API_BASE}/leases/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ renewalStatus }),
+        }).catch(() => null)
+      )
+    );
+  }
+
   async function handleGenerateDocument(leaseId) {
     const res = await authFetch(`${API_BASE}/leases/${leaseId}/generate-document`, { method: "POST" });
     const data = await res.json().catch(() => ({}));
@@ -312,6 +386,58 @@ export default function LeasesList({ propertyId }) {
         </p>
       )}
 
+      {selectedIds.size > 0 && (
+        <div className="flex items-center justify-between bg-slate-900 text-white rounded-lg px-4 py-2.5 mb-3 text-sm">
+          <span>{selectedIds.size} selected</span>
+          <div className="flex gap-2">
+            {["not_sent", "sent", "signed"].map((s) => (
+              <button
+                key={s}
+                onClick={() => setConfirmingBulk(s)}
+                className="text-xs font-semibold bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded"
+              >
+                Mark {RENEWAL_LABEL[s]}
+              </button>
+            ))}
+            <button onClick={() => setSelectedIds(new Set())} className="text-xs text-slate-300 hover:text-white px-2">
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+
+      {confirmingBulk && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-sm p-5">
+            <p className="text-sm mb-4">
+              Mark <strong>{selectedIds.size}</strong> lease{selectedIds.size !== 1 ? "s" : ""} as{" "}
+              <strong>{RENEWAL_LABEL[confirmingBulk]}</strong>?
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => applyBulkRenewalStatus(confirmingBulk)}
+                className="flex-1 text-sm font-semibold bg-slate-900 text-white py-2 rounded-lg"
+              >
+                Confirm
+              </button>
+              <button
+                onClick={() => setConfirmingBulk(null)}
+                className="flex-1 text-sm font-semibold bg-white border border-slate-300 py-2 rounded-lg"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {undoState && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-3 z-30">
+          <span>{undoState.message}</span>
+          <button onClick={handleUndo} className="font-semibold underline">Undo</button>
+        </div>
+      )}
+
       {loading ? (
         <div className="h-40 bg-slate-100 rounded-xl animate-pulse" />
       ) : error ? (
@@ -332,6 +458,9 @@ export default function LeasesList({ propertyId }) {
               onRenewalChange={handleRenewalChange}
               onGenerateDocument={handleGenerateDocument}
               onViewHistory={(email, name) => setHistoryTarget({ email, name })}
+              selectable={true}
+              selected={selectedIds.has(l.id)}
+              onToggleSelect={toggleSelect}
             />
           ))}
         </div>
