@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAuth } from "./AuthContext";
-import VendorAssignment from "./VendorAssignment";import EmptyState from "./EmptyState";
+import VendorAssignment from "./VendorAssignment";
+import EmptyState from "./EmptyState";
 import { Wrench } from "lucide-react";
 
 /**
@@ -30,7 +31,7 @@ const STATUS_STYLE = {
   done: "bg-emerald-50 text-emerald-700 border-emerald-200",
 };
 
-function TicketRow({ ticket, onUpdateStatus, onVendorAssigned, isStaff, buildingName }) {
+function TicketRow({ ticket, onUpdateStatus, onVendorAssigned, isStaff, buildingName, selectable, selected, onToggleSelect }) {
   const [updating, setUpdating] = useState(false);
   const [showVendorPanel, setShowVendorPanel] = useState(false);
 
@@ -45,6 +46,15 @@ function TicketRow({ ticket, onUpdateStatus, onVendorAssigned, isStaff, building
   return (
     <div className="border-b border-slate-200 last:border-none py-3">
       <div className="flex items-start gap-4">
+        {selectable && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelect(ticket.id)}
+            className="mt-1"
+            aria-label={`Select ${ticket.title}`}
+          />
+        )}
         {isStaff && (
           <span className="font-mono text-xs text-slate-400 pt-0.5" title={ticket.id}>
             #{ticket.id.slice(-6)}
@@ -118,6 +128,9 @@ export default function MaintenanceTickets({ propertyId }) {
   const [error, setError] = useState(null);
   const [statusFilter, setStatusFilter] = useState("all");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [confirmingBulk, setConfirmingBulk] = useState(null); // target status | null
+  const [undoState, setUndoState] = useState(null); // { previousStatuses: Map, message } | null
   const { authFetch, user, getPropertyName } = useAuth();
   const isStaff = user?.role === "staff";
 
@@ -162,6 +175,64 @@ export default function MaintenanceTickets({ propertyId }) {
     }
   };
 
+  function toggleSelect(ticketId) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(ticketId)) next.delete(ticketId);
+      else next.add(ticketId);
+      return next;
+    });
+  }
+
+  // No backend bulk-update endpoint exists — this sends one PATCH per
+  // selected ticket. "Undo" is possible because we record each ticket's
+  // real previous status before changing it, then can PATCH each one
+  // back individually if the person clicks undo.
+  async function applyBulkStatus(status) {
+    const affectedIds = [...selectedIds];
+    const previousStatuses = new Map(
+      tickets.filter((t) => affectedIds.includes(t.id)).map((t) => [t.id, t.status])
+    );
+
+    setTickets((prev) => prev.map((t) => (affectedIds.includes(t.id) ? { ...t, status } : t)));
+    setSelectedIds(new Set());
+    setConfirmingBulk(null);
+
+    await Promise.all(
+      affectedIds.map((id) =>
+        authFetch(`${API_BASE}/maintenance/tickets/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        }).catch(() => null)
+      )
+    );
+
+    setUndoState({
+      previousStatuses,
+      message: `${affectedIds.length} ticket${affectedIds.length !== 1 ? "s" : ""} marked ${STATUS_LABEL[status]}.`,
+    });
+    setTimeout(() => setUndoState((cur) => (cur?.previousStatuses === previousStatuses ? null : cur)), 8000);
+  }
+
+  async function handleUndo() {
+    if (!undoState) return;
+    const { previousStatuses } = undoState;
+    setTickets((prev) =>
+      prev.map((t) => (previousStatuses.has(t.id) ? { ...t, status: previousStatuses.get(t.id) } : t))
+    );
+    setUndoState(null);
+    await Promise.all(
+      [...previousStatuses.entries()].map(([id, status]) =>
+        authFetch(`${API_BASE}/maintenance/tickets/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        }).catch(() => null)
+      )
+    );
+  }
+
   const filtered = useMemo(
     () => (statusFilter === "all" ? tickets : tickets.filter((t) => t.status === statusFilter)),
     [tickets, statusFilter]
@@ -193,6 +264,58 @@ export default function MaintenanceTickets({ propertyId }) {
         </div>
       </div>
 
+      {isStaff && selectedIds.size > 0 && (
+        <div className="flex items-center justify-between bg-slate-900 text-white rounded-lg px-4 py-2.5 mb-3 text-sm">
+          <span>{selectedIds.size} selected</span>
+          <div className="flex gap-2">
+            {["open", "in_progress", "done"].map((s) => (
+              <button
+                key={s}
+                onClick={() => setConfirmingBulk(s)}
+                className="text-xs font-semibold bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded"
+              >
+                Mark {STATUS_LABEL[s]}
+              </button>
+            ))}
+            <button onClick={() => setSelectedIds(new Set())} className="text-xs text-slate-300 hover:text-white px-2">
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+
+      {confirmingBulk && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-sm p-5">
+            <p className="text-sm mb-4">
+              Mark <strong>{selectedIds.size}</strong> ticket{selectedIds.size !== 1 ? "s" : ""} as{" "}
+              <strong>{STATUS_LABEL[confirmingBulk]}</strong>?
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => applyBulkStatus(confirmingBulk)}
+                className="flex-1 text-sm font-semibold bg-slate-900 text-white py-2 rounded-lg"
+              >
+                Confirm
+              </button>
+              <button
+                onClick={() => setConfirmingBulk(null)}
+                className="flex-1 text-sm font-semibold bg-white border border-slate-300 py-2 rounded-lg"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {undoState && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-3 z-30">
+          <span>{undoState.message}</span>
+          <button onClick={handleUndo} className="font-semibold underline">Undo</button>
+        </div>
+      )}
+
       {loading && <p className="text-sm text-slate-400">Loading tickets…</p>}
 
       {error && (
@@ -222,6 +345,9 @@ export default function MaintenanceTickets({ propertyId }) {
             onVendorAssigned={handleVendorAssigned}
             isStaff={isStaff}
             buildingName={isStaff ? getPropertyName(ticket.propertyId) : null}
+            selectable={isStaff}
+            selected={selectedIds.has(ticket.id)}
+            onToggleSelect={toggleSelect}
           />
         ))}
     </div>
