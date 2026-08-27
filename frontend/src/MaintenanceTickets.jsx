@@ -129,6 +129,14 @@ function TicketRow({ ticket, onUpdateStatus, onVendorAssigned, isStaff, building
                 urgent
               </span>
             )}
+            {ticket.severityTier === "emergency" && (
+              <span
+                className="text-[10px] font-mono bg-red-100 text-red-800 rounded-full px-2 py-0.5"
+                title={ticket.severityExplanation ? `${ticket.severityExplanation} (${ticket.severityScore}/100)` : undefined}
+              >
+                ⚠ emergency
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
             {buildingName && <span className="font-medium text-slate-600">{buildingName}</span>}

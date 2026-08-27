@@ -12,6 +12,7 @@ from db import tickets_col, inspections_col, users_col, properties_col
 from email_service import send_email_async, EmailNotConfigured, EmailSendError
 import notifications_service
 from services.ticket_dedup import find_existing_open_duplicate, record_duplicate_occurrence
+from services.ticket_severity import compute_severity
 
 
 # Standard unit turnover checklist — housekeeping + maintenance items.
@@ -58,12 +59,16 @@ async def create_task_action(config: dict, payload: dict):
         await record_duplicate_occurrence(existing_duplicate)
         return {"ticketId": str(existing_duplicate["_id"]), "wasExistingDuplicate": True}
 
+    severity = compute_severity(title, None)
     ticket = {
         "title": title,
         "propertyId": property_id,
         "unitId": unit_id,
         "status": "open",
         "createdAt": datetime.now(timezone.utc),
+        "severityScore": severity["score"],
+        "severityTier": severity["tier"],
+        "severityExplanation": severity["explanation"],
     }
     result = await tickets_col.insert_one(ticket)
     return {"ticketId": str(result.inserted_id)}
