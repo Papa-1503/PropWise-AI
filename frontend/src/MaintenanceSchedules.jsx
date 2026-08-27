@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useId } from "react";
 import { useAuth } from "./AuthContext";
 import EmptyState from "./EmptyState";
 import { CalendarClock, Plus, X } from "lucide-react";
@@ -25,6 +25,7 @@ function NewScheduleModal({ propertyId, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const { authFetch } = useAuth();
+  const idPrefix = useId();
 
   async function handleSave() {
     if (!title.trim() || !nextDueDate) {
@@ -69,8 +70,9 @@ function NewScheduleModal({ propertyId, onClose, onSaved }) {
 
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-slate-500">Title</label>
+            <label htmlFor={`${idPrefix}-title`} className="text-xs text-slate-500">Title</label>
             <input
+              id={`${idPrefix}-title`}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. HVAC filter check"
@@ -78,8 +80,9 @@ function NewScheduleModal({ propertyId, onClose, onSaved }) {
             />
           </div>
           <div>
-            <label className="text-xs text-slate-500">Unit (optional — leave blank for property-wide, e.g. shared HVAC, common areas)</label>
+            <label htmlFor={`${idPrefix}-unit`} className="text-xs text-slate-500">Unit (optional — leave blank for property-wide, e.g. shared HVAC, common areas)</label>
             <input
+              id={`${idPrefix}-unit`}
               value={unitId}
               onChange={(e) => setUnitId(e.target.value)}
               placeholder="e.g. 104"
@@ -88,8 +91,9 @@ function NewScheduleModal({ propertyId, onClose, onSaved }) {
           </div>
           <div className="flex gap-3">
             <div className="flex-1">
-              <label className="text-xs text-slate-500">Category</label>
+              <label htmlFor={`${idPrefix}-category`} className="text-xs text-slate-500">Category</label>
               <select
+                id={`${idPrefix}-category`}
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
                 className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5 capitalize"
@@ -100,8 +104,9 @@ function NewScheduleModal({ propertyId, onClose, onSaved }) {
               </select>
             </div>
             <div className="flex-1">
-              <label className="text-xs text-slate-500">Repeats every (days)</label>
+              <label htmlFor={`${idPrefix}-interval`} className="text-xs text-slate-500">Repeats every (days)</label>
               <input
+                id={`${idPrefix}-interval`}
                 type="number"
                 value={intervalDays}
                 onChange={(e) => setIntervalDays(e.target.value)}
@@ -110,8 +115,9 @@ function NewScheduleModal({ propertyId, onClose, onSaved }) {
             </div>
           </div>
           <div>
-            <label className="text-xs text-slate-500">Next due date</label>
+            <label htmlFor={`${idPrefix}-due`} className="text-xs text-slate-500">Next due date</label>
             <input
+              id={`${idPrefix}-due`}
               type="date"
               value={nextDueDate}
               onChange={(e) => setNextDueDate(e.target.value)}

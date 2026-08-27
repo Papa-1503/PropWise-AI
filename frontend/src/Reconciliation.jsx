@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useId } from "react";
 import { useAuth } from "./AuthContext";
 import EmptyState from "./EmptyState";
 import { Landmark, Plus, X, Link2, Link2Off } from "lucide-react";
@@ -21,6 +21,7 @@ function NewLineModal({ propertyId, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const { authFetch } = useAuth();
+  const idPrefix = useId();
 
   async function handleSave() {
     if (!date || !description.trim() || !amount) {
@@ -58,8 +59,9 @@ function NewLineModal({ propertyId, onClose, onSaved }) {
 
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-slate-500">Date</label>
+            <label htmlFor={`${idPrefix}-date`} className="text-xs text-slate-500">Date</label>
             <input
+              id={`${idPrefix}-date`}
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
@@ -67,8 +69,9 @@ function NewLineModal({ propertyId, onClose, onSaved }) {
             />
           </div>
           <div>
-            <label className="text-xs text-slate-500">Description (as shown on the bank statement)</label>
+            <label htmlFor={`${idPrefix}-desc`} className="text-xs text-slate-500">Description (as shown on the bank statement)</label>
             <input
+              id={`${idPrefix}-desc`}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="e.g. ACH DEPOSIT 104-SMITH"
@@ -76,8 +79,9 @@ function NewLineModal({ propertyId, onClose, onSaved }) {
             />
           </div>
           <div>
-            <label className="text-xs text-slate-500">Amount</label>
+            <label htmlFor={`${idPrefix}-amount`} className="text-xs text-slate-500">Amount</label>
             <input
+              id={`${idPrefix}-amount`}
               type="number"
               step="0.01"
               value={amount}

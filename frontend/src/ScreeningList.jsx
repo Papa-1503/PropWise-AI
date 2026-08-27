@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useId } from "react";
 import { useAuth } from "./AuthContext";
 import EmptyState from "./EmptyState";
 import { UserSearch, Plus, X } from "lucide-react";
@@ -42,6 +42,7 @@ function NewRequestModal({ propertyId, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const { authFetch } = useAuth();
+  const idPrefix = useId();
 
   async function handleSave() {
     if (!applicantName.trim() || !applicantEmail.trim()) {
@@ -84,24 +85,30 @@ function NewRequestModal({ propertyId, onClose, onSaved }) {
 
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-slate-500">Applicant name</label>
+            <label htmlFor={`${idPrefix}-name`} className="text-xs text-slate-500">Applicant name</label>
             <input
+              id={`${idPrefix}-name`}
+              autoComplete="name"
               value={applicantName}
               onChange={(e) => setApplicantName(e.target.value)}
               className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
             />
           </div>
           <div>
-            <label className="text-xs text-slate-500">Applicant email</label>
+            <label htmlFor={`${idPrefix}-email`} className="text-xs text-slate-500">Applicant email</label>
             <input
+              id={`${idPrefix}-email`}
+              type="email"
+              autoComplete="email"
               value={applicantEmail}
               onChange={(e) => setApplicantEmail(e.target.value)}
               className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
             />
           </div>
           <div>
-            <label className="text-xs text-slate-500">Unit (optional)</label>
+            <label htmlFor={`${idPrefix}-unit`} className="text-xs text-slate-500">Unit (optional)</label>
             <input
+              id={`${idPrefix}-unit`}
               value={unitId}
               onChange={(e) => setUnitId(e.target.value)}
               placeholder="e.g. 104"
@@ -135,6 +142,7 @@ function ScoreModal({ request, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const { authFetch } = useAuth();
+  const idPrefix = useId();
 
   async function handleSave() {
     setSaving(true);
@@ -179,8 +187,9 @@ function ScoreModal({ request, onClose, onSaved }) {
 
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-slate-500">Credit score</label>
+            <label htmlFor={`${idPrefix}-credit`} className="text-xs text-slate-500">Credit score</label>
             <input
+              id={`${idPrefix}-credit`}
               type="number"
               value={creditScore}
               onChange={(e) => setCreditScore(e.target.value)}
@@ -188,8 +197,9 @@ function ScoreModal({ request, onClose, onSaved }) {
             />
           </div>
           <div>
-            <label className="text-xs text-slate-500">Income-to-rent ratio (e.g. 3.0 = 3x rent)</label>
+            <label htmlFor={`${idPrefix}-ratio`} className="text-xs text-slate-500">Income-to-rent ratio (e.g. 3.0 = 3x rent)</label>
             <input
+              id={`${idPrefix}-ratio`}
               type="number"
               step="0.1"
               value={incomeToRentRatio}
@@ -199,8 +209,9 @@ function ScoreModal({ request, onClose, onSaved }) {
           </div>
           <div className="flex gap-3">
             <div className="flex-1">
-              <label className="text-xs text-slate-500">Prior evictions</label>
+              <label htmlFor={`${idPrefix}-evictions`} className="text-xs text-slate-500">Prior evictions</label>
               <input
+                id={`${idPrefix}-evictions`}
                 type="number"
                 value={priorEvictions}
                 onChange={(e) => setPriorEvictions(e.target.value)}
@@ -208,8 +219,9 @@ function ScoreModal({ request, onClose, onSaved }) {
               />
             </div>
             <div className="flex-1">
-              <label className="text-xs text-slate-500">Rental history (months)</label>
+              <label htmlFor={`${idPrefix}-history`} className="text-xs text-slate-500">Rental history (months)</label>
               <input
+                id={`${idPrefix}-history`}
                 type="number"
                 value={rentalHistoryMonths}
                 onChange={(e) => setRentalHistoryMonths(e.target.value)}
@@ -218,8 +230,9 @@ function ScoreModal({ request, onClose, onSaved }) {
             </div>
           </div>
           <div>
-            <label className="text-xs text-slate-500">Notes (optional)</label>
+            <label htmlFor={`${idPrefix}-notes`} className="text-xs text-slate-500">Notes (optional)</label>
             <textarea
+              id={`${idPrefix}-notes`}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}

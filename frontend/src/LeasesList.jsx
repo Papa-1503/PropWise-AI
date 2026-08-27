@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useId } from "react";
 import { useAuth } from "./AuthContext";
 import EmptyState from "./EmptyState";
 import { FileSignature, Plus, X, FileText, History } from "lucide-react";
@@ -31,6 +31,7 @@ function NewLeaseModal({ propertyId, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const { authFetch } = useAuth();
+  const idPrefix = useId();
 
   async function handleSave() {
     if (!unitId.trim() || !residentName.trim() || !startDate || !endDate) {
@@ -76,8 +77,9 @@ function NewLeaseModal({ propertyId, onClose, onSaved }) {
 
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-slate-500">Unit</label>
+            <label htmlFor={`${idPrefix}-unit`} className="text-xs text-slate-500">Unit</label>
             <input
+              id={`${idPrefix}-unit`}
               value={unitId}
               onChange={(e) => setUnitId(e.target.value)}
               placeholder="e.g. 104"
@@ -85,16 +87,21 @@ function NewLeaseModal({ propertyId, onClose, onSaved }) {
             />
           </div>
           <div>
-            <label className="text-xs text-slate-500">Resident name</label>
+            <label htmlFor={`${idPrefix}-name`} className="text-xs text-slate-500">Resident name</label>
             <input
+              id={`${idPrefix}-name`}
+              autoComplete="name"
               value={residentName}
               onChange={(e) => setResidentName(e.target.value)}
               className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
             />
           </div>
           <div>
-            <label className="text-xs text-slate-500">Resident email (optional)</label>
+            <label htmlFor={`${idPrefix}-email`} className="text-xs text-slate-500">Resident email (optional)</label>
             <input
+              id={`${idPrefix}-email`}
+              type="email"
+              autoComplete="email"
               value={residentEmail}
               onChange={(e) => setResidentEmail(e.target.value)}
               placeholder="Needed to generate a lease document"
@@ -103,8 +110,9 @@ function NewLeaseModal({ propertyId, onClose, onSaved }) {
           </div>
           <div className="flex gap-3">
             <div className="flex-1">
-              <label className="text-xs text-slate-500">Start date</label>
+              <label htmlFor={`${idPrefix}-start`} className="text-xs text-slate-500">Start date</label>
               <input
+                id={`${idPrefix}-start`}
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
@@ -112,8 +120,9 @@ function NewLeaseModal({ propertyId, onClose, onSaved }) {
               />
             </div>
             <div className="flex-1">
-              <label className="text-xs text-slate-500">End date</label>
+              <label htmlFor={`${idPrefix}-end`} className="text-xs text-slate-500">End date</label>
               <input
+                id={`${idPrefix}-end`}
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
@@ -122,8 +131,9 @@ function NewLeaseModal({ propertyId, onClose, onSaved }) {
             </div>
           </div>
           <div>
-            <label className="text-xs text-slate-500">Monthly rent</label>
+            <label htmlFor={`${idPrefix}-rent`} className="text-xs text-slate-500">Monthly rent</label>
             <input
+              id={`${idPrefix}-rent`}
               type="number"
               value={rent}
               onChange={(e) => setRent(e.target.value)}
@@ -133,7 +143,7 @@ function NewLeaseModal({ propertyId, onClose, onSaved }) {
         </div>
 
         {error && (
-          <p className="text-xs text-rose-600 mt-3 bg-rose-50 border border-rose-200 rounded px-3 py-2">{error}</p>
+          <p role="alert" className="text-xs text-rose-600 mt-3 bg-rose-50 border border-rose-200 rounded px-3 py-2">{error}</p>
         )}
 
         <button

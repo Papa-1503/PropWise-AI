@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useId } from "react";
 import { useAuth } from "./AuthContext";
 import EmptyState from "./EmptyState";
 import { MessageSquare, Phone, Mail, Plus, X, ArrowUpRight, ArrowDownLeft } from "lucide-react";
@@ -35,6 +35,7 @@ function ComposeModal({ propertyId, onClose, onSaved, mode }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const { authFetch } = useAuth();
+  const idPrefix = useId();
 
   async function handleSave() {
     if (!unitId.trim() || !body.trim()) {
@@ -82,8 +83,9 @@ function ComposeModal({ propertyId, onClose, onSaved, mode }) {
 
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-slate-500">Unit</label>
+            <label htmlFor={`${idPrefix}-unit`} className="text-xs text-slate-500">Unit</label>
             <input
+              id={`${idPrefix}-unit`}
               value={unitId}
               onChange={(e) => setUnitId(e.target.value)}
               placeholder="e.g. 104"
@@ -93,8 +95,10 @@ function ComposeModal({ propertyId, onClose, onSaved, mode }) {
 
           {mode === "email" ? (
             <div>
-              <label className="text-xs text-slate-500">To (email address)</label>
+              <label htmlFor={`${idPrefix}-to`} className="text-xs text-slate-500">To (email address)</label>
               <input
+                id={`${idPrefix}-to`}
+                type="email"
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
                 placeholder="tenant@example.com"
@@ -104,8 +108,9 @@ function ComposeModal({ propertyId, onClose, onSaved, mode }) {
           ) : (
             <div className="flex gap-3">
               <div className="flex-1">
-                <label className="text-xs text-slate-500">Channel</label>
+                <label htmlFor={`${idPrefix}-channel`} className="text-xs text-slate-500">Channel</label>
                 <select
+                  id={`${idPrefix}-channel`}
                   value={channel}
                   onChange={(e) => setChannel(e.target.value)}
                   className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
@@ -116,8 +121,9 @@ function ComposeModal({ propertyId, onClose, onSaved, mode }) {
                 </select>
               </div>
               <div className="flex-1">
-                <label className="text-xs text-slate-500">Direction</label>
+                <label htmlFor={`${idPrefix}-direction`} className="text-xs text-slate-500">Direction</label>
                 <select
+                  id={`${idPrefix}-direction`}
                   value={direction}
                   onChange={(e) => setDirection(e.target.value)}
                   className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
@@ -130,8 +136,9 @@ function ComposeModal({ propertyId, onClose, onSaved, mode }) {
           )}
 
           <div>
-            <label className="text-xs text-slate-500">Subject {mode !== "email" && "(optional)"}</label>
+            <label htmlFor={`${idPrefix}-subject`} className="text-xs text-slate-500">Subject {mode !== "email" && "(optional)"}</label>
             <input
+              id={`${idPrefix}-subject`}
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
               className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
@@ -139,8 +146,9 @@ function ComposeModal({ propertyId, onClose, onSaved, mode }) {
           </div>
 
           <div>
-            <label className="text-xs text-slate-500">{mode === "email" ? "Message" : "What happened"}</label>
+            <label htmlFor={`${idPrefix}-body`} className="text-xs text-slate-500">{mode === "email" ? "Message" : "What happened"}</label>
             <textarea
+              id={`${idPrefix}-body`}
               value={body}
               onChange={(e) => setBody(e.target.value)}
               rows={4}

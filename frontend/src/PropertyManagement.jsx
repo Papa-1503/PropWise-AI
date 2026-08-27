@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useId } from "react";
 import { useAuth } from "./AuthContext";
 import { Building2, Plus, X, Pencil } from "lucide-react";
 import { API_BASE } from "./config";
@@ -23,6 +23,7 @@ function NewPropertyModal({ onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const { authFetch } = useAuth();
+  const idPrefix = useId();
 
   async function handleSave() {
     if (!name.trim()) {
@@ -60,16 +61,19 @@ function NewPropertyModal({ onClose, onSaved }) {
 
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-slate-500">Property name</label>
+            <label htmlFor={`${idPrefix}-name`} className="text-xs text-slate-500">Property name</label>
             <input
+              id={`${idPrefix}-name`}
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
             />
           </div>
           <div>
-            <label className="text-xs text-slate-500">Address</label>
+            <label htmlFor={`${idPrefix}-address`} className="text-xs text-slate-500">Address</label>
             <input
+              id={`${idPrefix}-address`}
+              autoComplete="street-address"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
@@ -100,6 +104,7 @@ function AddUnitModal({ property, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const { authFetch } = useAuth();
+  const idPrefix = useId();
 
   async function handleSave() {
     if (!unitId.trim()) {
@@ -142,21 +147,21 @@ function AddUnitModal({ property, onClose, onSaved }) {
 
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-slate-500">Unit number</label>
-            <input value={unitId} onChange={(e) => setUnitId(e.target.value)} className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5" />
+            <label htmlFor={`${idPrefix}-unit`} className="text-xs text-slate-500">Unit number</label>
+            <input id={`${idPrefix}-unit`} value={unitId} onChange={(e) => setUnitId(e.target.value)} className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5" />
           </div>
           <div className="flex gap-3">
             <div className="flex-1">
-              <label className="text-xs text-slate-500">Rent</label>
-              <input type="number" value={rent} onChange={(e) => setRent(e.target.value)} className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5" />
+              <label htmlFor={`${idPrefix}-rent`} className="text-xs text-slate-500">Rent</label>
+              <input id={`${idPrefix}-rent`} type="number" value={rent} onChange={(e) => setRent(e.target.value)} className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5" />
             </div>
             <div className="flex-1">
-              <label className="text-xs text-slate-500">Bedrooms</label>
-              <input type="number" value={bedrooms} onChange={(e) => setBedrooms(e.target.value)} className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5" />
+              <label htmlFor={`${idPrefix}-bed`} className="text-xs text-slate-500">Bedrooms</label>
+              <input id={`${idPrefix}-bed`} type="number" value={bedrooms} onChange={(e) => setBedrooms(e.target.value)} className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5" />
             </div>
             <div className="flex-1">
-              <label className="text-xs text-slate-500">Bathrooms</label>
-              <input type="number" step="0.5" value={bathrooms} onChange={(e) => setBathrooms(e.target.value)} className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5" />
+              <label htmlFor={`${idPrefix}-bath`} className="text-xs text-slate-500">Bathrooms</label>
+              <input id={`${idPrefix}-bath`} type="number" step="0.5" value={bathrooms} onChange={(e) => setBathrooms(e.target.value)} className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5" />
             </div>
           </div>
         </div>
@@ -182,6 +187,7 @@ function EditUnitModal({ property, unit, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const { authFetch } = useAuth();
+  const idPrefix = useId();
 
   async function handleSave() {
     setSaving(true);
@@ -217,16 +223,16 @@ function EditUnitModal({ property, unit, onClose, onSaved }) {
         </div>
         <div className="flex gap-3">
           <div className="flex-1">
-            <label className="text-xs text-slate-500">Rent</label>
-            <input type="number" value={rent} onChange={(e) => setRent(e.target.value)} className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5" />
+            <label htmlFor={`${idPrefix}-rent`} className="text-xs text-slate-500">Rent</label>
+            <input id={`${idPrefix}-rent`} type="number" value={rent} onChange={(e) => setRent(e.target.value)} className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5" />
           </div>
           <div className="flex-1">
-            <label className="text-xs text-slate-500">Bedrooms</label>
-            <input type="number" value={bedrooms} onChange={(e) => setBedrooms(e.target.value)} className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5" />
+            <label htmlFor={`${idPrefix}-bed`} className="text-xs text-slate-500">Bedrooms</label>
+            <input id={`${idPrefix}-bed`} type="number" value={bedrooms} onChange={(e) => setBedrooms(e.target.value)} className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5" />
           </div>
           <div className="flex-1">
-            <label className="text-xs text-slate-500">Bathrooms</label>
-            <input type="number" step="0.5" value={bathrooms} onChange={(e) => setBathrooms(e.target.value)} className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5" />
+            <label htmlFor={`${idPrefix}-bath`} className="text-xs text-slate-500">Bathrooms</label>
+            <input id={`${idPrefix}-bath`} type="number" step="0.5" value={bathrooms} onChange={(e) => setBathrooms(e.target.value)} className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5" />
           </div>
         </div>
         {error && <p role="alert" className="text-xs text-rose-600 mt-3 bg-rose-50 border border-rose-200 rounded px-3 py-2">{error}</p>}
