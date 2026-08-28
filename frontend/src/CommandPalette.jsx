@@ -16,8 +16,7 @@ import { API_BASE } from "./config";
 
 const TYPE_ICON = { lease: FileSignature, ticket: Wrench, lead: UserPlus2 };
 
-export default function CommandPalette({ propertyId }) {
-  const [open, setOpen] = useState(false);
+export default function CommandPalette({ propertyId, open, onOpenChange }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -30,13 +29,13 @@ export default function CommandPalette({ propertyId }) {
       const isK = e.key === "k" || e.key === "K";
       if ((e.metaKey || e.ctrlKey) && isK) {
         e.preventDefault();
-        setOpen((o) => !o);
+        onOpenChange(!open);
       }
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") onOpenChange(false);
     }
     window.addEventListener("keydown", handleKeydown);
     return () => window.removeEventListener("keydown", handleKeydown);
-  }, []);
+  }, [open, onOpenChange]);
 
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 20);
@@ -72,13 +71,13 @@ export default function CommandPalette({ propertyId }) {
 
   function goToResult(r) {
     navigate(`/app/${r.navigateTo}`);
-    setOpen(false);
+    onOpenChange(false);
   }
 
   if (user?.role !== "staff" || !open) return null;
 
   return (
-    <div className="fixed inset-0 bg-slate-900/50 z-[110] flex items-start justify-center pt-24 px-4" onClick={() => setOpen(false)}>
+    <div className="fixed inset-0 bg-slate-900/50 z-[110] flex items-start justify-center pt-24 px-4" onClick={() => onOpenChange(false)}>
       <div
         className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden"
         onClick={(e) => e.stopPropagation()}

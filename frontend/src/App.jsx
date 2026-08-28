@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Outlet, useOutletContext } from "react-router-dom";
 import { useState, lazy, Suspense } from "react";
-import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun } from "lucide-react";
+import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";
 import { ToastProvider } from "./ToastContext";
 import { DarkModeProvider, useDarkMode } from "./DarkModeContext";
@@ -120,6 +120,7 @@ function AppGate() {
   const { user, loading, logout, selectedProperty } = useAuth();
   const { dark, toggle: toggleDarkMode } = useDarkMode();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -202,7 +203,7 @@ function AppGate() {
 
   return (
     <div className="min-h-screen app-bg lg:flex">
-      <CommandPalette propertyId={effectivePropertyId} />
+      <CommandPalette propertyId={effectivePropertyId} open={paletteOpen} onOpenChange={setPaletteOpen} />
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-white focus:text-slate-900 focus:px-3 focus:py-2 focus:rounded-md focus:shadow-lg"
@@ -234,10 +235,14 @@ function AppGate() {
           <div className="flex items-center gap-3 text-sm">
             {user.role === "staff" && <BuildingSelector />}
             {user.role === "staff" && (
-              <span className="hidden md:inline-flex items-center gap-1 text-[11px] text-white/70">
-                <kbd className="border border-white/30 rounded px-1.5 py-0.5">Ctrl</kbd>+
-                <kbd className="border border-white/30 rounded px-1.5 py-0.5">K</kbd> to search
-              </span>
+              <button
+                onClick={() => setPaletteOpen(true)}
+                className="flex items-center gap-1.5 text-xs bg-white/10 hover:bg-white/20 text-white border border-white/25 rounded-full px-3 py-1.5"
+              >
+                <Search size={13} />
+                <span className="hidden md:inline">Search</span>
+                <kbd className="hidden md:inline border border-white/30 rounded px-1 py-0.5 text-[10px]">Ctrl K</kbd>
+              </button>
             )}
             <NotificationBell />
           </div>
