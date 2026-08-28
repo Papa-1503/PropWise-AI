@@ -15,6 +15,7 @@ from db import ensure_indexes
 from routers import inspections, maintenance, ai_copilot, properties, leases, dashboard, auth, ai_actions, vendors, email_test, payments, notifications, social
 from routers import admin
 from routers import leads
+from routers import search
 from routers import documents
 from routers import gallery
 from routers import owners
@@ -52,6 +53,7 @@ app.include_router(notifications.router)
 app.include_router(social.router)
 app.include_router(admin.router)
 app.include_router(leads.router)
+app.include_router(search.router)
 app.include_router(documents.router)
 app.include_router(gallery.router)
 app.include_router(owners.router)

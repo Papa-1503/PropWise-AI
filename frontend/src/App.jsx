@@ -10,6 +10,7 @@ import Documents from "./Documents";
 import Gallery from "./Gallery";
 import LoginScreen from "./LoginScreen";
 import RecentActivity from "./RecentActivity";
+import CommandPalette from "./CommandPalette";
 const Dashboard = lazy(() => import("./Dashboard"));
 import MaintenanceTickets from "./MaintenanceTickets";
 import InspectionsList from "./InspectionsList";
@@ -201,6 +202,7 @@ function AppGate() {
 
   return (
     <div className="min-h-screen app-bg lg:flex">
+      <CommandPalette propertyId={effectivePropertyId} />
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-white focus:text-slate-900 focus:px-3 focus:py-2 focus:rounded-md focus:shadow-lg"
@@ -231,6 +233,12 @@ function AppGate() {
           </div>
           <div className="flex items-center gap-3 text-sm">
             {user.role === "staff" && <BuildingSelector />}
+            {user.role === "staff" && (
+              <span className="hidden md:inline-flex items-center gap-1 text-[11px] text-white/70">
+                <kbd className="border border-white/30 rounded px-1.5 py-0.5">Ctrl</kbd>+
+                <kbd className="border border-white/30 rounded px-1.5 py-0.5">K</kbd> to search
+              </span>
+            )}
             <NotificationBell />
           </div>
         </header>
