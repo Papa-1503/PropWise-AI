@@ -73,6 +73,22 @@ function ProfileTab() {
       >
         {saving ? "Saving…" : "Save changes"}
       </button>
+
+      <div className="pt-3 border-t border-slate-100">
+        <button
+          onClick={() => {
+            try {
+              localStorage.removeItem("rentflow_onboarding_complete");
+            } catch {
+              // ignore — worst case the tour just doesn't reset, nothing breaks
+            }
+            window.location.reload();
+          }}
+          className="text-xs text-indigo-700 hover:underline"
+        >
+          Replay the onboarding tour
+        </button>
+      </div>
     </div>
   );
 }
