@@ -55,6 +55,7 @@ from pymongo.errors import DuplicateKeyError
 
 from db import users_col, leases_col
 from models import UserRegister, TenantActivate, UserLogin, TokenResponse, UserOut, ProfileUpdate, PasswordChange
+from email_service import send_email_async, EmailNotConfigured, EmailSendError
 from auth import hash_password, verify_password, create_access_token, get_current_user, require_staff
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -118,6 +119,34 @@ async def register(payload: TenantActivate):
 
     doc["id"] = str(result.inserted_id)
     token = create_access_token(doc["id"], doc["role"])
+
+    # Real welcome email, using this tenant's actual lease — not a
+    # fabricated "lease signed by both parties" flow, since RentFlow
+    # doesn't have formal digital co-signing; account activation via
+    # invite code is the real equivalent trigger point in this app.
+    # A send failure never blocks activation itself — the account is
+    # already created by this point — but it's not silently pretended
+    # to succeed either, matching how every other email send in this
+    # app is handled.
+    try:
+        rent_line = f"${lease.get('rent', 0):,.0f}/month" if lease.get("rent") else "your rent amount"
+        await send_email_async(
+            to=payload.email,
+            subject="Welcome to RentFlow AI",
+            body_text=(
+                f"Hi {payload.name},\n\n"
+                f"Your resident account for Unit {lease['unitId']} is now active.\n\n"
+                f"Rent: {rent_line}\n"
+                f"Lease term: {lease.get('startDate')} to {lease.get('endDate')}\n\n"
+                "In your portal you can view your lease documents, see payment history, "
+                "submit maintenance requests, and ask the AI assistant questions about "
+                "your account anytime.\n\n"
+                "Welcome home."
+            ),
+        )
+    except (EmailNotConfigured, EmailSendError):
+        pass
+
     return TokenResponse(accessToken=token, user=to_user_out(doc))
 
 

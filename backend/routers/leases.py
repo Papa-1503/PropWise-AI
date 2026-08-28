@@ -15,7 +15,7 @@ from bson import ObjectId
 from db import leases_col, documents_col
 from models import LeaseCreate, LeaseUpdate
 from date_utils import parse_date_utc
-from auth import require_staff
+from auth import require_staff, get_current_user
 from services.events import emit_event
 router = APIRouter(prefix="/api/leases", tags=["leases"])
 
@@ -48,6 +48,23 @@ async def list_leases(propertyId: str | None = None, expiringWithinDays: int | N
     cursor = leases_col.find(query).sort("endDate", 1)
     leases = await cursor.to_list(length=500)
     return {"leases": [serialize(l) for l in leases]}
+
+
+@router.get("/mine")
+async def my_lease(user: dict = Depends(get_current_user)):
+    """A tenant fetching their OWN lease — genuinely didn't exist before.
+    list_leases above is staff-only (require_staff), so there was no way
+    for a tenant to see their own lease details through the API at all.
+    Matched on propertyId+unitId (set during invite-code registration),
+    not residentEmail, since that's the more robust match — a tenant's
+    login email isn't guaranteed to exactly match what staff typed into
+    the lease's residentEmail field when the lease was created."""
+    if user["role"] != "tenant":
+        raise HTTPException(status_code=403, detail="Only tenants can use this endpoint.")
+    lease = await leases_col.find_one({"propertyId": user.get("propertyId"), "unitId": user.get("unitId")})
+    if not lease:
+        return {"lease": None}
+    return {"lease": serialize(lease)}
 
 
 @router.post("")

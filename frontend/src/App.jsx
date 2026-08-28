@@ -13,6 +13,7 @@ import RecentActivity from "./RecentActivity";
 import CommandPalette from "./CommandPalette";
 import Settings from "./Settings";
 import OnboardingTour from "./OnboardingTour";
+import WelcomeScreen from "./WelcomeScreen";
 const Dashboard = lazy(() => import("./Dashboard"));
 import MaintenanceTickets from "./MaintenanceTickets";
 import InspectionsList from "./InspectionsList";
@@ -211,6 +212,7 @@ function AppGate() {
     <div className="min-h-screen app-bg lg:flex">
       <CommandPalette propertyId={effectivePropertyId} open={paletteOpen} onOpenChange={setPaletteOpen} />
       <OnboardingTour active={user.role === "staff"} />
+      {user.role === "tenant" && <WelcomeScreen userName={user.name} />}
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-white focus:text-slate-900 focus:px-3 focus:py-2 focus:rounded-md focus:shadow-lg"
