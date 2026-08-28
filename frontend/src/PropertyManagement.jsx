@@ -280,11 +280,11 @@ export default function PropertyManagement() {
     fetchProperties();
   }, [fetchProperties]);
 
-  // Matches by property name OR unit number. With buildings up to 240
-  // units, a name match shows every unit as before, but a unit-only
-  // match narrows to just the matching units in that property — showing
-  // all 240 units to surface one matching unit number would defeat the
-  // point of searching in the first place.
+  // Matches by property name (partial — "Sunset" should find "Sunset
+  // Apartments") OR unit number (exact — a partial/substring match on
+  // unit numbers caused real confusion: searching "105" was also
+  // matching "1105", which is a genuinely different unit, not a
+  // reasonable partial match the way it is for names).
   const filteredProperties = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return properties;
@@ -292,7 +292,7 @@ export default function PropertyManagement() {
       .map((p) => {
         const nameMatches = p.name.toLowerCase().includes(q);
         if (nameMatches) return p;
-        const matchingUnits = (p.units || []).filter((u) => u.unitId.toLowerCase().includes(q));
+        const matchingUnits = (p.units || []).filter((u) => u.unitId.toLowerCase() === q);
         return matchingUnits.length > 0 ? { ...p, units: matchingUnits } : null;
       })
       .filter(Boolean);
