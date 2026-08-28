@@ -45,6 +45,7 @@ const STEPS = [
 export default function OnboardingTour({ active }) {
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState(null);
+  const [hasMeasured, setHasMeasured] = useState(false);
   const [dismissed, setDismissed] = useState(() => {
     try {
       return localStorage.getItem(STORAGE_KEY) === "true";
@@ -70,10 +71,12 @@ export default function OnboardingTour({ active }) {
     } else {
       setRect(null);
     }
+    setHasMeasured(true);
   }, [step]);
 
   useEffect(() => {
     if (!active || dismissed) return;
+    setHasMeasured(false);
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
@@ -88,14 +91,31 @@ export default function OnboardingTour({ active }) {
     }
   }
 
+  function goNext() {
+    // Reset synchronously here too, not just in the effect (which only
+    // runs after this render commits) — otherwise one frame could show
+    // the new step's text still positioned at the old step's element.
+    setHasMeasured(false);
+    setRect(null);
+    setStepIndex((i) => i + 1);
+  }
+
   if (!active || dismissed || !step) return null;
+
+  // Before the very first measure() has actually run (post-effect,
+  // post-paint), rect is null simply because nothing has looked yet —
+  // that's a different case from "measured and genuinely not found",
+  // and treating them the same was a real bug: it skipped through
+  // every step and called finish() before ever painting a tooltip.
+  // Render nothing (not a skip) until a real measurement has happened.
+  if (!hasMeasured) return null;
 
   // If the target element genuinely isn't on screen right now (e.g. the
   // mobile sidebar is collapsed), skip straight past this step rather
   // than show a tooltip pointing at nothing.
   if (!rect) {
     if (stepIndex < STEPS.length - 1) {
-      setTimeout(() => setStepIndex((i) => i + 1), 0);
+      setTimeout(goNext, 0);
     } else {
       setTimeout(finish, 0);
     }
@@ -131,7 +151,7 @@ export default function OnboardingTour({ active }) {
               Skip
             </button>
             <button
-              onClick={() => (stepIndex < STEPS.length - 1 ? setStepIndex((i) => i + 1) : finish())}
+              onClick={() => (stepIndex < STEPS.length - 1 ? goNext() : finish())}
               className="text-xs font-semibold bg-slate-900 text-white px-3 py-1.5 rounded-lg"
             >
               {stepIndex < STEPS.length - 1 ? "Next" : "Got it"}
