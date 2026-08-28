@@ -1,6 +1,20 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Defensive baseline against horizontal scroll — a real bug found Aug
+   26, 2026, tested on an actual iPhone: on mobile, the app shell's
+   outer container only gets flex layout at the lg breakpoint
+   (`lg:flex`), so deeper flex-child utilities like `min-w-0` were
+   doing nothing without an active flex parent, and nothing stopped an
+   overflowing row (the header, specifically) from widening the whole
+   page. This is a safety net in addition to the actual header fix
+   below, not a replacement for fixing the real cause. */
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
 /* Phase 2: subtle motion & interactivity polish, applied globally */
 button {
   transition: background-color 150ms ease, color 150ms ease, transform 100ms ease, box-shadow 150ms ease;

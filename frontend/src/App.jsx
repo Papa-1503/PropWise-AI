@@ -228,20 +228,20 @@ function AppGate() {
         {sidebarContent}
       </aside>
 
-      <div className="flex-1 min-w-0">
-        <header className="bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 text-white px-4 lg:px-6 py-3 flex items-center justify-between shadow-md">
-          <div className="flex items-center gap-3">
-            <button onClick={() => setMobileNavOpen(true)} className="lg:hidden p-1.5 -ml-1.5 rounded hover:bg-white/10">
+      <div className="w-full flex-1 min-w-0">
+        <header className="bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 text-white px-4 lg:px-6 py-3 flex items-center justify-between gap-2 flex-wrap shadow-md">
+          <div className="flex items-center gap-3 min-w-0">
+            <button onClick={() => setMobileNavOpen(true)} className="lg:hidden p-1.5 -ml-1.5 rounded hover:bg-white/10 shrink-0">
               <Menu size={20} />
             </button>
-            <span className="font-serif font-bold text-lg lg:hidden">RentFlow AI</span>
+            <span className="font-serif font-bold text-lg lg:hidden truncate">RentFlow AI</span>
           </div>
-          <div className="flex items-center gap-3 text-sm">
+          <div className="flex items-center gap-2 text-sm shrink-0">
             {user.role === "staff" && <BuildingSelector />}
             {user.role === "staff" && (
               <button
                 onClick={() => setPaletteOpen(true)}
-                className="flex items-center gap-1.5 text-xs bg-white/10 hover:bg-white/20 text-white border border-white/25 rounded-full px-3 py-1.5"
+                className="flex items-center gap-1.5 text-xs bg-white/10 hover:bg-white/20 text-white border border-white/25 rounded-full px-3 py-1.5 shrink-0"
               >
                 <Search size={13} />
                 <span className="hidden md:inline">Search</span>
