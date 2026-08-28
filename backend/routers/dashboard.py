@@ -288,21 +288,21 @@ async def recent_activity(propertyId: str | None = None, limit: int = 10, user: 
         events.append({
             "type": "payment",
             "timestamp": p["paidDate"],
-            "text": f"Payment of ${p.get('amountPaid', 0):,.0f} received for Unit {p.get('unitId', '?')}",
+            "text": f"Payment of ${p.get('amountPaid', 0):,.0f} received for Unit {p.get('unitId') or '?'}",
         })
 
     async for t in tickets_col.find(query).sort("createdAt", -1).limit(limit):
         events.append({
             "type": "maintenance",
             "timestamp": t.get("createdAt"),
-            "text": f"New maintenance ticket: {t.get('title', 'Untitled')} (Unit {t.get('unitId', '?')})",
+            "text": f"New maintenance ticket: {t.get('title') or 'Untitled'} (Unit {t.get('unitId') or '?'})",
         })
 
     async for l in leases_col.find(query).sort("createdAt", -1).limit(limit):
         events.append({
             "type": "lease",
             "timestamp": l.get("createdAt"),
-            "text": f"Lease created for {l.get('residentName', 'a resident')} (Unit {l.get('unitId', '?')})",
+            "text": f"Lease created for {l.get('residentName') or 'a resident'} (Unit {l.get('unitId') or '?'})",
         })
 
     events = [e for e in events if e.get("timestamp")]
