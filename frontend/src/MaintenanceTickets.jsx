@@ -294,11 +294,87 @@ function NewTicketModal({ propertyId, onClose, onSaved }) {
   );
 }
 
+const BOARD_COLUMNS = [
+  { status: "open", label: "Open", accent: "border-amber-300 bg-amber-50/40" },
+  { status: "in_progress", label: "In progress", accent: "border-indigo-300 bg-indigo-50/40" },
+  { status: "done", label: "Resolved", accent: "border-emerald-300 bg-emerald-50/40" },
+];
+
+function KanbanCard({ ticket, onUpdateStatus }) {
+  const columnIndex = BOARD_COLUMNS.findIndex((c) => c.status === ticket.status);
+  const prevColumn = BOARD_COLUMNS[columnIndex - 1];
+  const nextColumn = BOARD_COLUMNS[columnIndex + 1];
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-3 mb-2.5 shadow-sm">
+      <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+        {ticket.priority === "urgent" && (
+          <span className="text-[9px] font-mono bg-rose-50 text-rose-700 rounded-full px-1.5 py-0.5">urgent</span>
+        )}
+        {ticket.severityTier === "emergency" && (
+          <span
+            className="text-[9px] font-mono bg-red-100 text-red-800 rounded-full px-1.5 py-0.5"
+            title={ticket.severityExplanation}
+          >
+            ⚠ emergency
+          </span>
+        )}
+      </div>
+      <p className="text-xs font-medium text-slate-800 mb-1">{ticket.title}</p>
+      <p className="text-[11px] text-slate-500 mb-2">Unit {ticket.unitId || "—"}</p>
+      <div className="flex items-center justify-between">
+        {prevColumn ? (
+          <button
+            onClick={() => onUpdateStatus(ticket.id, prevColumn.status)}
+            className="text-[10px] text-slate-400 hover:text-slate-700"
+          >
+            ← {prevColumn.label}
+          </button>
+        ) : <span />}
+        {nextColumn && (
+          <button
+            onClick={() => onUpdateStatus(ticket.id, nextColumn.status)}
+            className="text-[10px] font-semibold text-indigo-600 hover:text-indigo-800"
+          >
+            {nextColumn.label} →
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function KanbanBoard({ tickets, onUpdateStatus }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {BOARD_COLUMNS.map((col) => {
+        const items = tickets.filter((t) => t.status === col.status);
+        return (
+          <div key={col.status} className={`rounded-xl border-2 ${col.accent} p-3`}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-slate-700">{col.label}</h3>
+              <span className="text-[11px] font-mono bg-white/70 rounded-full px-2 py-0.5 text-slate-500">
+                {items.length}
+              </span>
+            </div>
+            {items.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-6">No tickets</p>
+            ) : (
+              items.map((t) => <KanbanCard key={t.id} ticket={t} onUpdateStatus={onUpdateStatus} />)
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function MaintenanceTickets({ propertyId }) {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [statusFilter, setStatusFilter] = useState("all");
+  const [viewMode, setViewMode] = useState("list"); // "list" | "board"
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [confirmingBulk, setConfirmingBulk] = useState(null); // target status | null
@@ -482,6 +558,19 @@ export default function MaintenanceTickets({ propertyId }) {
               </button>
             ))}
           </div>
+          <div className="flex gap-0.5 bg-slate-100 rounded-full p-0.5">
+            {[["list", "List"], ["board", "Board"]].map(([mode, label]) => (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${
+                  viewMode === mode ? "bg-white shadow-sm text-slate-800" : "text-slate-500"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -564,7 +653,7 @@ export default function MaintenanceTickets({ propertyId }) {
         />
       )}
 
-      {!loading && !error && (
+      {!loading && !error && viewMode === "list" && (
         <>
           {groups.map((g) => (
             <GroupedTicketRow
@@ -591,6 +680,10 @@ export default function MaintenanceTickets({ propertyId }) {
             />
           ))}
         </>
+      )}
+
+      {!loading && !error && viewMode === "board" && (
+        <KanbanBoard tickets={filtered} onUpdateStatus={handleUpdateStatus} />
       )}
     </div>
   );
