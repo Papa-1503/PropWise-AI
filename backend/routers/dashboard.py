@@ -273,6 +273,45 @@ async def schedule_preventive_inspection(category: str, propertyId: str | None =
     return doc
 
 
+@router.get("/recent-activity")
+async def recent_activity(propertyId: str | None = None, limit: int = 10, user: dict = Depends(require_staff)):
+    """A real, auto-generated timeline of recent system events — distinct
+    from SocialFeed, which is manually-composed staff posts (announcements,
+    shoutouts), not an event log. Pulls the most recent items from each
+    relevant collection, tags each with a type and a plain-language
+    description, merges and sorts by real timestamp. No new collection —
+    this is a read-only aggregation over data that already exists."""
+    query = {"propertyId": propertyId} if propertyId else {}
+    events = []
+
+    async for p in payments_col.find({**query, "paidDate": {"$exists": True}}).sort("paidDate", -1).limit(limit):
+        events.append({
+            "type": "payment",
+            "timestamp": p["paidDate"],
+            "text": f"Payment of ${p.get('amountPaid', 0):,.0f} received for Unit {p.get('unitId', '?')}",
+        })
+
+    async for t in tickets_col.find(query).sort("createdAt", -1).limit(limit):
+        events.append({
+            "type": "maintenance",
+            "timestamp": t.get("createdAt"),
+            "text": f"New maintenance ticket: {t.get('title', 'Untitled')} (Unit {t.get('unitId', '?')})",
+        })
+
+    async for l in leases_col.find(query).sort("createdAt", -1).limit(limit):
+        events.append({
+            "type": "lease",
+            "timestamp": l.get("createdAt"),
+            "text": f"Lease created for {l.get('residentName', 'a resident')} (Unit {l.get('unitId', '?')})",
+        })
+
+    events = [e for e in events if e.get("timestamp")]
+    events.sort(key=lambda e: e["timestamp"], reverse=True)
+    for e in events:
+        e["timestamp"] = e["timestamp"].isoformat()
+    return {"events": events[:limit]}
+
+
 @router.get("/stats")
 async def get_dashboard_stats(propertyId: str | None = None, user: dict = Depends(require_staff)):
     prop_filter = {"_id": propertyId} if propertyId else {}

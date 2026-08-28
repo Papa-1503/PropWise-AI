@@ -7,7 +7,7 @@ import LeadCaptureForm from "./LeadCaptureForm";
 import Documents from "./Documents";
 import Gallery from "./Gallery";
 import LoginScreen from "./LoginScreen";
-import Dashboard from "./Dashboard";
+import Dashboard, { RecentActivity } from "./Dashboard";
 import MaintenanceTickets from "./MaintenanceTickets";
 import InspectionsList from "./InspectionsList";
 import AICopilot from "./AICopilot";
@@ -243,6 +243,7 @@ function DashboardTab({ effectivePropertyId, userName }) {
       </div>
       <div className="space-y-5">
         <AskRentFlowSidebar propertyId={effectivePropertyId} />
+        <RecentActivity propertyId={effectivePropertyId} />
         <MaintenanceTrendAlert propertyId={effectivePropertyId} />
         <ConfidenceDistribution propertyId={effectivePropertyId} />
       </div>
