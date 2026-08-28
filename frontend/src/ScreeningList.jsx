@@ -280,7 +280,14 @@ function ScreeningRow({ request, onStatusChange, onScoreClick }) {
           {request.unitId && <span>Unit {request.unitId} · </span>}
           {request.createdAt ? new Date(request.createdAt).toLocaleDateString() : ""}
           {typeof request.score === "number" && (
-            <span className="ml-2 font-mono font-semibold text-slate-700">Score: {request.score}/100</span>
+            <span
+              className={`ml-2 font-mono font-semibold ${
+                request.score >= 80 ? "text-emerald-600" : request.score >= 60 ? "text-amber-600" : "text-rose-600"
+              }`}
+              title="80+ strong, 60-79 good, below 60 needs a closer look — starting bands, adjustable"
+            >
+              Score: {request.score}/100
+            </span>
           )}
         </p>
         <button onClick={() => onScoreClick(request)} className="text-[11px] text-indigo-700 hover:underline">
