@@ -7,6 +7,7 @@ collections — this is purely a convenience layer so staff don't have
 to check five separate tabs to understand one situation.
 """
 from fastapi import APIRouter, Depends, Query
+from datetime import datetime, timezone
 
 from db import leases_col, payments_col, tickets_col, communications_col, inspections_col
 from auth import require_staff
@@ -31,7 +32,7 @@ async def resident_360(email: str = Query(...), user: dict = Depends(require_sta
     # single most-recent lease's unit.
     scope = [{"propertyId": l["propertyId"], "unitId": l["unitId"]} for l in leases]
     if not scope:
-        return {"leases": [], "payments": [], "tickets": [], "communications": []}
+        return {"leases": [], "payments": [], "tickets": [], "communications": [], "reliability": None}
 
     or_query = {"$or": scope}
     payments = await payments_col.find(or_query).sort("dueDate", -1).to_list(length=200)
@@ -43,6 +44,48 @@ async def resident_360(email: str = Query(...), user: dict = Depends(require_sta
         "payments": [serialize(p) for p in payments],
         "tickets": [serialize(t) for t in tickets],
         "communications": [serialize(c) for c in comms],
+        "reliability": compute_reliability(payments),
+    }
+
+
+def compute_reliability(payments: list[dict]) -> dict | None:
+    """A real, transparent payment-reliability score — same "simple
+    weighted formula, not a statistical model" philosophy as the other
+    scores built today (applicant screening, vendor recommendation,
+    ticket severity). Only counts payments that have actually resolved
+    one way or another (paid, or genuinely overdue with nothing paid) —
+    a charge that's simply not due yet says nothing about reliability
+    either way, so it's excluded rather than silently counted as
+    "on time" by default.
+    """
+    now = datetime.now(timezone.utc)
+
+    on_time = 0
+    late = 0
+    missed = 0
+    for p in payments:
+        due = p.get("dueDate")
+        paid = p.get("paidDate")
+        if paid and due:
+            if paid <= due:
+                on_time += 1
+            else:
+                late += 1
+        elif due and due < now and not paid:
+            missed += 1
+        # else: not yet due, or missing dates — not counted either way
+
+    total = on_time + late + missed
+    if total == 0:
+        return None  # genuinely not enough history to say anything
+
+    score = round(((on_time * 1.0) + (late * 0.4)) / total * 100)
+    return {
+        "score": score,
+        "onTimeCount": on_time,
+        "lateCount": late,
+        "missedCount": missed,
+        "totalCount": total,
     }
 
 

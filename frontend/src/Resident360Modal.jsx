@@ -91,6 +91,30 @@ export default function Resident360Modal({ email, name, onClose }) {
         {error && <p role="alert" className="text-sm text-rose-600">{error}</p>}
         {!data && !error && <div className="h-40 bg-slate-100 rounded-xl animate-pulse" />}
 
+        {data && data.reliability && (
+          <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4">
+            <div
+              className={`shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold ${
+                data.reliability.score >= 80
+                  ? "bg-emerald-100 text-emerald-700"
+                  : data.reliability.score >= 60
+                  ? "bg-amber-100 text-amber-700"
+                  : "bg-rose-100 text-rose-700"
+              }`}
+              title="A real, transparent formula: on-time payments count fully, late payments count partially, missed payments don't count — not a statistical or ML model."
+            >
+              {data.reliability.score}
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-700">Payment reliability</p>
+              <p className="text-xs text-slate-500">
+                {data.reliability.onTimeCount} on-time · {data.reliability.lateCount} late · {data.reliability.missedCount} missed
+                {" "}(of {data.reliability.totalCount})
+              </p>
+            </div>
+          </div>
+        )}
+
         {data && (
           <div className="space-y-5">
             {["leases", "payments", "tickets", "communications"].map((section) => {
