@@ -58,7 +58,15 @@ def compute_reliability(payments: list[dict]) -> dict | None:
     either way, so it's excluded rather than silently counted as
     "on time" by default.
     """
-    now = datetime.now(timezone.utc)
+    # Naive, not timezone-aware — matching how Motor actually returns
+    # dates read from MongoDB with this client (tz_aware isn't set in
+    # db.py). Comparing a naive dueDate against an aware `now` raises
+    # an uncaught TypeError in Python, crashing the whole request —
+    # confirmed as the real cause of a live "Failed to fetch" error,
+    # not assumed. The rest of this codebase already compares
+    # Mongo-read dates against each other directly (e.g. dashboard.py's
+    # paidDate > dueDate), so naive-vs-naive here is what's consistent.
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     on_time = 0
     late = 0
