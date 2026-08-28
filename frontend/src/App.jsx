@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Outlet, useOutletContext } from "react-router-dom";
 import { useState } from "react";
-import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, MoreHorizontal, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2 } from "lucide-react";
+import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";
 import Avatar from "./Avatar";
 import LeadCaptureForm from "./LeadCaptureForm";
@@ -78,8 +78,6 @@ function TabNotFound() {
 
 const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "communications", "leases", "screening", "leads", "staff", "schedules", "reconciliation", "properties", "documents", "gallery", "feed", "ai"];
 const TENANT_TABS = ["documents", "maintenance", "payments", "gallery", "ai"];
-const PRIMARY_STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments"];
-const PRIMARY_TENANT_TABS = ["maintenance", "payments"];
 const TAB_ICONS = {
   dashboard: LayoutDashboard,
   actions: Zap,
@@ -116,7 +114,7 @@ function IndexRedirect() {
 
 function AppGate() {
   const { user, loading, logout, selectedProperty } = useAuth();
-  const [moreOpen, setMoreOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -127,7 +125,6 @@ function AppGate() {
   const tabs = user.role === "staff" ? STAFF_TABS : TENANT_TABS;
   const currentSegment = location.pathname.replace(/^\/app\/?/, "");
   const activeTab = tabs.includes(currentSegment) ? currentSegment : null;
-  const primaryTabs = user.role === "staff" ? PRIMARY_STAFF_TABS : PRIMARY_TENANT_TABS;
 
   // Guard against a wrong-role path — e.g. a tenant with a stale
   // bookmark/browser-history entry pointing at a staff-only tab like
@@ -145,90 +142,92 @@ function AppGate() {
 
   const goTo = (t) => {
     navigate(`/app/${t}`);
-    setMoreOpen(false);
+    setMobileNavOpen(false);
   };
 
+  const sidebarContent = (
+    <>
+      <div className="flex items-center gap-3 h-16 px-5 border-b border-slate-200">
+        <div className="w-8 h-8 bg-gradient-to-br from-indigo-600 to-fuchsia-600 rounded-lg flex items-center justify-center shrink-0">
+          <span className="text-white font-bold text-sm">R</span>
+        </div>
+        <span className="font-serif font-bold text-slate-900 truncate">RentFlow AI</span>
+      </div>
+      <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
+        {tabs.map((t) => {
+          const Icon = TAB_ICONS[t];
+          return (
+            <button
+              key={t}
+              onClick={() => goTo(t)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium capitalize transition-colors ${
+                activeTab === t ? "bg-indigo-50 text-indigo-700" : "text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {Icon && <Icon size={17} />}
+              {t}
+            </button>
+          );
+        })}
+      </nav>
+      <div className="p-3 border-t border-slate-200">
+        <div className="flex items-center gap-2 px-2 py-2">
+          <Avatar name={user.name} size={30} />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-slate-800 truncate">{user.name}</p>
+            <p className="text-xs text-slate-500 truncate">{user.role === "staff" ? "Staff" : `Unit ${user.unitId || "—"}`}</p>
+          </div>
+        </div>
+        <button
+          onClick={logout}
+          className="w-full text-left text-xs text-slate-500 hover:text-slate-800 px-2 py-1.5 mt-1"
+        >
+          Sign out
+        </button>
+      </div>
+    </>
+  );
+
   return (
-    <div className="min-h-screen app-bg">
+    <div className="min-h-screen app-bg lg:flex">
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-white focus:text-slate-900 focus:px-3 focus:py-2 focus:rounded-md focus:shadow-lg"
       >
         Skip to main content
       </a>
-      <header className="bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 text-white px-6 py-3 flex items-center justify-between shadow-md">
-        <h1 className="font-serif font-bold text-lg">RentFlow AI</h1>
-        <div className="flex items-center gap-3 text-sm">
-          {user.role === "staff" && <BuildingSelector />}
-          <NotificationBell />
-          <div className="flex items-center gap-2">
-            <Avatar name={user.name} size={26} />
-            <span>{user.name} · {user.role === "staff" ? "Staff" : `Unit ${user.unitId || "—"}`}</span>
-          </div>
-          <button onClick={logout} className="text-xs border border-white/30 rounded px-2 py-1 hover:bg-white/10">
-            Sign out
-          </button>
+
+      {/* Mobile sidebar overlay */}
+      {mobileNavOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <div className="fixed inset-0 bg-slate-900/60" onClick={() => setMobileNavOpen(false)} />
+          <div className="fixed inset-y-0 left-0 w-64 bg-white shadow-xl flex flex-col">{sidebarContent}</div>
         </div>
-      </header>
+      )}
 
-      <nav className="relative flex gap-2 px-6 py-3">
-        {primaryTabs.map((t) => {
-          const Icon = TAB_ICONS[t];
-          return (
-            <button
-              key={t}
-              onClick={() => goTo(t)}
-              className={`text-sm px-3 py-1.5 rounded-full capitalize flex items-center gap-1.5 transition-transform hover:scale-105 hover:-translate-y-0.5 ${
-                activeTab === t
-                  ? "bg-gradient-to-r from-indigo-600 to-fuchsia-600 text-white shadow-sm"
-                  : "bg-white border border-slate-200 text-slate-600"
-              }`}
-            >
-              {Icon && <Icon size={14} />}
-              {t}
-            </button>
-          );
-        })}
+      {/* Desktop sidebar */}
+      <aside className="hidden lg:flex lg:flex-col lg:w-60 lg:shrink-0 bg-white border-r border-slate-200 lg:sticky lg:top-0 lg:h-screen">
+        {sidebarContent}
+      </aside>
 
-        {tabs.filter((t) => !primaryTabs.includes(t)).length > 0 && (
-          <div className="relative">
-            <button
-              onClick={() => setMoreOpen((v) => !v)}
-              className={`text-sm px-3 py-1.5 rounded-full capitalize flex items-center gap-1.5 transition-transform hover:scale-105 hover:-translate-y-0.5 ${
-                tabs.filter((t) => !primaryTabs.includes(t)).includes(activeTab)
-                  ? "bg-gradient-to-r from-indigo-600 to-fuchsia-600 text-white shadow-sm"
-                  : "bg-white border border-slate-200 text-slate-600"
-              }`}
-            >
-              <MoreHorizontal size={14} />
-              More
+      <div className="flex-1 min-w-0">
+        <header className="bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 text-white px-4 lg:px-6 py-3 flex items-center justify-between shadow-md">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setMobileNavOpen(true)} className="lg:hidden p-1.5 -ml-1.5 rounded hover:bg-white/10">
+              <Menu size={20} />
             </button>
-            {moreOpen && (
-              <div className="absolute left-0 top-10 bg-white border border-slate-200 rounded-xl shadow-lg py-1.5 w-40 z-10">
-                {tabs.filter((t) => !primaryTabs.includes(t)).map((t) => {
-                  const Icon = TAB_ICONS[t];
-                  return (
-                    <button
-                      key={t}
-                      onClick={() => goTo(t)}
-                      className={`w-full text-left text-sm px-3 py-2 capitalize flex items-center gap-2 hover:bg-slate-50 ${
-                        activeTab === t ? "text-indigo-600 font-semibold" : "text-slate-600"
-                      }`}
-                    >
-                      {Icon && <Icon size={14} />}
-                      {t}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            <span className="font-serif font-bold text-lg lg:hidden">RentFlow AI</span>
           </div>
-        )}
-      </nav>
+          <div className="flex items-center gap-3 text-sm">
+            {user.role === "staff" && <BuildingSelector />}
+            <NotificationBell />
+          </div>
+        </header>
 
-      <main id="main-content" tabIndex={-1} className="px-6 pb-10">
-        <Outlet context={{ effectivePropertyId, userName: user.name }} />
-      </main>
+        <main id="main-content" tabIndex={-1} className="px-4 lg:px-6 pb-10 pt-3">
+          <Outlet context={{ effectivePropertyId, userName: user.name }} />
+        </main>
+      </div>
     </div>
   );
 }
