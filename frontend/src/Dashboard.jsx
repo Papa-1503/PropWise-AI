@@ -37,29 +37,38 @@ function StatCard({ label, value, hint, tone = "neutral" }) {
   );
 }
 
-const OCCUPANCY_COLORS = ["#6366f1", "#e2e8f0"]; // occupied, vacant
+const OCCUPANCY_COLORS = ["#6366f1", "#e2e8f0", "#f59e0b"]; // occupied, vacant, maintenance hold
 
-function OccupancyChart({ occupied, vacant }) {
-  const total = occupied + vacant;
+function OccupancyChart({ occupied, vacant, maintenanceHold }) {
+  const total = occupied + vacant + maintenanceHold;
   if (total === 0) return null;
+  // All three real statuses shown, not just occupied/vacant — a unit on
+  // maintenance hold is neither, and silently leaving it out of the
+  // chart means the segments don't actually sum to every real unit.
   const data = [
     { name: "Occupied", value: occupied },
     { name: "Vacant", value: vacant },
-  ];
+    { name: "Maintenance hold", value: maintenanceHold },
+  ].filter((d) => d.value > 0);
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-4">
       <h3 className="text-sm font-semibold text-slate-800 mb-2">Occupancy</h3>
       <ResponsiveContainer width="100%" height={200}>
         <PieChart>
           <Pie data={data} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value">
-            {data.map((_, i) => <Cell key={i} fill={OCCUPANCY_COLORS[i]} />)}
+            {data.map((d, i) => (
+              <Cell key={i} fill={OCCUPANCY_COLORS[["Occupied", "Vacant", "Maintenance hold"].indexOf(d.name)]} />
+            ))}
           </Pie>
           <Tooltip formatter={(v) => `${v} units`} />
         </PieChart>
       </ResponsiveContainer>
-      <div className="flex justify-center gap-5 mt-1 text-xs">
+      <div className="flex justify-center flex-wrap gap-4 mt-1 text-xs">
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />Occupied ({occupied})</span>
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-slate-200" />Vacant ({vacant})</span>
+        {maintenanceHold > 0 && (
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" />Maintenance hold ({maintenanceHold})</span>
+        )}
       </div>
     </div>
   );
@@ -179,7 +188,11 @@ export default function Dashboard({ propertyId }) {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
         <RevenueTrendChart propertyId={propertyId} />
-        <OccupancyChart occupied={stats.occupiedUnits ?? 0} vacant={stats.vacantUnitsCount ?? 0} />
+        <OccupancyChart
+          occupied={stats.occupiedUnits ?? 0}
+          vacant={stats.vacantUnitsCount ?? 0}
+          maintenanceHold={stats.maintenanceHoldUnits ?? 0}
+        />
       </div>
     </div>
   );

@@ -321,6 +321,7 @@ async def get_dashboard_stats(propertyId: str | None = None, user: dict = Depend
     total_units = 0
     occupied_units = 0
     vacant_units = 0
+    maintenance_hold_units = 0
     monthly_revenue = 0.0
 
     for p in properties:
@@ -331,6 +332,8 @@ async def get_dashboard_stats(propertyId: str | None = None, user: dict = Depend
                 monthly_revenue += u.get("rent", 0)
             elif u.get("status") == "vacant":
                 vacant_units += 1
+            elif u.get("status") == "maintenance_hold":
+                maintenance_hold_units += 1
 
     occupancy_pct = round((occupied_units / total_units) * 100, 1) if total_units else 0
 
@@ -355,6 +358,7 @@ async def get_dashboard_stats(propertyId: str | None = None, user: dict = Depend
         "occupancyPct": occupancy_pct,
         "occupiedUnits": occupied_units,
         "vacantUnitsCount": vacant_units,
+        "maintenanceHoldUnits": maintenance_hold_units,
         "totalUnits": total_units,
         "monthlyRevenue": round(monthly_revenue, 2),
         "vacantUnits": vacant_units,
