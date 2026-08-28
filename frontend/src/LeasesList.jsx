@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback, useId } from "react";
+import { useState, useEffect, useCallback, useId, useMemo } from "react";
 import { useAuth } from "./AuthContext";
 import { useToast } from "./ToastContext";
 import EmptyState from "./EmptyState";
-import { FileSignature, Plus, X, FileText, History } from "lucide-react";
+import { FileSignature, Plus, X, FileText, History, Search } from "lucide-react";
 import { API_BASE } from "./config";
 import Resident360Modal from "./Resident360Modal";
 
@@ -257,6 +257,7 @@ export default function LeasesList({ propertyId }) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [confirmingBulk, setConfirmingBulk] = useState(null); // target renewalStatus | null
   const [undoState, setUndoState] = useState(null);
+  const [search, setSearch] = useState("");
   const { authFetch, getPropertyName } = useAuth();
 
   const fetchLeases = useCallback(async () => {
@@ -369,6 +370,19 @@ export default function LeasesList({ propertyId }) {
     }
   }
 
+  // Resident name matches partially (typing "Devon" should find "Devon
+  // Walker"), unit number matches exactly — same lesson learned from
+  // Properties search earlier: a substring match on unit numbers
+  // produces confusing false positives ("105" also matching "1105"),
+  // which is a real problem for numbers in a way it isn't for names.
+  const filteredLeases = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return leases;
+    return leases.filter(
+      (l) => (l.residentName || "").toLowerCase().includes(q) || (l.unitId || "").toLowerCase() === q
+    );
+  }, [leases, search]);
+
   return (
     <div className="max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-3">
@@ -388,6 +402,19 @@ export default function LeasesList({ propertyId }) {
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
           Creating a lease requires a specific building — pick one from the selector in the header first.
         </p>
+      )}
+
+      {!loading && !error && leases.length > 0 && (
+        <div className="relative mb-3">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by resident name or unit number…"
+            className="w-full text-sm border border-slate-200 rounded-lg pl-9 pr-3 py-2"
+          />
+        </div>
       )}
 
       {selectedIds.size > 0 && (
@@ -452,9 +479,11 @@ export default function LeasesList({ propertyId }) {
           title="No leases yet"
           subtitle="Create a lease for a new resident, or leases created elsewhere will show up here."
         />
+      ) : filteredLeases.length === 0 ? (
+        <p className="text-sm text-slate-400">No leases match "{search}".</p>
       ) : (
         <div className="bg-white border border-slate-200 rounded-xl px-4">
-          {leases.map((l) => (
+          {filteredLeases.map((l) => (
             <LeaseRow
               key={l.id}
               lease={l}
