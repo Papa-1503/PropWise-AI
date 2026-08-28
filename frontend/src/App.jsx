@@ -12,6 +12,7 @@ import LoginScreen from "./LoginScreen";
 import RecentActivity from "./RecentActivity";
 import CommandPalette from "./CommandPalette";
 import Settings from "./Settings";
+import OnboardingTour from "./OnboardingTour";
 const Dashboard = lazy(() => import("./Dashboard"));
 import MaintenanceTickets from "./MaintenanceTickets";
 import InspectionsList from "./InspectionsList";
@@ -160,7 +161,7 @@ function AppGate() {
         </div>
         <span className="font-serif font-bold text-slate-900 truncate">RentFlow AI</span>
       </div>
-      <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
+      <nav data-onboarding-target="sidebar-nav" className="flex-1 p-3 space-y-0.5 overflow-y-auto">
         {tabs.map((t) => {
           const Icon = TAB_ICONS[t];
           return (
@@ -189,6 +190,7 @@ function AppGate() {
           </div>
         </button>
         <button
+          data-onboarding-target="dark-mode-toggle"
           onClick={toggleDarkMode}
           className="w-full flex items-center gap-2 text-left text-xs text-slate-500 hover:text-slate-800 px-2 py-1.5 mt-1"
         >
@@ -208,6 +210,7 @@ function AppGate() {
   return (
     <div className="min-h-screen app-bg lg:flex">
       <CommandPalette propertyId={effectivePropertyId} open={paletteOpen} onOpenChange={setPaletteOpen} />
+      <OnboardingTour active={user.role === "staff"} />
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-white focus:text-slate-900 focus:px-3 focus:py-2 focus:rounded-md focus:shadow-lg"
@@ -240,6 +243,7 @@ function AppGate() {
             {user.role === "staff" && <BuildingSelector />}
             {user.role === "staff" && (
               <button
+                data-onboarding-target="search-button"
                 onClick={() => setPaletteOpen(true)}
                 className="flex items-center gap-1.5 text-xs bg-white/10 hover:bg-white/20 text-white border border-white/25 rounded-full px-3 py-1.5 shrink-0"
               >

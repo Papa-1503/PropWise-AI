@@ -27,7 +27,7 @@ export default function BuildingSelector() {
   }
 
   return (
-    <div className="relative">
+    <div data-onboarding-target="building-selector" className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1.5 text-sm bg-white/10 hover:bg-white/20 text-white border border-white/25 rounded-full px-3 py-1.5 transition-colors"
