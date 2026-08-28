@@ -111,18 +111,7 @@ export default function OnboardingTour({ active }) {
 
   if (!active) return null;
 
-  // TEMPORARY DIAGNOSTIC — remove once the onboarding-tour visibility
-  // bug is found. Rendered before every other early-return check
-  // (dismissed/step/hasMeasured/rect), since if it were placed after
-  // any of those, it would be silently skipped exactly like the real
-  // tooltip is — which is the whole reason this is needed.
-  const diagnostic = (
-    <p className="fixed top-0 left-0 z-[200] bg-yellow-200 text-black text-xs p-2 w-full">
-      DIAGNOSTIC: dismissed={String(dismissed)} stepIndex={stepIndex} hasMeasured={String(hasMeasured)} rect={rect ? "SET" : "null"} step={step ? step.target : "none"}
-    </p>
-  );
-
-  if (dismissed || !step) return diagnostic;
+  if (dismissed || !step) return null;
 
   // Before the very first measure() has actually run (post-effect,
   // post-paint), rect is null simply because nothing has looked yet —
@@ -130,7 +119,7 @@ export default function OnboardingTour({ active }) {
   // and treating them the same was a real bug: it skipped through
   // every step and called finish() before ever painting a tooltip.
   // Render nothing (not a skip) until a real measurement has happened.
-  if (!hasMeasured) return diagnostic;
+  if (!hasMeasured) return null;
 
   // If the target element genuinely isn't on screen right now (e.g. the
   // mobile sidebar is collapsed), skip straight past this step rather
@@ -141,7 +130,7 @@ export default function OnboardingTour({ active }) {
     } else {
       setTimeout(finish, 0);
     }
-    return diagnostic;
+    return null;
   }
 
   const tooltipTop = rect.bottom + 10;
