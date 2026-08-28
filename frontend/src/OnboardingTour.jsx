@@ -48,6 +48,15 @@ export default function OnboardingTour({ active }) {
   const [hasMeasured, setHasMeasured] = useState(false);
   const [dismissed, setDismissed] = useState(() => {
     try {
+      // A reliable, device-agnostic way to force-reset for testing,
+      // rather than relying on iOS Safari's "clear site data" flow
+      // (which the user tried and which either didn't apply or didn't
+      // take effect there). Visiting the app with ?resetOnboarding in
+      // the URL once clears the stored flag before anything else reads it.
+      if (new URLSearchParams(window.location.search).has("resetOnboarding")) {
+        localStorage.removeItem(STORAGE_KEY);
+        return false;
+      }
       return localStorage.getItem(STORAGE_KEY) === "true";
     } catch {
       return false;
