@@ -1,8 +1,9 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Outlet, useOutletContext } from "react-router-dom";
 import { useState, lazy, Suspense } from "react";
-import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu } from "lucide-react";
+import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";
 import { ToastProvider } from "./ToastContext";
+import { DarkModeProvider, useDarkMode } from "./DarkModeContext";
 import Avatar from "./Avatar";
 import LeadCaptureForm from "./LeadCaptureForm";
 import Documents from "./Documents";
@@ -116,6 +117,7 @@ function IndexRedirect() {
 
 function AppGate() {
   const { user, loading, logout, selectedProperty } = useAuth();
+  const { dark, toggle: toggleDarkMode } = useDarkMode();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
@@ -181,8 +183,15 @@ function AppGate() {
           </div>
         </div>
         <button
+          onClick={toggleDarkMode}
+          className="w-full flex items-center gap-2 text-left text-xs text-slate-500 hover:text-slate-800 px-2 py-1.5 mt-1"
+        >
+          {dark ? <Sun size={13} /> : <Moon size={13} />}
+          {dark ? "Light mode" : "Dark mode"}
+        </button>
+        <button
           onClick={logout}
-          className="w-full text-left text-xs text-slate-500 hover:text-slate-800 px-2 py-1.5 mt-1"
+          className="w-full text-left text-xs text-slate-500 hover:text-slate-800 px-2 py-1.5"
         >
           Sign out
         </button>
@@ -258,11 +267,12 @@ function DashboardTab({ effectivePropertyId, userName }) {
 export default function App() {
   return (
     <ToastProvider>
-      <AuthProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/apply" element={<LeadCaptureForm />} />
-            <Route path="/" element={<Navigate to="/app/dashboard" replace />} />
+      <DarkModeProvider>
+        <AuthProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/apply" element={<LeadCaptureForm />} />
+              <Route path="/" element={<Navigate to="/app/dashboard" replace />} />
 
           <Route path="/app" element={<AppGate />}>
             <Route index element={<IndexRedirect />} />
@@ -291,6 +301,7 @@ export default function App() {
         </Routes>
       </BrowserRouter>
       </AuthProvider>
+      </DarkModeProvider>
     </ToastProvider>
   );
 }

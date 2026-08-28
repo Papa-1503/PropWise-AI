@@ -35,7 +35,8 @@ a, [role="button"] {
 }
 .rounded-xl.border:hover, .rounded-lg.border:hover {
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
-}/* Textured app background — dot grid + skyline illustration */
+}
+/* Textured app background — dot grid + skyline illustration */
 .app-bg {
   background-color: #f6f3ec;
   background-image:
@@ -47,6 +48,37 @@ a, [role="button"] {
   background-size: 22px 22px, 480px 220px;
   background-attachment: fixed, scroll;
 }
+
+/* Dark mode — modeled on a design shared for evaluation (Aug 26, 2026),
+   which used CSS custom properties re-mapped on a data-theme attribute,
+   letting a small handful of rules re-theme everything at once since
+   every component consistently referenced those variables. RentFlow
+   uses Tailwind utility classes directly rather than CSS variables, so
+   that exact mechanism doesn't transplant — but the same practical
+   outcome (broad coverage from a small number of rules, not touching
+   every component file) is achievable here via global selectors on the
+   card pattern (`rounded-xl.border` / `rounded-lg.border`) already
+   reused throughout the app, the same way the hover-shadow rule above
+   already does. Toggled via the `dark` class on <html> (Tailwind's
+   `darkMode: "class"` strategy), set by DarkModeContext. */
+.dark body {
+  background-color: #0f172a;
+  color: #e2e8f0;
+}
+.dark .app-bg {
+  background-color: #0f172a;
+  background-image: radial-gradient(circle at 1px 1px, rgba(226, 232, 240, 0.06) 1px, transparent 0);
+}
+.dark .rounded-xl.border, .dark .rounded-lg.border {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+  color: #e2e8f0;
+}
+.dark .text-slate-800, .dark .text-slate-900 { color: #f1f5f9; }
+.dark .text-slate-700, .dark .text-slate-600 { color: #cbd5e1; }
+.dark .text-slate-500, .dark .text-slate-400 { color: #94a3b8; }
+.dark .bg-slate-50 { background-color: #1e293b; }
+.dark .border-slate-200, .dark .border-slate-100 { border-color: #334155; }
 
 /* Colorful stat card accents — used by StatCard tone variants */
 .stat-card-accent {
