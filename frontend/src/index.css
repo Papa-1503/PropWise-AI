@@ -21,6 +21,14 @@ a, [role="button"] {
   animation: fadeInUp 300ms ease-out both;
 }
 
+@keyframes toastSlideIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.animate-toast-in {
+  animation: toastSlideIn 220ms ease-out both;
+}
+
 /* Gentle hover lift for card-style containers */
 .rounded-xl.border, .rounded-lg.border {
   transition: box-shadow 150ms ease, transform 150ms ease;

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useId } from "react";
 import { useAuth } from "./AuthContext";
+import { useToast } from "./ToastContext";
 import VendorAssignment from "./VendorAssignment";
 import EmptyState from "./EmptyState";
 import { Wrench, Plus, X } from "lucide-react";
@@ -194,6 +195,7 @@ function NewTicketModal({ propertyId, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const { authFetch } = useAuth();
+  const { show: showToast } = useToast();
   const idPrefix = useId();
 
   async function handleSave() {
@@ -211,9 +213,15 @@ function NewTicketModal({ propertyId, onClose, onSaved }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || "Something went wrong");
+      if (data.wasExistingDuplicate) {
+        showToast(`A matching open ticket already existed for Unit ${unitId} — not duplicated.`, "warning");
+      } else {
+        showToast(`Ticket created: ${title} (Unit ${unitId})`, "success");
+      }
       onSaved();
       onClose();
     } catch (err) {
+      showToast(err.message || "Couldn't create the ticket.", "error");
       setError(err.message);
     } finally {
       setSaving(false);

@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Outle
 import { useState, lazy, Suspense } from "react";
 import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";
+import { ToastProvider } from "./ToastContext";
 import Avatar from "./Avatar";
 import LeadCaptureForm from "./LeadCaptureForm";
 import Documents from "./Documents";
@@ -256,11 +257,12 @@ function DashboardTab({ effectivePropertyId, userName }) {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/apply" element={<LeadCaptureForm />} />
-          <Route path="/" element={<Navigate to="/app/dashboard" replace />} />
+    <ToastProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/apply" element={<LeadCaptureForm />} />
+            <Route path="/" element={<Navigate to="/app/dashboard" replace />} />
 
           <Route path="/app" element={<AppGate />}>
             <Route index element={<IndexRedirect />} />
@@ -288,7 +290,8 @@ export default function App() {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
-    </AuthProvider>
+      </AuthProvider>
+    </ToastProvider>
   );
 }
 

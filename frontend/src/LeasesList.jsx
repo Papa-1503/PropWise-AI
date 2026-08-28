@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useId } from "react";
 import { useAuth } from "./AuthContext";
+import { useToast } from "./ToastContext";
 import EmptyState from "./EmptyState";
 import { FileSignature, Plus, X, FileText, History } from "lucide-react";
 import { API_BASE } from "./config";
@@ -31,6 +32,7 @@ function NewLeaseModal({ propertyId, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const { authFetch } = useAuth();
+  const { show: showToast } = useToast();
   const idPrefix = useId();
 
   async function handleSave() {
@@ -56,9 +58,11 @@ function NewLeaseModal({ propertyId, onClose, onSaved }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || "Something went wrong");
+      showToast(`Lease created for ${residentName} (Unit ${unitId})`, "success");
       onSaved();
       onClose();
     } catch (err) {
+      showToast(err.message || "Couldn't create the lease.", "error");
       setError(err.message);
     } finally {
       setSaving(false);
