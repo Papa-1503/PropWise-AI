@@ -353,12 +353,41 @@ async def get_dashboard_stats(propertyId: str | None = None, user: dict = Depend
 
     return {
         "occupancyPct": occupancy_pct,
+        "occupiedUnits": occupied_units,
+        "vacantUnitsCount": vacant_units,
+        "totalUnits": total_units,
         "monthlyRevenue": round(monthly_revenue, 2),
         "vacantUnits": vacant_units,
         "openTickets": open_tickets,
         "urgentTickets": urgent_tickets,
         "inspectionsDue": inspections_due,
     }
+
+
+@router.get("/revenue-trend")
+async def revenue_trend(propertyId: str | None = None, months: int = 6, user: dict = Depends(require_staff)):
+    """Real revenue collected per month, from actual payment records —
+    not the current-month snapshot /stats returns (which is based on
+    currently-occupied units' rent, a different, instantaneous number).
+    Filters paidDate explicitly non-null: some payment records have the
+    field present but set to null, which would otherwise group into a
+    bogus zero-revenue bucket."""
+    query = {"paidDate": {"$ne": None}}
+    if propertyId:
+        query["propertyId"] = propertyId
+    cutoff = datetime.now(timezone.utc) - timedelta(days=months * 31)
+    query["paidDate"]["$gte"] = cutoff
+
+    pipeline = [
+        {"$match": query},
+        {"$group": {
+            "_id": {"$dateToString": {"format": "%Y-%m", "date": "$paidDate"}},
+            "total": {"$sum": "$amountPaid"},
+        }},
+        {"$sort": {"_id": 1}},
+    ]
+    results = await payments_col.aggregate(pipeline).to_list(length=months)
+    return {"months": [{"month": r["_id"], "collected": round(r["total"], 2)} for r in results]}
 
 DEFAULT_WIDGETS = [
     "healthScore", "occupancy", "revenue", "vacancies",

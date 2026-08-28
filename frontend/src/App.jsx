@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Outlet, useOutletContext } from "react-router-dom";
-import { useState } from "react";
+import { useState, lazy, Suspense } from "react";
 import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";
 import Avatar from "./Avatar";
@@ -7,7 +7,8 @@ import LeadCaptureForm from "./LeadCaptureForm";
 import Documents from "./Documents";
 import Gallery from "./Gallery";
 import LoginScreen from "./LoginScreen";
-import Dashboard, { RecentActivity } from "./Dashboard";
+import RecentActivity from "./RecentActivity";
+const Dashboard = lazy(() => import("./Dashboard"));
 import MaintenanceTickets from "./MaintenanceTickets";
 import InspectionsList from "./InspectionsList";
 import AICopilot from "./AICopilot";
@@ -237,7 +238,9 @@ function DashboardTab({ effectivePropertyId, userName }) {
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5">
       <div className="space-y-5">
         <PortfolioHealthHeader propertyId={effectivePropertyId} userName={userName} />
-        <Dashboard propertyId={effectivePropertyId} />
+        <Suspense fallback={<div className="h-40 bg-slate-100 rounded-xl animate-pulse" />}>
+          <Dashboard propertyId={effectivePropertyId} />
+        </Suspense>
         <OccupancyInsight propertyId={effectivePropertyId} />
         <AIWorkforcePanel propertyId={effectivePropertyId} />
       </div>

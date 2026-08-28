@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "./AuthContext";
 import { API_BASE } from "./config";
 import AffirmationBanner from "./AffirmationBanner";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 
 /**
  * Dashboard
@@ -36,20 +37,36 @@ function StatCard({ label, value, hint, tone = "neutral" }) {
   );
 }
 
-const EVENT_ICON = { payment: "💰", maintenance: "🔧", lease: "📄" };
+const OCCUPANCY_COLORS = ["#6366f1", "#e2e8f0"]; // occupied, vacant
 
-function timeAgo(iso) {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+function OccupancyChart({ occupied, vacant }) {
+  const total = occupied + vacant;
+  if (total === 0) return null;
+  const data = [
+    { name: "Occupied", value: occupied },
+    { name: "Vacant", value: vacant },
+  ];
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-4">
+      <h3 className="text-sm font-semibold text-slate-800 mb-2">Occupancy</h3>
+      <ResponsiveContainer width="100%" height={200}>
+        <PieChart>
+          <Pie data={data} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value">
+            {data.map((_, i) => <Cell key={i} fill={OCCUPANCY_COLORS[i]} />)}
+          </Pie>
+          <Tooltip formatter={(v) => `${v} units`} />
+        </PieChart>
+      </ResponsiveContainer>
+      <div className="flex justify-center gap-5 mt-1 text-xs">
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />Occupied ({occupied})</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-slate-200" />Vacant ({vacant})</span>
+      </div>
+    </div>
+  );
 }
 
-export function RecentActivity({ propertyId }) {
-  const [events, setEvents] = useState([]);
+function RevenueTrendChart({ propertyId }) {
+  const [months, setMonths] = useState([]);
   const [loading, setLoading] = useState(true);
   const { authFetch } = useAuth();
 
@@ -60,10 +77,10 @@ export function RecentActivity({ propertyId }) {
       try {
         const params = new URLSearchParams();
         if (propertyId) params.set("propertyId", propertyId);
-        const res = await authFetch(`${API_BASE}/dashboard/recent-activity?${params.toString()}`);
+        const res = await authFetch(`${API_BASE}/dashboard/revenue-trend?${params.toString()}`);
         if (res.ok && !cancelled) {
           const data = await res.json();
-          setEvents(data.events || []);
+          setMonths(data.months || []);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -74,23 +91,21 @@ export function RecentActivity({ propertyId }) {
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-4">
-      <h3 className="text-sm font-semibold text-slate-800 mb-3">Recent Activity</h3>
+      <h3 className="text-sm font-semibold text-slate-800 mb-2">Revenue Collected by Month</h3>
       {loading ? (
         <p className="text-xs text-slate-400">Loading…</p>
-      ) : events.length === 0 ? (
-        <p className="text-xs text-slate-400">Nothing recent to show.</p>
+      ) : months.length === 0 ? (
+        <p className="text-xs text-slate-400">Not enough payment history yet.</p>
       ) : (
-        <div className="space-y-2.5">
-          {events.map((e, i) => (
-            <div key={i} className="flex items-start gap-2.5">
-              <span className="text-sm shrink-0">{EVENT_ICON[e.type] || "•"}</span>
-              <div className="min-w-0">
-                <p className="text-xs text-slate-700 leading-snug">{e.text}</p>
-                <p className="text-[10px] text-slate-400 mt-0.5">{timeAgo(e.timestamp)}</p>
-              </div>
-            </div>
-          ))}
-        </div>
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={months}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+            <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+            <Tooltip formatter={(v) => `$${v.toLocaleString()}`} />
+            <Bar dataKey="collected" fill="#6366f1" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
       )}
     </div>
   );
@@ -160,6 +175,11 @@ export default function Dashboard({ propertyId }) {
           hint="no inspection in past year"
           tone={stats.inspectionsDue > 0 ? "down" : "up"}
         />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+        <RevenueTrendChart propertyId={propertyId} />
+        <OccupancyChart occupied={stats.occupiedUnits ?? 0} vacant={stats.vacantUnitsCount ?? 0} />
       </div>
     </div>
   );
