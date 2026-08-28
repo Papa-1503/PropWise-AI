@@ -157,6 +157,15 @@ class UserOut(BaseModel):
     propertyId: Optional[str] = None
     unitId: Optional[str] = None
 
+
+class ProfileUpdate(BaseModel):
+    name: str
+
+
+class PasswordChange(BaseModel):
+    currentPassword: str
+    newPassword: str
+
 class TokenResponse(BaseModel):
     accessToken: str
     tokenType: str = "bearer"

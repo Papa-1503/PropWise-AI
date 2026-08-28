@@ -11,6 +11,7 @@ import Gallery from "./Gallery";
 import LoginScreen from "./LoginScreen";
 import RecentActivity from "./RecentActivity";
 import CommandPalette from "./CommandPalette";
+import Settings from "./Settings";
 const Dashboard = lazy(() => import("./Dashboard"));
 import MaintenanceTickets from "./MaintenanceTickets";
 import InspectionsList from "./InspectionsList";
@@ -177,13 +178,16 @@ function AppGate() {
         })}
       </nav>
       <div className="p-3 border-t border-slate-200">
-        <div className="flex items-center gap-2 px-2 py-2">
+        <button
+          onClick={() => goTo("settings")}
+          className="w-full flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-50 text-left"
+        >
           <Avatar name={user.name} size={30} />
           <div className="min-w-0">
             <p className="text-sm font-medium text-slate-800 truncate">{user.name}</p>
             <p className="text-xs text-slate-500 truncate">{user.role === "staff" ? "Staff" : `Unit ${user.unitId || "—"}`}</p>
           </div>
-        </div>
+        </button>
         <button
           onClick={toggleDarkMode}
           className="w-full flex items-center gap-2 text-left text-xs text-slate-500 hover:text-slate-800 px-2 py-1.5 mt-1"
@@ -305,6 +309,7 @@ export default function App() {
             <Route path="properties" element={<PropertyManagement />} />
             <Route path="documents" element={<Documents />} />
             <Route path="gallery" element={<GalleryWrapper />} />
+            <Route path="settings" element={<Settings />} />
             <Route path="feed" element={<SocialFeed />} />
             <Route path="ai" element={<AICopilotWrapper />} />
             <Route path="*" element={<TabNotFound />} />

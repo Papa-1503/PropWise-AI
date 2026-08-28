@@ -50,10 +50,11 @@ in an earlier session, the third is today's further hardening):
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends
+from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 
 from db import users_col, leases_col
-from models import UserRegister, TenantActivate, UserLogin, TokenResponse, UserOut
+from models import UserRegister, TenantActivate, UserLogin, TokenResponse, UserOut, ProfileUpdate, PasswordChange
 from auth import hash_password, verify_password, create_access_token, get_current_user, require_staff
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -145,3 +146,27 @@ async def login(payload: UserLogin):
 @router.get("/me", response_model=UserOut)
 async def me(user: dict = Depends(get_current_user)):
     return to_user_out(user)
+
+
+@router.patch("/me", response_model=UserOut)
+async def update_profile(payload: ProfileUpdate, user: dict = Depends(get_current_user)):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name can't be empty.")
+    await users_col.update_one({"_id": ObjectId(user["id"])}, {"$set": {"name": name}})
+    updated = dict(user)
+    updated["name"] = name
+    return to_user_out(updated)
+
+
+@router.post("/change-password")
+async def change_password(payload: PasswordChange, user: dict = Depends(get_current_user)):
+    doc = await users_col.find_one({"_id": ObjectId(user["id"])})
+    if not doc or not verify_password(payload.currentPassword, doc["password"]):
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+    if len(payload.newPassword) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters.")
+    await users_col.update_one(
+        {"_id": ObjectId(user["id"])}, {"$set": {"password": hash_password(payload.newPassword)}}
+    )
+    return {"status": "ok"}
