@@ -160,6 +160,70 @@ function ScheduleRow({ schedule, buildingName }) {
   );
 }
 
+const STATUS_STYLE = {
+  paid: { label: "Paid", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  upcoming: { label: "Upcoming", cls: "bg-slate-50 text-slate-600 border-slate-200" },
+  in_grace_period: { label: "In grace period", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+  late_fee_applied: { label: "Late fee applied", cls: "bg-rose-50 text-rose-700 border-rose-200" },
+  past_grace_awaiting_check: { label: "Past grace — pending check", cls: "bg-orange-50 text-orange-700 border-orange-200" },
+};
+
+function RentCycleTimeline({ propertyId }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const { authFetch } = useAuth();
+
+  useEffect(() => {
+    if (!propertyId) {
+      setData(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await authFetch(`${API_BASE}/properties/${propertyId}/rent-cycle`);
+        if (res.ok && !cancelled) setData(await res.json());
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [propertyId, authFetch]);
+
+  if (!propertyId) return null;
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-4 mb-5">
+      <h3 className="text-sm font-semibold text-slate-800 mb-1">Rent Cycle</h3>
+      {data && (
+        <p className="text-[11px] text-slate-500 mb-3">
+          {data.graceDays}-day grace period · ${data.lateFeeAmount} late fee — fully automated, no action needed once set
+        </p>
+      )}
+      {loading ? (
+        <p className="text-xs text-slate-400">Loading…</p>
+      ) : !data || data.events.length === 0 ? (
+        <p className="text-xs text-slate-400">Nothing due or recently due for this building.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {data.events.map((e, i) => {
+            const s = STATUS_STYLE[e.status] || STATUS_STYLE.upcoming;
+            return (
+              <div key={i} className="flex items-center justify-between text-xs py-1.5 border-b border-slate-50 last:border-0">
+                <span className="text-slate-600">
+                  Unit {e.unitId} · ${e.amountDue.toLocaleString()} due {new Date(e.dueDate).toLocaleDateString()}
+                </span>
+                <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${s.cls}`}>{s.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function MaintenanceSchedules({ propertyId }) {
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -193,6 +257,8 @@ export default function MaintenanceSchedules({ propertyId }) {
 
   return (
     <div className="max-w-2xl mx-auto">
+      <RentCycleTimeline propertyId={propertyId} />
+
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-lg font-semibold">Preventive Maintenance</h2>
         <button

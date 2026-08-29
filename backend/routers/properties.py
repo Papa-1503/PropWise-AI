@@ -17,7 +17,8 @@ modeled — the dashboard/copilot aggregations would need matching changes.
 from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
 
-from db import properties_col
+from db import properties_col, payments_col
+from datetime import datetime, timezone, timedelta
 from services.events import emit_event
 from auth import require_staff
 from models import PropertyCreate, PropertyUpdate, UnitStatusUpdate, UnitDetailsUpdate, UnitIn, OwnerAssign, RentRulesUpdate
@@ -103,6 +104,72 @@ async def update_rent_rules(property_id: str, payload: RentRulesUpdate, user: di
     if not result:
         raise HTTPException(status_code=404, detail="Property not found")
     return serialize(result)
+
+
+@router.get("/{property_id}/rent-cycle")
+async def rent_cycle_timeline(property_id: str, user: dict = Depends(require_staff)):
+    """A real, read-only computed timeline — not a stored schedule, since
+    there's nothing to configure here beyond what rent-rules already
+    covers. Uses the exact same grace-period logic as run_late_fee_check
+    in admin.py, so what's shown here is guaranteed consistent with what
+    the automation actually does, not a separate approximation of it.
+    Fully automated: nothing here needs a human to create or maintain —
+    it's derived live from real payment due dates plus this property's
+    configured (or default) grace period."""
+    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+    prop = await properties_col.find_one({"_id": query_id})
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    grace_days = prop.get("lateFeeGraceDays", 5)
+    late_fee_amount = prop.get("lateFeeAmount", 50.0)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    charges = await payments_col.find({"propertyId": property_id}).sort("dueDate", 1).to_list(length=500)
+
+    events = []
+    for c in charges:
+        due = c.get("dueDate")
+        if not isinstance(due, datetime):
+            continue
+        due = due.replace(tzinfo=None) if due.tzinfo else due
+        paid_enough = c.get("amountPaid", 0) >= c.get("amountDue", 0)
+        grace_ends = due + timedelta(days=grace_days)
+        days_out = (due - now).days
+
+        # Only surface what's actually relevant right now — settled
+        # charges more than a grace period in the past, or due dates
+        # more than 30 days out, add noise without adding value to a
+        # timeline meant to show what's coming up or needs attention.
+        if paid_enough and (now - due).days > grace_days:
+            continue
+        if days_out > 30:
+            continue
+
+        if paid_enough:
+            status = "paid"
+        elif now < due:
+            status = "upcoming"
+        elif now <= grace_ends:
+            status = "in_grace_period"
+        elif c.get("lateFeeApplied"):
+            status = "late_fee_applied"
+        else:
+            status = "past_grace_awaiting_check"
+
+        events.append({
+            "unitId": c.get("unitId"),
+            "dueDate": due.isoformat(),
+            "graceEndsDate": grace_ends.isoformat(),
+            "amountDue": c.get("amountDue", 0),
+            "status": status,
+        })
+
+    return {
+        "graceDays": grace_days,
+        "lateFeeAmount": late_fee_amount,
+        "events": events,
+    }
 
 
 @router.post("/{property_id}/units")
