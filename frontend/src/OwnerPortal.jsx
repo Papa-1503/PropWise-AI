@@ -3,6 +3,7 @@ import { useAuth } from "./AuthContext";
 import Avatar from "./Avatar";
 import { LayoutDashboard, FileText, Receipt, Building2, DoorOpen, Wrench } from "lucide-react";
 import { API_BASE } from "./config";
+import Resident360Modal from "./Resident360Modal";
 
 /**
  * OwnerPortal
@@ -20,6 +21,7 @@ import { API_BASE } from "./config";
 
 const TABS = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "units", label: "Units", icon: DoorOpen },
   { id: "statements", label: "Statements", icon: Receipt },
   { id: "tax", label: "Tax Summary", icon: FileText },
 ];
@@ -215,6 +217,87 @@ function OwnerTaxSummaryView() {
   );
 }
 
+function OwnerUnitsView() {
+  const [properties, setProperties] = useState(null);
+  const [leases, setLeases] = useState([]);
+  const [error, setError] = useState(null);
+  const [historyTarget, setHistoryTarget] = useState(null); // { email, name } | null
+  const { authFetch } = useAuth();
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [propsRes, leasesRes] = await Promise.all([
+          authFetch(`${API_BASE}/owners/me/properties`),
+          authFetch(`${API_BASE}/leases`),
+        ]);
+        if (!propsRes.ok) throw new Error("Couldn't load your properties");
+        setProperties((await propsRes.json()).properties || []);
+        // Leases can legitimately fail to load (e.g. none yet) without
+        // blocking the units list itself — units are the primary
+        // content here, resident names are an enrichment on top.
+        if (leasesRes.ok) setLeases((await leasesRes.json()).leases || []);
+      } catch (err) {
+        setError(err.message);
+      }
+    })();
+  }, [authFetch]);
+
+  if (error) return <p className="text-sm text-rose-600">{error}</p>;
+  if (!properties) return <div className="h-32 bg-slate-100 rounded-xl animate-pulse" />;
+
+  // Match each unit to its current resident, if any — a unit can have
+  // several historical leases, so pick whichever is most recently
+  // started with a resident email on file, not just the first found.
+  function residentFor(propertyId, unitId) {
+    const matches = leases
+      .filter((l) => l.propertyId === propertyId && l.unitId === unitId && l.residentEmail)
+      .sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
+    return matches[0] || null;
+  }
+
+  return (
+    <div className="space-y-4">
+      {properties.map((p) => (
+        <div key={p.id} className="bg-white border border-slate-200 rounded-xl p-4">
+          <h3 className="text-sm font-semibold mb-2">{p.name}</h3>
+          <div className="flex flex-wrap gap-1.5">
+            {(p.units || []).map((u) => {
+              const resident = residentFor(p.id, u.unitId);
+              return resident ? (
+                <button
+                  key={u.unitId}
+                  onClick={() => setHistoryTarget({ email: resident.residentEmail, name: resident.residentName })}
+                  title={`${resident.residentName} — view full history`}
+                  className="text-xs font-medium px-2.5 py-1 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                >
+                  {u.unitId}
+                </button>
+              ) : (
+                <span
+                  key={u.unitId}
+                  title={u.status === "occupied" ? "Occupied — no resident email on file" : "Vacant"}
+                  className="text-xs font-medium px-2.5 py-1 rounded-full border border-slate-200 text-slate-400"
+                >
+                  {u.unitId}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+
+      {historyTarget && (
+        <Resident360Modal
+          email={historyTarget.email}
+          name={historyTarget.name}
+          onClose={() => setHistoryTarget(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function OwnerPortal({ user, logout }) {
   const [tab, setTab] = useState("dashboard");
 
@@ -255,6 +338,7 @@ export default function OwnerPortal({ user, logout }) {
 
       <main className="px-6 pb-10 max-w-4xl">
         {tab === "dashboard" && <OwnerDashboardView />}
+        {tab === "units" && <OwnerUnitsView />}
         {tab === "statements" && <OwnerStatementsView />}
         {tab === "tax" && <OwnerTaxSummaryView />}
       </main>

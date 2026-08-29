@@ -12,10 +12,10 @@ import string
 from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
 
-from db import leases_col, documents_col
+from db import leases_col, documents_col, properties_col
 from models import LeaseCreate, LeaseUpdate
 from date_utils import parse_date_utc
-from auth import require_staff, get_current_user
+from auth import require_staff, require_staff_or_owner, get_current_user
 from services.events import emit_event
 router = APIRouter(prefix="/api/leases", tags=["leases"])
 
@@ -38,13 +38,33 @@ def serialize(lease: dict) -> dict:
 
 
 @router.get("")
-async def list_leases(propertyId: str | None = None, expiringWithinDays: int | None = None, user: dict = Depends(require_staff)):
+async def list_leases(propertyId: str | None = None, expiringWithinDays: int | None = None, user: dict = Depends(require_staff_or_owner)):
     query: dict = {}
     if propertyId:
         query["propertyId"] = propertyId
     if expiringWithinDays is not None:
         cutoff = datetime.now(timezone.utc) + timedelta(days=expiringWithinDays)
         query["endDate"] = {"$lte": cutoff}
+
+    # Real scoping, not just a role gate: without this, an owner could
+    # either omit propertyId and see every lease in the whole system,
+    # or pass a propertyId they don't actually own and see that other
+    # owner's residents. When propertyId IS given, verify it's actually
+    # theirs; when it's omitted, restrict to their own properties
+    # automatically instead — a genuinely useful "all my leases across
+    # everything I own" view, matching how owner_dashboard already
+    # aggregates across an owner's full portfolio, rather than just
+    # rejecting the request for not specifying one.
+    if user["role"] == "owner":
+        owned_ids = {
+            str(p["_id"]) for p in await properties_col.find({"ownerId": user["id"]}, {"_id": 1}).to_list(length=500)
+        }
+        if propertyId:
+            if propertyId not in owned_ids:
+                raise HTTPException(status_code=403, detail="You don't have access to this property.")
+        else:
+            query["propertyId"] = {"$in": list(owned_ids)}
+
     cursor = leases_col.find(query).sort("endDate", 1)
     leases = await cursor.to_list(length=500)
     return {"leases": [serialize(l) for l in leases]}
@@ -53,8 +73,9 @@ async def list_leases(propertyId: str | None = None, expiringWithinDays: int | N
 @router.get("/mine")
 async def my_lease(user: dict = Depends(get_current_user)):
     """A tenant fetching their OWN lease — genuinely didn't exist before.
-    list_leases above is staff-only (require_staff), so there was no way
-    for a tenant to see their own lease details through the API at all.
+    list_leases above allows staff and owners, but never tenants directly,
+    so there was no way for a tenant to see their own lease details
+    through the API at all.
     Matched on propertyId+unitId (set during invite-code registration),
     not residentEmail, since that's the more robust match — a tenant's
     login email isn't guaranteed to exactly match what staff typed into

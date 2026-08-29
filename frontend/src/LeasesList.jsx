@@ -191,7 +191,17 @@ function LeaseRow({ lease, buildingName, onRenewalChange, onGenerateDocument, on
             <span className="text-sm font-medium">{lease.residentName}</span>
             <span className="text-xs text-slate-500 ml-2">
               {buildingName && <span>{buildingName} · </span>}
-            Unit {lease.unitId}
+            {lease.residentEmail ? (
+              <button
+                onClick={() => onViewHistory(lease.residentEmail, lease.residentName)}
+                title="View this resident's full history"
+                className="underline decoration-dotted hover:text-indigo-600 hover:decoration-solid"
+              >
+                Unit {lease.unitId}
+              </button>
+            ) : (
+              <span title="No resident email on file — can't look up full history">Unit {lease.unitId}</span>
+            )}
           </span>
           {lease.residentEmail && (
             <button
