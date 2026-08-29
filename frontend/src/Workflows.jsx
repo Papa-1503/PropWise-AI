@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "./AuthContext";
 import EmptyState from "./EmptyState";
-import { Zap, Plus, X } from "lucide-react";
+import { Zap, Plus, X, Sparkles } from "lucide-react";
 
 import { API_BASE } from "./config";
+import { parseWorkflowSentence } from "./workflowParser";
 
 /**
  * Workflows
@@ -24,6 +25,7 @@ import { API_BASE } from "./config";
 const TRIGGER_OPTIONS = [
   { value: "lease_created", label: "When a lease is created" },
   { value: "tenant_moved_out", label: "When a tenant moves out" },
+  { value: "unit_created", label: "When a unit is created" },
   { value: "payment_received", label: "When a payment is received" },
   { value: "payment_returned", label: "When a payment is returned" },
   { value: "work_order_closed", label: "When a work order is closed" },
@@ -50,6 +52,40 @@ function triggerLabel(event) {
 
 function actionLabel(type) {
   return ACTION_OPTIONS.find((a) => a.value === type)?.label || type;
+}
+
+// Real config fields per action type, matching exactly what each
+// handler in backend/services/workflow_actions.py actually reads
+// (config.get("subject"/"body"/"title"/"userId"/"status"/"url")) —
+// create_turnover_checklist takes no config at all, so it's omitted
+// here rather than shown with nothing to fill in.
+const ACTION_CONFIG_FIELDS = {
+  send_email: [
+    { key: "subject", label: "Subject", placeholder: "Notification from RentFlow AI" },
+    { key: "body", label: "Body", placeholder: "" },
+  ],
+  create_task: [{ key: "title", label: "Task title", placeholder: "Automated task" }],
+  assign_user: [{ key: "userId", label: "User ID", placeholder: "" }],
+  set_status: [{ key: "status", label: "Status", placeholder: "" }],
+  webhook: [{ key: "url", label: "Webhook URL", placeholder: "https://" }],
+};
+
+function ActionConfigFields({ action, onChange }) {
+  const fields = ACTION_CONFIG_FIELDS[action.type];
+  if (!fields) return null; // create_turnover_checklist needs no config
+  return (
+    <div className="flex flex-col gap-1.5 pl-1 pb-1">
+      {fields.map((f) => (
+        <input
+          key={f.key}
+          className="border border-slate-200 rounded-lg px-2 py-1 text-xs"
+          placeholder={f.label + (f.placeholder ? ` (e.g. ${f.placeholder})` : "")}
+          value={action.config?.[f.key] || ""}
+          onChange={(e) => onChange(f.key, e.target.value)}
+        />
+      ))}
+    </div>
+  );
 }
 
 function WorkflowRow({ workflow, onPublish, onPause, onDelete }) {
@@ -156,14 +192,35 @@ function NewWorkflowForm({ onCreated, onCancel }) {
   const [actions, setActions] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [nlText, setNlText] = useState("");
+  const [nlUnmatched, setNlUnmatched] = useState([]);
+  const [nlApplied, setNlApplied] = useState(false);
   const { authFetch } = useAuth();
+
+  function handleParseNl() {
+    const { trigger, actions: parsedActions, unmatched } = parseWorkflowSentence(nlText);
+    if (trigger) setTriggerEvent(trigger.event);
+    if (parsedActions.length > 0) setActions(parsedActions);
+    setNlUnmatched(unmatched);
+    setNlApplied(true);
+    if (!name.trim()) {
+      // A reasonable default name so the user isn't blocked on typing
+      // one manually, but it's just a starting point — still editable
+      // in the field below like anything else here.
+      setName(nlText.trim().slice(0, 60));
+    }
+  }
 
   function addAction() {
     setActions((prev) => [...prev, { type: "send_email", config: {}, order: prev.length + 1 }]);
   }
 
   function updateActionType(index, type) {
-    setActions((prev) => prev.map((a, i) => (i === index ? { ...a, type } : a)));
+    setActions((prev) => prev.map((a, i) => (i === index ? { ...a, type, config: {} } : a)));
+  }
+
+  function updateActionConfig(index, key, value) {
+    setActions((prev) => prev.map((a, i) => (i === index ? { ...a, config: { ...a.config, [key]: value } } : a)));
   }
 
   function removeAction(index) {
@@ -203,6 +260,42 @@ function NewWorkflowForm({ onCreated, onCancel }) {
         </button>
       </div>
 
+      <div className="bg-indigo-50/60 border border-indigo-100 rounded-lg p-3 mb-3">
+        <label htmlFor="nl-workflow-input" className="text-xs font-medium text-indigo-700 flex items-center gap-1 mb-1.5">
+          <Sparkles size={12} /> Describe it in plain English (optional)
+        </label>
+        <div className="flex gap-2">
+          <input
+            id="nl-workflow-input"
+            className="flex-1 border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white"
+            placeholder='e.g. "When a lease is created, send a welcome email"'
+            value={nlText}
+            onChange={(e) => {
+              setNlText(e.target.value);
+              setNlApplied(false);
+            }}
+            onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleParseNl())}
+          />
+          <button
+            onClick={handleParseNl}
+            disabled={!nlText.trim()}
+            className="text-sm bg-indigo-600 text-white px-3 py-2 rounded-lg disabled:opacity-40 shrink-0"
+          >
+            Parse
+          </button>
+        </div>
+        {nlApplied && (
+          <p className="text-xs text-indigo-600 mt-1.5">
+            Filled in the fields below — review before saving.
+          </p>
+        )}
+        {nlUnmatched.length > 0 && (
+          <p className="text-xs text-amber-600 mt-1">
+            Couldn't recognize: {nlUnmatched.map((u) => `"${u}"`).join(", ")} — add it manually below if needed.
+          </p>
+        )}
+      </div>
+
       <input
         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm mb-2"
         placeholder="Workflow name"
@@ -224,21 +317,24 @@ function NewWorkflowForm({ onCreated, onCancel }) {
 
       <div className="space-y-2 mb-3">
         {actions.map((action, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <select
-              className="flex-1 border border-slate-200 rounded-lg px-2 py-1.5 text-sm"
-              value={action.type}
-              onChange={(e) => updateActionType(i, e.target.value)}
-            >
-              {ACTION_OPTIONS.map((a) => (
-                <option key={a.value} value={a.value}>
-                  {a.label}
-                </option>
-              ))}
-            </select>
-            <button onClick={() => removeAction(i)} className="text-rose-500 hover:text-rose-600">
-              <X size={14} />
-            </button>
+          <div key={i} className="border border-slate-100 rounded-lg p-2">
+            <div className="flex items-center gap-2 mb-1.5">
+              <select
+                className="flex-1 border border-slate-200 rounded-lg px-2 py-1.5 text-sm"
+                value={action.type}
+                onChange={(e) => updateActionType(i, e.target.value)}
+              >
+                {ACTION_OPTIONS.map((a) => (
+                  <option key={a.value} value={a.value}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+              <button onClick={() => removeAction(i)} className="text-rose-500 hover:text-rose-600">
+                <X size={14} />
+              </button>
+            </div>
+            <ActionConfigFields action={action} onChange={(key, value) => updateActionConfig(i, key, value)} />
           </div>
         ))}
         <button onClick={addAction} className="text-[11px] text-indigo-600 underline flex items-center gap-1">
