@@ -122,6 +122,7 @@ class LeaseCreate(BaseModel):
     unitId: str
     residentName: str
     residentEmail: Optional[str] = None
+    residentPhone: Optional[str] = None
     startDate: str  # ISO date string, parsed on write
     endDate: str
     rent: float = Field(ge=0, default=0)

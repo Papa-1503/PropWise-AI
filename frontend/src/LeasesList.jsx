@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback, useId, useMemo } from "react";
 import { useAuth } from "./AuthContext";
 import { useToast } from "./ToastContext";
 import EmptyState from "./EmptyState";
-import { FileSignature, Plus, X, FileText, History, Search } from "lucide-react";
+import { FileSignature, Plus, X, FileText, Search } from "lucide-react";
 import { API_BASE } from "./config";
 import Resident360Modal from "./Resident360Modal";
+import UnitHistoryModal from "./UnitHistoryModal";
 
 /**
  * LeasesList
@@ -26,6 +27,7 @@ function NewLeaseModal({ propertyId, onClose, onSaved }) {
   const [unitId, setUnitId] = useState("");
   const [residentName, setResidentName] = useState("");
   const [residentEmail, setResidentEmail] = useState("");
+  const [residentPhone, setResidentPhone] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [rent, setRent] = useState("");
@@ -51,6 +53,7 @@ function NewLeaseModal({ propertyId, onClose, onSaved }) {
           unitId,
           residentName,
           residentEmail: residentEmail || null,
+          residentPhone: residentPhone || null,
           startDate,
           endDate,
           rent: rent ? Number(rent) : 0,
@@ -109,6 +112,18 @@ function NewLeaseModal({ propertyId, onClose, onSaved }) {
               value={residentEmail}
               onChange={(e) => setResidentEmail(e.target.value)}
               placeholder="Needed to generate a lease document"
+              className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
+            />
+          </div>
+          <div>
+            <label htmlFor={`${idPrefix}-phone`} className="text-xs text-slate-500">Resident phone (optional)</label>
+            <input
+              id={`${idPrefix}-phone`}
+              type="tel"
+              autoComplete="tel"
+              value={residentPhone}
+              onChange={(e) => setResidentPhone(e.target.value)}
+              placeholder="612-555-0100"
               className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
             />
           </div>
@@ -191,27 +206,14 @@ function LeaseRow({ lease, buildingName, onRenewalChange, onGenerateDocument, on
             <span className="text-sm font-medium">{lease.residentName}</span>
             <span className="text-xs text-slate-500 ml-2">
               {buildingName && <span>{buildingName} · </span>}
-            {lease.residentEmail ? (
               <button
-                onClick={() => onViewHistory(lease.residentEmail, lease.residentName)}
-                title="View this resident's full history"
+                onClick={() => onViewHistory(lease)}
+                title={lease.residentEmail ? "View this resident's full history" : "View this unit's history"}
                 className="underline decoration-dotted hover:text-indigo-600 hover:decoration-solid"
               >
                 Unit {lease.unitId}
               </button>
-            ) : (
-              <span title="No resident email on file — can't look up full history">Unit {lease.unitId}</span>
-            )}
-          </span>
-          {lease.residentEmail && (
-            <button
-              onClick={() => onViewHistory(lease.residentEmail, lease.residentName)}
-              title="View this resident's full history"
-              className="ml-2 text-slate-300 hover:text-indigo-600 align-middle"
-            >
-              <History size={13} />
-            </button>
-          )}
+            </span>
           </div>
         </div>
         <select
@@ -263,7 +265,10 @@ export default function LeasesList({ propertyId }) {
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [error, setError] = useState(null);
-  const [historyTarget, setHistoryTarget] = useState(null); // { email, name } | null
+  // { email, name } for a resident-scoped lookup, or { propertyId, unitId }
+  // for a unit-scoped fallback when no resident email is on file — set by
+  // handleViewHistory below, which decides the shape based on the lease.
+  const [historyTarget, setHistoryTarget] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [confirmingBulk, setConfirmingBulk] = useState(null); // target renewalStatus | null
   const [undoState, setUndoState] = useState(null);
@@ -293,6 +298,20 @@ export default function LeasesList({ propertyId }) {
   useEffect(() => {
     fetchLeases();
   }, [fetchLeases]);
+
+  function handleViewHistory(lease) {
+    // A resident email means we can look them up across every unit
+    // they've ever lived in (Resident360Modal, /api/residents/360).
+    // No email — vacant unit, or an occupied one created without an
+    // email on file — falls back to a unit-scoped lookup instead
+    // (UnitHistoryModal, /api/units/360), so the unit number is always
+    // clickable and always opens something useful either way.
+    if (lease.residentEmail) {
+      setHistoryTarget({ email: lease.residentEmail, name: lease.residentName });
+    } else {
+      setHistoryTarget({ propertyId: lease.propertyId, unitId: lease.unitId });
+    }
+  }
 
   async function handleRenewalChange(leaseId, renewalStatus) {
     setLeases((prev) => prev.map((l) => (l.id === leaseId ? { ...l, renewalStatus } : l)));
@@ -500,7 +519,7 @@ export default function LeasesList({ propertyId }) {
               buildingName={!propertyId ? getPropertyName(l.propertyId) : null}
               onRenewalChange={handleRenewalChange}
               onGenerateDocument={handleGenerateDocument}
-              onViewHistory={(email, name) => setHistoryTarget({ email, name })}
+              onViewHistory={handleViewHistory}
               selectable={true}
               selected={selectedIds.has(l.id)}
               onToggleSelect={toggleSelect}
@@ -512,10 +531,17 @@ export default function LeasesList({ propertyId }) {
       {showNew && (
         <NewLeaseModal propertyId={propertyId} onClose={() => setShowNew(false)} onSaved={fetchLeases} />
       )}
-      {historyTarget && (
+      {historyTarget && historyTarget.email && (
         <Resident360Modal
           email={historyTarget.email}
           name={historyTarget.name}
+          onClose={() => setHistoryTarget(null)}
+        />
+      )}
+      {historyTarget && !historyTarget.email && (
+        <UnitHistoryModal
+          propertyId={historyTarget.propertyId}
+          unitId={historyTarget.unitId}
           onClose={() => setHistoryTarget(null)}
         />
       )}

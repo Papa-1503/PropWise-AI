@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "./AuthContext";
-import { X, FileSignature, DollarSign, Wrench, MessageSquare } from "lucide-react";
+import { X, FileSignature, DollarSign, Wrench, MessageSquare, Phone } from "lucide-react";
 import { API_BASE } from "./config";
 
 /**
@@ -17,7 +17,7 @@ import { API_BASE } from "./config";
 const SECTION_ICONS = { leases: FileSignature, payments: DollarSign, tickets: Wrench, communications: MessageSquare };
 const SECTION_LABELS = { leases: "Leases", payments: "Payments", tickets: "Maintenance", communications: "Communications" };
 
-function LeaseSummary({ lease }) {
+export function LeaseSummary({ lease }) {
   return (
     <div className="border-b border-slate-100 py-2.5 last:border-none text-sm">
       <div className="flex items-center justify-between">
@@ -27,11 +27,17 @@ function LeaseSummary({ lease }) {
       <p className="text-xs text-slate-500">
         {new Date(lease.startDate).toLocaleDateString()} – {new Date(lease.endDate).toLocaleDateString()} · ${lease.rent?.toLocaleString()}/mo
       </p>
+      {lease.residentPhone && (
+        <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+          <Phone size={11} />
+          {lease.residentPhone}
+        </p>
+      )}
     </div>
   );
 }
 
-function PaymentSummary({ payment }) {
+export function PaymentSummary({ payment }) {
   const owed = (payment.amountDue || 0) - (payment.amountPaid || 0);
   return (
     <div className="border-b border-slate-100 py-2 last:border-none text-sm flex items-center justify-between">
@@ -43,7 +49,7 @@ function PaymentSummary({ payment }) {
   );
 }
 
-function TicketSummary({ ticket }) {
+export function TicketSummary({ ticket }) {
   return (
     <div className="border-b border-slate-100 py-2 last:border-none text-sm flex items-center justify-between">
       <span>{ticket.title}</span>
