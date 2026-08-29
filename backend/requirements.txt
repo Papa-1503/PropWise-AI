@@ -12,3 +12,4 @@ Pillow
 cloudinary
 httpx
 pywebpush
+twilio

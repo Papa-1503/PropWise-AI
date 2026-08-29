@@ -487,6 +487,13 @@ class SendEmailCommunication(BaseModel):
     body: str
 
 
+class SendSmsCommunication(BaseModel):
+    propertyId: str
+    unitId: str
+    to: str  # E.164 format, e.g. +15551234567
+    body: str
+
+
 # ---------- Admin ----------
 
 class AdminKeyPayload(BaseModel):

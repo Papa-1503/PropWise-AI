@@ -46,13 +46,20 @@ function ComposeModal({ propertyId, onClose, onSaved, mode }) {
       setError("Recipient email is required.");
       return;
     }
+    if (mode === "sms" && !to.trim()) {
+      setError("Recipient phone number is required.");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      const endpoint = mode === "email" ? "/communications/send-email" : "/communications";
+      const endpoint =
+        mode === "email" ? "/communications/send-email" : mode === "sms" ? "/communications/send-sms" : "/communications";
       const payload =
         mode === "email"
           ? { propertyId, unitId, to, subject, body }
+          : mode === "sms"
+          ? { propertyId, unitId, to, body }
           : { propertyId, unitId, channel, direction, subject: subject || undefined, body };
 
       const res = await authFetch(`${API_BASE}${endpoint}`, {
@@ -75,7 +82,7 @@ function ComposeModal({ propertyId, onClose, onSaved, mode }) {
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30 p-4">
       <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold">{mode === "email" ? "Send email" : "Log communication"}</h3>
+          <h3 className="font-semibold">{mode === "email" ? "Send email" : mode === "sms" ? "Send SMS" : "Log communication"}</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
             <X size={18} />
           </button>
@@ -102,6 +109,18 @@ function ComposeModal({ propertyId, onClose, onSaved, mode }) {
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
                 placeholder="tenant@example.com"
+                className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
+              />
+            </div>
+          ) : mode === "sms" ? (
+            <div>
+              <label htmlFor={`${idPrefix}-to`} className="text-xs text-slate-500">To (phone number)</label>
+              <input
+                id={`${idPrefix}-to`}
+                type="tel"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                placeholder="+15551234567"
                 className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
               />
             </div>
@@ -135,18 +154,20 @@ function ComposeModal({ propertyId, onClose, onSaved, mode }) {
             </div>
           )}
 
-          <div>
-            <label htmlFor={`${idPrefix}-subject`} className="text-xs text-slate-500">Subject {mode !== "email" && "(optional)"}</label>
-            <input
-              id={`${idPrefix}-subject`}
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
-            />
-          </div>
+          {mode !== "sms" && (
+            <div>
+              <label htmlFor={`${idPrefix}-subject`} className="text-xs text-slate-500">Subject {mode !== "email" && "(optional)"}</label>
+              <input
+                id={`${idPrefix}-subject`}
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
+              />
+            </div>
+          )}
 
           <div>
-            <label htmlFor={`${idPrefix}-body`} className="text-xs text-slate-500">{mode === "email" ? "Message" : "What happened"}</label>
+            <label htmlFor={`${idPrefix}-body`} className="text-xs text-slate-500">{mode === "email" || mode === "sms" ? "Message" : "What happened"}</label>
             <textarea
               id={`${idPrefix}-body`}
               value={body}
@@ -166,7 +187,7 @@ function ComposeModal({ propertyId, onClose, onSaved, mode }) {
           disabled={saving}
           className="mt-4 w-full bg-slate-900 disabled:bg-slate-300 text-white text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-800"
         >
-          {saving ? "Saving…" : mode === "email" ? "Send" : "Log it"}
+          {saving ? "Saving…" : mode === "email" || mode === "sms" ? "Send" : "Log it"}
         </button>
       </div>
     </div>
@@ -206,7 +227,7 @@ function CommRow({ comm, buildingName }) {
 export default function CommunicationsPanel({ propertyId }) {
   const [comms, setComms] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [composeMode, setComposeMode] = useState(null); // null | "log" | "email"
+  const [composeMode, setComposeMode] = useState(null); // null | "log" | "email" | "sms"
   const [error, setError] = useState(null);
   const { authFetch, getPropertyName } = useAuth();
 
@@ -256,6 +277,15 @@ export default function CommunicationsPanel({ propertyId }) {
           >
             <Mail size={14} />
             Send email
+          </button>
+          <button
+            onClick={() => setComposeMode("sms")}
+            disabled={!propertyId}
+            title={!propertyId ? "Pick a specific building first" : undefined}
+            className="flex items-center gap-1.5 text-sm font-semibold bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <MessageSquare size={14} />
+            Send SMS
           </button>
         </div>
       </div>

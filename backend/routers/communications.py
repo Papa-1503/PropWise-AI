@@ -22,9 +22,10 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from db import communications_col
-from models import CommunicationCreate, SendEmailCommunication
+from models import CommunicationCreate, SendEmailCommunication, SendSmsCommunication
 from auth import require_staff
 from email_service import send_email_async, EmailNotConfigured, EmailSendError
+from sms_service import send_sms_async, SmsNotConfigured, SmsSendError
 
 router = APIRouter(prefix="/api/communications", tags=["communications"])
 
@@ -83,6 +84,38 @@ async def send_email_communication(payload: SendEmailCommunication, user: dict =
         # Still log the failed attempt (so staff can see it didn't go out),
         # but surface the error to the caller rather than pretending it worked.
         raise HTTPException(status_code=502, detail=f"Email failed to send: {exc}")
+
+    result = await communications_col.insert_one(doc)
+    doc["_id"] = result.inserted_id
+    return serialize(doc)
+
+
+@router.post("/send-sms")
+async def send_sms_communication(payload: SendSmsCommunication, user: dict = Depends(require_staff)):
+    doc = {
+        "propertyId": payload.propertyId,
+        "unitId": payload.unitId,
+        "channel": "sms",
+        "direction": "outbound",
+        "body": payload.body,
+        "to": payload.to,
+        "loggedBy": user.get("email"),
+        "createdAt": datetime.now(timezone.utc),
+    }
+
+    try:
+        message_sid = await send_sms_async(to=payload.to, body=payload.body)
+        doc["status"] = "sent"
+        doc["providerMessageId"] = message_sid
+    except (SmsNotConfigured, SmsSendError) as exc:
+        doc["status"] = "failed"
+        doc["error"] = str(exc)
+        result = await communications_col.insert_one(doc)
+        doc["_id"] = result.inserted_id
+        # Same honest pattern as send-email — log the failed attempt so
+        # staff can see it didn't go out, but still surface the real
+        # error to the caller rather than pretending it worked.
+        raise HTTPException(status_code=502, detail=f"SMS failed to send: {exc}")
 
     result = await communications_col.insert_one(doc)
     doc["_id"] = result.inserted_id
