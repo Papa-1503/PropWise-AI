@@ -97,6 +97,9 @@ class RentRulesUpdate(BaseModel):
     lateFeeGraceDays: Optional[int] = Field(default=None, ge=0, le=60)
     lateFeeAmount: Optional[float] = Field(default=None, ge=0)
     dueDay: Optional[int] = Field(default=None, ge=1, le=28)
+    escalationDays: Optional[int] = Field(default=None, ge=0, le=90)
+    # ^ days AFTER a late fee is applied, with the charge still unpaid,
+    # before it's automatically escalated — read by run_escalation_check.
 
 
 class UnitStatusUpdate(BaseModel):

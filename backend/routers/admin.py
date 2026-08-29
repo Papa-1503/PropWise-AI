@@ -51,7 +51,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException
 from bson import ObjectId
 
-from db import maintenance_schedules_col, tickets_col, users_col, leases_col, payments_col, properties_col
+from db import maintenance_schedules_col, tickets_col, users_col, leases_col, payments_col, properties_col, ai_actions_col
 from models import AdminKeyPayload
 import notifications_service
 
@@ -260,7 +260,15 @@ async def _find_property(property_id: str | None) -> dict | None:
 @router.post("/run-late-fee-check")
 async def run_late_fee_check(payload: AdminKeyPayload):
     check_key(payload.key)
+    return await _do_late_fee_check()
 
+
+async def _do_late_fee_check():
+    """The actual check logic, split out from the HTTP handler above so
+    a real background scheduler (see main.py) can call it directly
+    without a self-HTTP-call or the admin key — the key exists to gate
+    manual/external triggering, not to gate the in-process scheduler
+    that already runs inside this same trusted process."""
     now = datetime.now(timezone.utc)
     cursor = payments_col.find({"lateFeeApplied": {"$ne": True}})
     all_unpaid_candidates = await cursor.to_list(length=2000)
@@ -309,4 +317,96 @@ async def run_late_fee_check(payload: AdminKeyPayload):
         "chargesChecked": len(all_unpaid_candidates),
         "lateFeesApplied": len(charged),
         "chargeIds": charged,
+    }
+
+
+@router.post("/run-escalation-check")
+async def run_escalation_check(payload: AdminKeyPayload):
+    check_key(payload.key)
+    return await _do_escalation_check()
+
+
+async def _do_escalation_check():
+    """Fully automated escalation — deliberately built the same way as
+    _do_late_fee_check above, both structurally and philosophically: no
+    human triggers this per-tenant, it's one recurring check (called by
+    the real background scheduler in main.py) that finds every charge
+    that genuinely qualifies and acts on all of them. A charge escalates
+    once it's had a late fee applied AND stayed unpaid for
+    escalationDays beyond that — a real second automated tier past the
+    late-fee stage, not a manual "click to escalate" button. Staff get
+    visibility (not a task they must remember to do) via a real AI
+    Action, using the exact same schema and status flow as every other
+    action in the Actions tab — reviewable, but not a required step for
+    the escalation itself to have already happened."""
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    cursor = payments_col.find({"lateFeeApplied": True, "escalated": {"$ne": True}})
+    candidates = await cursor.to_list(length=2000)
+
+    escalated = []
+    for charge in candidates:
+        if charge.get("amountPaid", 0) >= charge.get("amountDue", 0):
+            continue  # paid since the late fee was applied — no longer a candidate
+
+        due_date = charge.get("dueDate")
+        if not isinstance(due_date, datetime):
+            continue
+        due_date_naive = due_date.replace(tzinfo=None) if due_date.tzinfo else due_date
+
+        property_id = charge.get("propertyId")
+        prop = await _find_property(property_id)
+        escalation_days = (prop or {}).get("escalationDays", 10)
+        grace_days = (prop or {}).get("lateFeeGraceDays", DEFAULT_LATE_FEE_GRACE_DAYS)
+
+        # Escalation threshold is measured from the ORIGINAL due date, not
+        # from when the late fee happened to be applied — the late-fee
+        # check itself only runs when triggered, so "when it was applied"
+        # is an artifact of scheduling, not a meaningful anchor point.
+        if (now - due_date_naive).days < grace_days + escalation_days:
+            continue
+
+        await payments_col.update_one(
+            {"_id": charge["_id"]},
+            {"$set": {"escalated": True, "escalatedAt": now}},
+        )
+
+        unit_id = charge.get("unitId")
+        days_late = (now - due_date_naive).days
+        await ai_actions_col.insert_one({
+            "propertyId": property_id,
+            "type": "collections_escalation",
+            "title": f"Escalated: Unit {unit_id} — {days_late} days past due",
+            "priority": "high",
+            "rationale": (
+                f"${charge.get('amountDue', 0):.2f} owed for {charge.get('description', 'a charge')}, "
+                f"{days_late} days past the due date and {escalation_days} days past the late-fee stage "
+                f"with no payment — automatically escalated per this property's rent rules."
+            ),
+            "projectedOutcome": "Direct collections follow-up or payment plan discussion",
+            "estimatedValue": charge.get("amountDue", 0),
+            "affectedUnitIds": [unit_id] if unit_id else [],
+            "confidence": 90,
+            "riskLevel": "high",
+            "plannedSteps": ["Review resident's full payment history", "Contact resident directly", "Consider a payment plan or further action"],
+            "status": "suggested",
+            "createdAt": now,
+        })
+
+        if property_id and unit_id:
+            await notifications_service.notify_unit_resident(
+                property_id, unit_id,
+                type="general",
+                title="Account escalated",
+                body=f"Your account for {charge.get('description', 'a charge')} has been escalated due to non-payment. Please contact the office.",
+                link="/payments",
+            )
+
+        escalated.append(str(charge["_id"]))
+
+    return {
+        "status": "done",
+        "chargesChecked": len(candidates),
+        "escalated": len(escalated),
+        "chargeIds": escalated,
     }

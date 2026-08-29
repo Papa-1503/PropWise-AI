@@ -6,6 +6,8 @@ includes and the /uploads static mount into it — everything else here
 from dotenv import load_dotenv
 load_dotenv()
 
+import asyncio
+import logging
 from fastapi import FastAPI
 import os
 from fastapi.staticfiles import StaticFiles
@@ -76,9 +78,40 @@ os.makedirs(UPLOAD_BASE_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_BASE_DIR), name="uploads")
 
 
+logger = logging.getLogger("rentflow.scheduler")
+
+
+async def rent_automation_scheduler():
+    """The real, missing piece that makes the late-fee and escalation
+    checks genuinely automated rather than merely automatable — no cron
+    job or external scheduler existed anywhere in this project before
+    this; both checks only ever ran when someone manually called them
+    (including during testing today). Runs as a background task inside
+    this same process, no external infrastructure needed. Each run is
+    wrapped in its own try/except so one check's failure doesn't kill
+    the loop or block the other check from running — and a genuinely
+    unexpected exception here would otherwise silently stop all future
+    automated runs forever, which is worse than one run failing loudly."""
+    from routers import admin as admin_router
+    interval_seconds = 6 * 60 * 60  # every 6 hours
+    while True:
+        try:
+            result = await admin_router._do_late_fee_check()
+            logger.info(f"[scheduler] late fee check: {result}")
+        except Exception:
+            logger.exception("[scheduler] late fee check failed")
+        try:
+            result = await admin_router._do_escalation_check()
+            logger.info(f"[scheduler] escalation check: {result}")
+        except Exception:
+            logger.exception("[scheduler] escalation check failed")
+        await asyncio.sleep(interval_seconds)
+
+
 @app.on_event("startup")
 async def on_startup():
     await ensure_indexes()
+    asyncio.create_task(rent_automation_scheduler())
 
 
 @app.get("/api/health")
