@@ -180,6 +180,17 @@ class PasswordChange(BaseModel):
     currentPassword: str
     newPassword: str
 
+
+class PushSubscriptionKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+
+class PushSubscriptionCreate(BaseModel):
+    """Matches exactly what the browser's PushSubscription.toJSON() produces."""
+    endpoint: str
+    keys: PushSubscriptionKeys
+
 class TokenResponse(BaseModel):
     accessToken: str
     tokenType: str = "bearer"

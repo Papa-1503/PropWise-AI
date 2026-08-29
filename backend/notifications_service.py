@@ -10,10 +10,19 @@ routers need to create them).
 
 There is no public "create notification" endpoint — notifications are
 always a side effect of a real event, triggered server-side.
+
+Priority 8 addition: notify_user() now also fans out to push, on top of
+the existing in-app notification, for every one of this module's three
+entry points automatically (they all funnel through notify_user) — no
+per-feature changes needed elsewhere, matching the roadmap's intent.
+Push failures never break the in-app notification, which stays the
+guaranteed-to-work channel; an individually expired subscription is
+cleaned up rather than left to fail silently on every future notification.
 """
 from datetime import datetime, timezone
 
-from db import notifications_col, users_col
+from db import notifications_col, users_col, push_subscriptions_col
+import push_service
 
 
 async def notify_user(user_id: str, type: str, title: str, body: str, link: str | None = None):
@@ -26,6 +35,20 @@ async def notify_user(user_id: str, type: str, title: str, body: str, link: str 
         "read": False,
         "createdAt": datetime.now(timezone.utc),
     })
+
+    subs = await push_subscriptions_col.find({"userId": user_id}).to_list(length=10)
+    for sub in subs:
+        try:
+            await push_service.send_push_async(
+                {"endpoint": sub["endpoint"], "keys": sub["keys"]}, title, body, link
+            )
+        except push_service.PushSubscriptionExpired:
+            await push_subscriptions_col.delete_one({"_id": sub["_id"]})
+        except (push_service.PushNotConfigured, push_service.PushSendError):
+            # Not configured yet, or a real send failure — either way,
+            # the in-app notification above already succeeded, so this
+            # is a degraded (not broken) outcome, not raised further.
+            pass
 
 
 async def notify_all_staff(type: str, title: str, body: str, link: str | None = None):

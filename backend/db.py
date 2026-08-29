@@ -24,6 +24,7 @@ ai_actions_col = db["ai_actions"]
 vendors_col = db["vendors"]
 payments_col = db["payments"]
 notifications_col = db["notifications"]
+push_subscriptions_col = db["push_subscriptions"]
 posts_col = db["posts"]
 leads_col = db["leads"]
 documents_col = db["documents"]
@@ -41,6 +42,7 @@ async def ensure_indexes():
     await tickets_col.create_index([("propertyId", 1), ("status", 1)])
     await tickets_col.create_index([("sourceInspectionId", 1)])
     await leases_col.create_index([("propertyId", 1), ("endDate", 1)])
+    await push_subscriptions_col.create_index([("userId", 1), ("endpoint", 1)], unique=True)
     await users_col.create_index("email", unique=True)
     await ai_actions_col.create_index([("propertyId", 1), ("status", 1)])
     await vendors_col.create_index("category")

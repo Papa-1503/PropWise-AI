@@ -7,6 +7,15 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.js',
+      injectManifest: {
+        // Keep the injected precache manifest reasonably sized — same
+        // spirit as generateSW's defaults, just explicit now that
+        // precaching isn't automatic anymore.
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+      },
       includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
       manifest: {
         name: 'RentFlow AI',
