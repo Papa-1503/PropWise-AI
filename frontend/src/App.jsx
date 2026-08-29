@@ -14,6 +14,7 @@ import CommandPalette from "./CommandPalette";
 import Settings from "./Settings";
 import OnboardingTour from "./OnboardingTour";
 import WelcomeScreen from "./WelcomeScreen";
+import InstallBanner from "./InstallBanner";
 const Dashboard = lazy(() => import("./Dashboard"));
 import MaintenanceTickets from "./MaintenanceTickets";
 import InspectionsList from "./InspectionsList";
@@ -292,6 +293,7 @@ export default function App() {
     <ToastProvider>
       <DarkModeProvider>
         <AuthProvider>
+          <InstallBanner />
           <BrowserRouter>
             <Routes>
               <Route path="/apply" element={<LeadCaptureForm />} />
