@@ -4,6 +4,7 @@ import Avatar from "./Avatar";
 import { LayoutDashboard, FileText, Receipt, Building2, DoorOpen, Wrench } from "lucide-react";
 import { API_BASE } from "./config";
 import Resident360Modal from "./Resident360Modal";
+import UnitHistoryModal from "./UnitHistoryModal";
 
 /**
  * OwnerPortal
@@ -221,7 +222,10 @@ function OwnerUnitsView() {
   const [properties, setProperties] = useState(null);
   const [leases, setLeases] = useState([]);
   const [error, setError] = useState(null);
-  const [historyTarget, setHistoryTarget] = useState(null); // { email, name } | null
+  // { email, name } for a resident-scoped lookup, or { propertyId, unitId }
+  // for a unit-scoped fallback when the unit has no resident email on
+  // file — vacant units, or occupied ones missing an email.
+  const [historyTarget, setHistoryTarget] = useState(null);
   const { authFetch } = useAuth();
 
   useEffect(() => {
@@ -274,23 +278,31 @@ function OwnerUnitsView() {
                   {u.unitId}
                 </button>
               ) : (
-                <span
+                <button
                   key={u.unitId}
-                  title={u.status === "occupied" ? "Occupied — no resident email on file" : "Vacant"}
-                  className="text-xs font-medium px-2.5 py-1 rounded-full border border-slate-200 text-slate-400"
+                  onClick={() => setHistoryTarget({ propertyId: p.id, unitId: u.unitId })}
+                  title={u.status === "occupied" ? "Occupied — no resident email on file — view unit history" : "Vacant — view unit history"}
+                  className="text-xs font-medium px-2.5 py-1 rounded-full border border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-slate-600"
                 >
                   {u.unitId}
-                </span>
+                </button>
               );
             })}
           </div>
         </div>
       ))}
 
-      {historyTarget && (
+      {historyTarget && historyTarget.email && (
         <Resident360Modal
           email={historyTarget.email}
           name={historyTarget.name}
+          onClose={() => setHistoryTarget(null)}
+        />
+      )}
+      {historyTarget && !historyTarget.email && (
+        <UnitHistoryModal
+          propertyId={historyTarget.propertyId}
+          unitId={historyTarget.unitId}
           onClose={() => setHistoryTarget(null)}
         />
       )}
