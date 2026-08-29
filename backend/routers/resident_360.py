@@ -6,11 +6,11 @@ payments, maintenance_tickets, communications, and inspections. No new
 collections — this is purely a convenience layer so staff don't have
 to check five separate tabs to understand one situation.
 """
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from datetime import datetime, timezone
 
-from db import leases_col, payments_col, tickets_col, communications_col, inspections_col
-from auth import require_staff
+from db import leases_col, payments_col, tickets_col, communications_col, inspections_col, properties_col
+from auth import require_staff_or_owner
 
 router = APIRouter(prefix="/api", tags=["360-views"])
 
@@ -22,9 +22,24 @@ def serialize(doc: dict) -> dict:
 
 
 @router.get("/residents/360")
-async def resident_360(email: str = Query(...), user: dict = Depends(require_staff)):
+async def resident_360(email: str = Query(...), user: dict = Depends(require_staff_or_owner)):
     leases = await leases_col.find({"residentEmail": email}).sort("startDate", -1).to_list(length=50)
     leases = [serialize(l) for l in leases]
+
+    # Real access-control gap, closed here rather than left as a
+    # side-effect of just opening this endpoint to a second role: an
+    # owner must only ever see residents in properties THEY own — the
+    # established pattern everywhere else in the app (owners.py) scopes
+    # every owner-facing query to ownerId == the calling user, and this
+    # endpoint needs the same protection now that it's reachable by
+    # owners at all, not just staff. Without this, any owner could type
+    # in any resident's email and see another owner's tenant data.
+    if user["role"] == "owner" and leases:
+        owned_property_ids = {
+            str(p["_id"])
+            for p in await properties_col.find({"ownerId": user["id"]}, {"_id": 1}).to_list(length=500)
+        }
+        leases = [l for l in leases if l.get("propertyId") in owned_property_ids]
 
     # Scope payments/tickets/communications to the properties+units this
     # resident has actually had a lease on — a resident could plausibly
@@ -101,8 +116,19 @@ def compute_reliability(payments: list[dict]) -> dict | None:
 async def unit_360(
     propertyId: str = Query(...),
     unitId: str = Query(...),
-    user: dict = Depends(require_staff),
+    user: dict = Depends(require_staff_or_owner),
 ):
+    # Same real access-control fix as resident_360 above, applied here
+    # too since this file's import of require_staff was removed
+    # entirely when this endpoint was opened to owners — simpler here
+    # than the resident-email lookup above, since propertyId is already
+    # a direct query parameter: check ownership before running any
+    # queries at all, rather than filtering results afterward.
+    if user["role"] == "owner":
+        owned = await properties_col.find_one({"_id": propertyId, "ownerId": user["id"]})
+        if not owned:
+            raise HTTPException(status_code=403, detail="You don't have access to this property.")
+
     query = {"propertyId": propertyId, "unitId": unitId}
 
     leases = await leases_col.find(query).sort("startDate", -1).to_list(length=50)

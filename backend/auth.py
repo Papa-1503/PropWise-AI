@@ -82,7 +82,6 @@ def require_role(*allowed_roles: str):
 
 # Convenience dependencies for the common cases
 require_staff = require_role("staff")
-require_any_authenticated = get_current_user
-require_staff = require_role("staff")
 require_owner = require_role("owner")
+require_staff_or_owner = require_role("staff", "owner")
 require_any_authenticated = get_current_user
