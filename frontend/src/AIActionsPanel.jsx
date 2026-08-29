@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAuth } from "./AuthContext";
 import { API_BASE } from "./config";
 import EmptyState from "./EmptyState";
-import { Sparkles } from "lucide-react";
+import { Sparkles, ChevronDown, ChevronRight } from "lucide-react";
 /**
  * AIActionsPanel
  *
@@ -194,6 +194,36 @@ function ActionCard({ action, onDecide }) {
   );
 }
 
+function GroupedActionCard({ title, items, onDecide }) {
+  const [expanded, setExpanded] = useState(false);
+  const totalValue = items.reduce((sum, a) => sum + (a.estimatedValue || 0), 0);
+
+  return (
+    <div className="border border-slate-200 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center justify-between gap-3 p-3.5 bg-slate-50 hover:bg-slate-100 text-left"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          {expanded ? <ChevronDown size={14} className="text-slate-400 shrink-0" /> : <ChevronRight size={14} className="text-slate-400 shrink-0" />}
+          <span className="text-sm font-semibold truncate">{title}</span>
+          <span className="text-[11px] font-mono text-slate-400 shrink-0">×{items.length}</span>
+        </div>
+        {totalValue > 0 && (
+          <span className="text-xs font-semibold text-slate-500 shrink-0">${totalValue.toLocaleString()} total</span>
+        )}
+      </button>
+      {expanded && (
+        <div className="p-3 space-y-3 bg-white">
+          {items.map((a) => (
+            <ActionCard key={a.id} action={a} onDecide={onDecide} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AIActionsPanel({ propertyId }) {
   const [actions, setActions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -269,6 +299,29 @@ export default function AIActionsPanel({ propertyId }) {
     }
   }
 
+  // Same-title actions collapse into one card — grouping by exact title
+  // match, matching the maintenance-ticket grouping pattern built
+  // earlier. Only groups when 2+ actions genuinely share a title (a
+  // real, observed case: multiple simultaneous escalations for one
+  // resident on the same day, each a separate real charge but visually
+  // identical otherwise). Groups apply to both pending and history —
+  // a resident with 3 approved escalations shouldn't clutter history
+  // any less than 3 pending ones would clutter the queue.
+  const { groups, ungrouped } = useMemo(() => {
+    const byTitle = new Map();
+    for (const a of actions) {
+      if (!byTitle.has(a.title)) byTitle.set(a.title, []);
+      byTitle.get(a.title).push(a);
+    }
+    const groupList = [];
+    const soloList = [];
+    for (const [title, items] of byTitle) {
+      if (items.length >= 2) groupList.push({ title, items });
+      else soloList.push(items[0]);
+    }
+    return { groups: groupList, ungrouped: soloList };
+  }, [actions]);
+
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5">
       <div className="flex items-center justify-between mb-4">
@@ -317,7 +370,10 @@ export default function AIActionsPanel({ propertyId }) {
       )}
 
       <div className="space-y-3">
-        {actions.map((action) => (
+        {groups.map((g) => (
+          <GroupedActionCard key={g.title} title={g.title} items={g.items} onDecide={handleDecide} />
+        ))}
+        {ungrouped.map((action) => (
           <ActionCard key={action.id} action={action} onDecide={handleDecide} />
         ))}
       </div>
