@@ -88,6 +88,17 @@ class PropertyUpdate(BaseModel):
     address: Optional[str] = None
 
 
+class RentRulesUpdate(BaseModel):
+    """Field names match exactly what routers/admin.py's run_late_fee_check
+    already reads (prop.get("lateFeeGraceDays", ...), prop.get("lateFeeAmount", ...))
+    — this endpoint is what was genuinely missing: the automation logic
+    already existed and already reads per-property values with sensible
+    defaults; there was just no way for staff to ever set them."""
+    lateFeeGraceDays: Optional[int] = Field(default=None, ge=0, le=60)
+    lateFeeAmount: Optional[float] = Field(default=None, ge=0)
+    dueDay: Optional[int] = Field(default=None, ge=1, le=28)
+
+
 class UnitStatusUpdate(BaseModel):
     status: Literal["occupied", "vacant", "maintenance_hold"]
 

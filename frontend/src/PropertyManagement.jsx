@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useId, useMemo } from "react";
 import { useAuth } from "./AuthContext";
-import { Building2, Plus, X, Pencil, Search } from "lucide-react";
+import { Building2, Plus, X, Pencil, Search, Settings2 } from "lucide-react";
+import { useToast } from "./ToastContext";
 import { API_BASE } from "./config";
 
 /**
@@ -248,6 +249,111 @@ function EditUnitModal({ property, unit, onClose, onSaved }) {
   );
 }
 
+function RentRulesModal({ property, onClose, onSaved }) {
+  const [graceDays, setGraceDays] = useState(property.lateFeeGraceDays ?? "");
+  const [feeAmount, setFeeAmount] = useState(property.lateFeeAmount ?? "");
+  const [dueDay, setDueDay] = useState(property.dueDay ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const { authFetch } = useAuth();
+  const { show: showToast } = useToast();
+  const idPrefix = useId();
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await authFetch(`${API_BASE}/properties/${property.id}/rent-rules`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lateFeeGraceDays: graceDays === "" ? null : Number(graceDays),
+          lateFeeAmount: feeAmount === "" ? null : Number(feeAmount),
+          dueDay: dueDay === "" ? null : Number(dueDay),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "Couldn't save rent rules.");
+      showToast(`Rent rules saved for ${property.name}`, "success");
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err.message);
+      showToast(err.message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30 p-4">
+      <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-5">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-semibold">Rent rules — {property.name}</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+            <X size={18} />
+          </button>
+        </div>
+        <p className="text-xs text-slate-500 mb-4">
+          These directly drive the automated late-fee check — no manual step needed once set.
+        </p>
+        <div className="space-y-3">
+          <div>
+            <label htmlFor={`${idPrefix}-grace`} className="text-xs text-slate-500">
+              Grace period (days after due date before a late fee applies)
+            </label>
+            <input
+              id={`${idPrefix}-grace`}
+              type="number"
+              min="0"
+              max="60"
+              value={graceDays}
+              onChange={(e) => setGraceDays(e.target.value)}
+              placeholder="Default: 5"
+              className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
+            />
+          </div>
+          <div>
+            <label htmlFor={`${idPrefix}-fee`} className="text-xs text-slate-500">Late fee amount ($)</label>
+            <input
+              id={`${idPrefix}-fee`}
+              type="number"
+              min="0"
+              value={feeAmount}
+              onChange={(e) => setFeeAmount(e.target.value)}
+              placeholder="Default: $50"
+              className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
+            />
+          </div>
+          <div>
+            <label htmlFor={`${idPrefix}-dueday`} className="text-xs text-slate-500">
+              Rent due day of month (1–28)
+            </label>
+            <input
+              id={`${idPrefix}-dueday`}
+              type="number"
+              min="1"
+              max="28"
+              value={dueDay}
+              onChange={(e) => setDueDay(e.target.value)}
+              placeholder="Not yet used by automation"
+              className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
+            />
+          </div>
+        </div>
+        {error && <p role="alert" className="text-xs text-rose-600 mt-3 bg-rose-50 border border-rose-200 rounded px-3 py-2">{error}</p>}
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="mt-4 w-full bg-slate-900 disabled:bg-slate-300 text-white text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-800"
+        >
+          {saving ? "Saving…" : "Save rent rules"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function PropertyManagement() {
   const [properties, setProperties] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -255,6 +361,7 @@ export default function PropertyManagement() {
   const [showNewProperty, setShowNewProperty] = useState(false);
   const [addUnitTo, setAddUnitTo] = useState(null); // property | null
   const [editingUnit, setEditingUnit] = useState(null); // { property, unit } | null
+  const [rentRulesFor, setRentRulesFor] = useState(null); // property | null
   const [search, setSearch] = useState("");
   const { authFetch } = useAuth();
 
@@ -338,14 +445,30 @@ export default function PropertyManagement() {
             <div key={p.id} className="bg-white border border-slate-200 rounded-xl p-4">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-semibold">{p.name}</span>
-                <button
-                  onClick={() => setAddUnitTo(p)}
-                  className="flex items-center gap-1 text-[11px] text-indigo-700 hover:underline"
-                >
-                  <Plus size={12} />
-                  Add unit
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setRentRulesFor(p)}
+                    className="flex items-center gap-1 text-[11px] text-indigo-700 hover:underline"
+                  >
+                    <Settings2 size={12} />
+                    Rent rules
+                  </button>
+                  <button
+                    onClick={() => setAddUnitTo(p)}
+                    className="flex items-center gap-1 text-[11px] text-indigo-700 hover:underline"
+                  >
+                    <Plus size={12} />
+                    Add unit
+                  </button>
+                </div>
               </div>
+              <p className="text-[11px] text-slate-400 mb-2">
+                {p.lateFeeGraceDays != null || p.lateFeeAmount != null ? (
+                  <>Grace: {p.lateFeeGraceDays ?? 5}d · Late fee: ${p.lateFeeAmount ?? 50}</>
+                ) : (
+                  <span className="text-amber-600">Using default rent rules — not yet configured for this building</span>
+                )}
+              </p>
               <div className="flex flex-wrap gap-1.5">
                 {(p.units || []).map((u) => (
                   <button
@@ -375,6 +498,13 @@ export default function PropertyManagement() {
           property={editingUnit.property}
           unit={editingUnit.unit}
           onClose={() => setEditingUnit(null)}
+          onSaved={fetchProperties}
+        />
+      )}
+      {rentRulesFor && (
+        <RentRulesModal
+          property={rentRulesFor}
+          onClose={() => setRentRulesFor(null)}
           onSaved={fetchProperties}
         />
       )}

@@ -20,7 +20,7 @@ from bson import ObjectId
 from db import properties_col
 from services.events import emit_event
 from auth import require_staff
-from models import PropertyCreate, PropertyUpdate, UnitStatusUpdate, UnitDetailsUpdate, UnitIn, OwnerAssign
+from models import PropertyCreate, PropertyUpdate, UnitStatusUpdate, UnitDetailsUpdate, UnitIn, OwnerAssign, RentRulesUpdate
 
 router = APIRouter(prefix="/api/properties", tags=["properties"])
 
@@ -72,6 +72,27 @@ async def create_property(payload: PropertyCreate, user: dict = Depends(require_
 async def update_property(property_id: str, payload: PropertyUpdate, user: dict = Depends(require_staff)):
     """PropertyUpdate existed as a model with no endpoint using it before
     Priority 48 — genuinely dead code, now wired up."""
+    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    result = await properties_col.find_one_and_update(
+        {"_id": query_id}, {"$set": updates}, return_document=True
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Property not found")
+    return serialize(result)
+
+
+@router.patch("/{property_id}/rent-rules")
+async def update_rent_rules(property_id: str, payload: RentRulesUpdate, user: dict = Depends(require_staff)):
+    """The genuinely missing piece: routers/admin.py's run_late_fee_check
+    already reads lateFeeGraceDays/lateFeeAmount per property with sensible
+    defaults — the automation logic already existed. There was just no
+    endpoint for staff to ever actually set these values, so every
+    property silently used the same global defaults regardless. dueDay
+    is stored for a future invoice-generation feature to use; nothing
+    reads it yet, so setting it has no automated effect today."""
     query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not updates:
