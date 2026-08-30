@@ -137,7 +137,14 @@ sandbox)
   "not legal advice" / "not a compliance clearance" — this is real,
   honest groundwork, but it's a review document, not enforced
   standardized-criteria logic itself.
-- **❌ Audit trail / activity log**: not built.
+- **✅ Audit trail / activity log**: built and pushed this session —
+  real infrastructure (audit_service.py, audit_log_col, two indexes,
+  GET /api/audit query endpoint), deliberately explicit logging (not
+  automatic instrumentation) wired into 8 genuinely high-value
+  mutations across leases, payments, properties, staff, and on-call
+  shifts. Not every mutating endpoint in the app — a real, honest
+  starting set, documented as such directly in the code so it's clear
+  what's covered and what isn't.
 - **⚙️ Automated compliance reminders**: the late-fee and preventive-
   maintenance checks (Phase 2) are real instances of this pattern, but
   broader compliance reminders (license renewals, insurance cert
