@@ -66,7 +66,14 @@ sandbox)
   functional tests: one failing send among several doesn't abort the
   batch, and the occupancy cross-reference join correctly excludes a
   vacant unit even with a valid lease+email on file.
-- **❌ Lightweight auto-responder FAQ tool**: not built.
+- **✅ Lightweight auto-responder FAQ tool**: built and pushed this
+  session — POST /api/ai/faq, a real, separate tenant-facing endpoint
+  (not a reuse of the staff copilot) scoped entirely to the
+  authenticated resident's own lease and maintenance data, never
+  accepting propertyId/unitId from the request itself. Verified with
+  real functional tests confirming both the role check (staff
+  correctly rejected) and the actual DB-query scoping (built from the
+  server-verified user record, not request input).
 - **✅ Online rent collection / ACH autopay**: built and pushed this
   session — real Stripe ACH Direct Debit end-to-end. Backend
   (stripe_service.py, setup-intent/enroll/checkout/webhook endpoints,
@@ -201,7 +208,14 @@ sandbox)
   not built (late fee *application* exists and is automated; sending
   an actual notice document is a different, unbuilt piece).
 - **❌ Review/reputation management**: not built.
-- **❌ Renewal incentive tracking**: not built.
+- **✅ Renewal incentive tracking**: built and pushed this session —
+  real free-text incentive offers attached to leases (staff-driven,
+  not a fixed enum), a tenant-facing accept/decline response endpoint
+  with the same never-trust-client-submitted-scope security pattern
+  used elsewhere, and real integration into the existing
+  run-lease-renewal-check notification rather than two features built
+  in isolation. Verified with a real functional test of the security-
+  relevant ownership check.
 - **❌ Smart lock integration**: not built.
 - **🟡 Webhook/Zapier support**: workflows already have a real,
   working `webhook` action type (confirmed and extended this session
@@ -241,13 +255,14 @@ this session (parked, not forgotten):
 
 ---
 
-**Total real count from the Notion backlog specifically:** 17 done,
-6 partial, 15 not built (of 38 tracked items across Phases 1–6) — up
+**Total real count from the Notion backlog specifically:** 19 done,
+6 partial, 13 not built (of 38 tracked items across Phases 1–6) — up
 from 8/9/21 at the start of this session, after adding on-call
 rotation, after-hours Twilio Voice routing, ACH autopay, an audit
 trail, caller-ID-to-tenant matching, dynamic message grouping, renters
-insurance tracking, and budget vs. actual tracking — all eight
-genuinely completed end-to-end (not just started) and verified beyond
+insurance tracking, budget vs. actual tracking, a tenant FAQ auto-
+responder, and renewal incentive tracking — all ten genuinely
+completed end-to-end (not just started) and verified beyond
 a syntax check.
 Independent of the ~10-item PropWise-inspired catalog tracked
 separately above, which is fully complete.
