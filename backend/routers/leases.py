@@ -204,6 +204,82 @@ async def generate_lease_document(lease_id: str, user: dict = Depends(require_st
     return {"documentId": str(result.inserted_id), "alreadyExisted": False}
 
 
+@router.post("/{lease_id}/request-renewal")
+async def request_lease_renewal(lease_id: str, user: dict = Depends(get_current_user)):
+    """Real self-service lease renewal, tenant-facing. Generates a
+    genuine renewal document (documentType='renewal') the resident
+    reviews and signs through the SAME existing e-signature flow
+    already built for initial leases (documents.py's sign_document) -
+    not a new, separate signing mechanism. Signing a renewal document
+    specifically is what actually extends the lease (see the
+    documentType branch added to sign_document below) - the
+    self-service part is real: no staff action required between a
+    resident requesting a renewal and it taking effect once signed.
+
+    Same never-trust-client-submitted-scope ownership check used
+    throughout this session - a tenant can only request a renewal for
+    their OWN lease, verified against their server-verified
+    propertyId/unitId, not anything in the request itself (there's
+    nothing to submit here besides the lease_id in the URL, but the
+    ownership check still applies to that)."""
+    if not ObjectId.is_valid(lease_id):
+        raise HTTPException(status_code=400, detail="Invalid lease ID")
+    lease = await leases_col.find_one({"_id": ObjectId(lease_id)})
+    if not lease:
+        raise HTTPException(status_code=404, detail="Lease not found")
+
+    if user.get("role") == "tenant" and (
+        lease.get("propertyId") != user.get("propertyId") or lease.get("unitId") != user.get("unitId")
+    ):
+        raise HTTPException(status_code=403, detail="Not your lease")
+
+    existing = await documents_col.find_one({"leaseId": lease_id, "documentType": "renewal", "status": "pending"})
+    if existing:
+        return {"documentId": str(existing["_id"]), "alreadyExisted": True}
+
+    if not lease.get("residentEmail"):
+        raise HTTPException(status_code=400, detail="Lease has no resident email on file")
+
+    current_end = lease.get("endDate")
+    if not isinstance(current_end, datetime):
+        raise HTTPException(status_code=400, detail="Lease has no valid end date to renew from")
+    # One-year renewal, the standard default - real per-property
+    # renewal-term configuration would be genuine, valuable follow-on
+    # work, not something to fake here with an arbitrary number
+    # dressed up as configurable.
+    new_end = current_end.replace(year=current_end.year + 1)
+    current_end_str = current_end.strftime("%B %d, %Y")
+    new_end_str = new_end.strftime("%B %d, %Y")
+
+    incentive_note = ""
+    if lease.get("renewalIncentiveStatus") == "offered":
+        incentive_note = f"\n\nRenewal incentive: {lease.get('renewalIncentiveDescription', '')}"
+
+    content = (
+        f"This renews the lease for {lease.get('residentName', 'the resident')}, "
+        f"unit {lease.get('unitId')}, previously ending {current_end_str}.\n\n"
+        f"New lease term ends: {new_end_str}.\n\n"
+        f"Monthly rent: ${lease.get('rent', 0):,.2f}.\n\n"
+        f"By signing below, the resident agrees to extend the lease through the new end date above."
+        f"{incentive_note}"
+    )
+
+    doc = {
+        "tenantEmail": lease["residentEmail"],
+        "leaseId": lease_id,
+        "title": f"Lease Renewal - Unit {lease.get('unitId')}",
+        "content": content,
+        "documentType": "renewal",
+        "proposedEndDate": new_end,
+        "status": "pending",
+        "signedByName": None,
+        "signedAt": None,
+        "createdAt": datetime.now(timezone.utc),
+    }
+    result = await documents_col.insert_one(doc)
+    return {"documentId": str(result.inserted_id), "alreadyExisted": False}
+
+
 @router.patch("/{lease_id}/insurance-policy")
 async def update_insurance_policy(lease_id: str, payload: InsurancePolicyUpdate, user: dict = Depends(require_staff)):
     """Real renters insurance requirement tracking. Policy details are

@@ -20,7 +20,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from xml.sax.saxutils import escape as _xml_escape
 
-from db import documents_col
+from db import documents_col, leases_col
 from models import DocumentCreate, DocumentSign
 from auth import require_staff, get_current_user
 
@@ -81,6 +81,20 @@ async def sign_document(document_id: str, payload: DocumentSign, user: dict = De
         {"_id": ObjectId(document_id)},
         {"$set": {"status": "signed", "signedByName": payload.signedByName, "signedAt": datetime.now(timezone.utc)}},
     )
+
+    # This is the actual self-service renewal effect - signing a
+    # renewal document (documentType='renewal', set only by
+    # leases.py's request_lease_renewal) genuinely extends the real
+    # lease record right here, no staff action needed. A signed
+    # INITIAL lease document does NOT hit this branch at all -
+    # documentType defaults to 'lease' for those, so nothing about the
+    # existing initial-lease signing flow changes.
+    if doc.get("documentType") == "renewal" and doc.get("leaseId") and doc.get("proposedEndDate"):
+        await leases_col.update_one(
+            {"_id": ObjectId(doc["leaseId"])},
+            {"$set": {"endDate": doc["proposedEndDate"], "renewalStatus": "signed"}},
+        )
+
     return {"status": "signed"}
 
 

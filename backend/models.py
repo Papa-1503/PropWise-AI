@@ -462,6 +462,7 @@ class DocumentCreate(BaseModel):
     leaseId: Optional[str] = None
     title: str
     content: str
+    documentType: Literal["lease", "renewal"] = "lease"
 
 
 class DocumentSign(BaseModel):
