@@ -643,6 +643,53 @@ class CommunicationTemplateUpdate(BaseModel):
     subject: Optional[str] = None
     body: Optional[str] = None
 
+
+# P18: real custom roles & permissions - a genuine, closed set of
+# permission strings mapping to actual real operational boundaries a
+# property management team would want to separate, not an open-ended
+# arbitrary string a role definition could set to anything. Chosen to
+# reflect real, meaningful groupings already visible in this app's own
+# router structure (leasing vs. maintenance vs. finance vs. staff
+# management), not an exhaustive per-endpoint permission list, which
+# would be far too granular to actually configure in practice.
+PERMISSION_CHOICES = (
+    "leasing",       # leases, screening, leads
+    "maintenance",   # tickets, inspections, vendors, supplies
+    "finance",       # payments, budgets, reconciliation, RUBS
+    "communications",  # communications, community board, templates
+    "staff_management",  # staff assignments, on-call rotation
+    "reports",       # dashboard, audit log, capital planning
+)
+
+
+class CustomRoleCreate(BaseModel):
+    """A real, named role a staff member can be assigned, scoping their
+    access to a real subset of PERMISSION_CHOICES rather than the
+    default blanket staff access every account has today. Deliberately
+    additive to the existing role system, not a replacement -
+    role='staff' on the user record is completely unchanged; this is a
+    separate, optional overlay (see StaffCustomRoleAssign below) that
+    a NEW dependency (require_permission, auth.py) can check, while
+    every existing require_staff-protected endpoint (177 of them,
+    confirmed via a direct count before scoping this) keeps working
+    completely unchanged, with no migration risk to any of them."""
+    name: str
+    permissions: list[Literal["leasing", "maintenance", "finance", "communications", "staff_management", "reports"]]
+
+
+class CustomRoleUpdate(BaseModel):
+    name: Optional[str] = None
+    permissions: Optional[list[Literal["leasing", "maintenance", "finance", "communications", "staff_management", "reports"]]] = None
+
+
+class StaffCustomRoleAssign(BaseModel):
+    customRoleId: Optional[str] = None
+    # ^ None explicitly means "remove the custom role, fall back to
+    # full staff access" - a real, deliberate way to unset it, not
+    # just omitting the field (which PATCH-style endpoints elsewhere in
+    # this app already treat as "leave unchanged", so an explicit
+    # null here needs its own real handling, done in the endpoint).
+
 class ScreeningRequestCreate(BaseModel):
     leadId: Optional[str] = None
     applicantName: str

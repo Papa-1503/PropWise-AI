@@ -16,7 +16,7 @@ from jose import JWTError, jwt
 import bcrypt
 from bson import ObjectId
 
-from db import users_col
+from db import users_col, custom_roles_col
 
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-only-secret-change-me")
 JWT_ALGORITHM = "HS256"
@@ -91,6 +91,40 @@ def require_role(*allowed_roles: str):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Requires role: {' or '.join(allowed_roles)}",
+            )
+        return user
+
+    return checker
+
+
+def require_permission(permission: str):
+    """A genuinely additive second authorization mechanism, not a
+    replacement for require_role - see CustomRoleCreate's docstring in
+    models.py for the full reasoning. A staff user with NO custom role
+    assigned (customRoleId is None/absent on their user record, the
+    default for every existing account and every account created
+    without explicitly assigning one) is granted every permission -
+    exactly today's real behavior, since role='staff' alone currently
+    means full access everywhere. A staff user WITH a custom role
+    assigned is scoped to exactly that role's real permission list,
+    checked here. A non-staff role (tenant/owner) is always rejected,
+    same as require_staff already does - this dependency is a finer-
+    grained check within staff access, not a way around the existing
+    role boundary."""
+
+    async def checker(user: dict = Depends(get_current_user)) -> dict:
+        if user["role"] != "staff":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Requires role: staff")
+        custom_role_id = user.get("customRoleId")
+        if not custom_role_id:
+            return user  # no custom role assigned - full access, today's real default behavior
+        if not ObjectId.is_valid(custom_role_id):
+            return user  # a malformed stored value should never itself become a lockout
+        role_doc = await custom_roles_col.find_one({"_id": ObjectId(custom_role_id)})
+        if not role_doc or permission not in role_doc.get("permissions", []):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Your role does not include '{permission}' access.",
             )
         return user
 
