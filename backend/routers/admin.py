@@ -53,6 +53,11 @@ from bson import ObjectId
 
 from db import maintenance_schedules_col, tickets_col, users_col, leases_col, payments_col, properties_col, ai_actions_col
 from models import AdminKeyPayload
+from stripe_service import (
+    StripeNotConfigured,
+    StripePayError,
+    create_ach_payment_intent_async,
+)
 import notifications_service
 
 DEFAULT_LATE_FEE_AMOUNT = 50.0
@@ -240,6 +245,119 @@ async def run_payment_reminder_check(payload: AdminKeyPayload, windowDays: int =
         "chargesChecked": len(upcoming_charges),
         "notified": len(notified),
         "chargeIds": notified,
+    }
+
+
+@router.post("/run-autopay-check")
+async def run_autopay_check(payload: AdminKeyPayload):
+    """The recurring trigger side of ACH autopay - stripe_service.py and
+    routers/payments.py's /setup-intent, /autopay/enroll, and
+    /stripe-webhook endpoints handle a resident linking a bank account
+    and being charged on-demand; this is what actually fires a charge
+    automatically once a charge's own dueDate arrives, without the
+    resident needing to click anything that day.
+
+    Same external-cron-triggered pattern as run-late-fee-check and
+    run-maintenance-check - deliberately not run from inside this app
+    on a timer, since Render's free tier has no persistent background
+    process to run one.
+
+    Eligibility, deliberately conservative to avoid a double-charge:
+    dueDate has arrived (not before - charging early would be a
+    genuine surprise to a resident who didn't ask for that), the
+    charge isn't already fully paid, and it hasn't already had an
+    autopay attempt made against it (autopayAttempted, set here
+    regardless of whether that attempt succeeds or fails - a failed
+    attempt still needs a human to look at it via /run-payment-
+    reminder-check and the delinquent-charges list, not a silent
+    automatic retry that could hit an already-known-bad bank account
+    repeatedly)."""
+    check_key(payload.key)
+
+    now = datetime.now(timezone.utc)
+    cursor = payments_col.find({
+        "dueDate": {"$lte": now},
+        "autopayAttempted": {"$ne": True},
+    })
+    due_charges = await cursor.to_list(length=1000)
+
+    attempted = []
+    charged = []
+    skipped_no_autopay = 0
+    failed = []
+
+    for charge in due_charges:
+        remaining_due = charge.get("amountDue", 0) - charge.get("amountPaid", 0)
+        if remaining_due <= 0:
+            continue  # already paid in full some other way, nothing for autopay to do
+
+        property_id = charge.get("propertyId")
+        unit_id = charge.get("unitId")
+        resident = await users_col.find_one({
+            "role": "tenant", "propertyId": property_id, "unitId": unit_id,
+            "autopayEnabled": True,
+        })
+        if not resident or not resident.get("autopayPaymentMethodId") or not resident.get("stripeCustomerId"):
+            skipped_no_autopay += 1
+            continue
+
+        # Mark attempted before making the actual charge, not after -
+        # if this process crashes or the Render instance restarts
+        # mid-run, a retry of this same endpoint must not re-charge a
+        # resident whose attempt already went out, even if we never
+        # got to record the outcome.
+        await payments_col.update_one({"_id": charge["_id"]}, {"$set": {"autopayAttempted": True}})
+        attempted.append(str(charge["_id"]))
+
+        try:
+            result = await create_ach_payment_intent_async(
+                resident["stripeCustomerId"],
+                resident["autopayPaymentMethodId"],
+                amount_cents=round(remaining_due * 100),
+                description=charge.get("description", "Rent payment (autopay)"),
+            )
+            await payments_col.update_one(
+                {"_id": charge["_id"]},
+                {"$set": {"stripePaymentIntentId": result["paymentIntentId"], "paymentProcessingStatus": result["status"]}},
+            )
+            charged.append(str(charge["_id"]))
+            await notifications_service.notify_unit_resident(
+                property_id, unit_id,
+                type="general",
+                title="Autopay charge submitted",
+                body=f"${remaining_due:.2f} autopay submitted for {charge.get('description', 'your charge')}. "
+                     f"ACH payments take a few business days to clear.",
+                link="/payments",
+            )
+        except (StripeNotConfigured, StripePayError) as exc:
+            await payments_col.update_one(
+                {"_id": charge["_id"]},
+                {"$set": {"paymentProcessingStatus": "failed", "autopayError": str(exc)}},
+            )
+            failed.append(str(charge["_id"]))
+            await notifications_service.notify_unit_resident(
+                property_id, unit_id,
+                type="general",
+                title="Autopay charge failed",
+                body=f"We couldn't process your autopay charge for {charge.get('description', 'your charge')}. "
+                     f"Please check your payment method or pay another way.",
+                link="/payments",
+            )
+            await notifications_service.notify_all_staff(
+                type="general",
+                title="Autopay charge failed",
+                body=f"Unit {unit_id} at property {property_id} — autopay attempt failed: {exc}",
+                link="/payments",
+            )
+
+    return {
+        "status": "done",
+        "chargesChecked": len(due_charges),
+        "attempted": len(attempted),
+        "charged": len(charged),
+        "failed": len(failed),
+        "skippedNoAutopay": skipped_no_autopay,
+        "chargeIds": attempted,
     }
 
 
