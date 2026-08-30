@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
 
 from db import users_col
-from models import StaffPropertyAssignment
+from models import StaffPropertyAssignment, StaffPhoneUpdate
 from auth import require_staff
 
 router = APIRouter(prefix="/api/staff", tags=["staff"])
@@ -39,6 +39,27 @@ async def set_staff_properties(user_id: str, payload: StaffPropertyAssignment, u
     result = await users_col.find_one_and_update(
         {"_id": ObjectId(user_id), "role": "staff"},
         {"$set": {"assignedProperties": payload.assignedProperties}},
+        return_document=True,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Staff user not found")
+    return serialize(result)
+
+
+@router.patch("/{user_id}/phone")
+async def set_staff_phone(user_id: str, payload: StaffPhoneUpdate, user: dict = Depends(require_staff)):
+    """Needed for on-call rotation to actually be contactable - a shift
+    assigns a staff member as on-call, but that's only useful if there's
+    a real number to reach them at. Any staff member can update this for
+    themselves or, since this only requires require_staff (not a self-
+    check), a manager can set it on someone else's behalf too - e.g.
+    onboarding a new tech who hasn't logged in yet."""
+    if not ObjectId.is_valid(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user ID")
+
+    result = await users_col.find_one_and_update(
+        {"_id": ObjectId(user_id), "role": "staff"},
+        {"$set": {"phone": payload.phone}},
         return_document=True,
     )
     if not result:

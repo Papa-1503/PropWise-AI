@@ -36,6 +36,7 @@ workflows_col = db["workflows"]
 workflow_runs_col = db["workflow_runs"]
 maintenance_schedules_col = db["maintenance_schedules"]
 communications_col = db["communications"]
+on_call_shifts_col = db["on_call_shifts"]
 async def ensure_indexes():
     """Call once at app startup (see main.py) to keep queries fast."""
     await inspections_col.create_index([("propertyId", 1), ("unitId", 1)])
@@ -54,3 +55,9 @@ async def ensure_indexes():
     await workflow_runs_col.create_index([("workflowId", 1), ("startedAt", -1)])
     await maintenance_schedules_col.create_index([("propertyId", 1), ("nextDueDate", 1)])
     await communications_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])
+    # Two indexes for on-call: one for "who's on call right now" (the
+    # hot-path query — filter by propertyId, find the shift whose
+    # window contains now), one for the plain shift-list/calendar view
+    # sorted chronologically.
+    await on_call_shifts_col.create_index([("propertyIds", 1), ("startTime", 1), ("endTime", 1)])
+    await on_call_shifts_col.create_index([("startTime", 1)])

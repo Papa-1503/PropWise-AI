@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Outlet, useOutletContext } from "react-router-dom";
 import { useState, lazy, Suspense } from "react";
-import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search } from "lucide-react";
+import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";
 import { ToastProvider } from "./ToastContext";
 import { DarkModeProvider, useDarkMode } from "./DarkModeContext";
@@ -37,6 +37,7 @@ import ScreeningList from "./ScreeningList";
 import LeadsList from "./LeadsList";
 import StaffAssignments from "./StaffAssignments";
 import MaintenanceSchedules from "./MaintenanceSchedules";
+import OnCall from "./OnCall";
 import Reconciliation from "./Reconciliation";
 import PropertyManagement from "./PropertyManagement";
 import BuildingSelector from "./BuildingSelector";
@@ -85,7 +86,7 @@ function TabNotFound() {
  * their own unit's property.
  */
 
-const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "communications", "leases", "screening", "leads", "staff", "schedules", "reconciliation", "properties", "documents", "gallery", "feed", "ai"];
+const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "communications", "leases", "screening", "leads", "staff", "schedules", "on-call", "reconciliation", "properties", "documents", "gallery", "feed", "ai"];
 const TENANT_TABS = ["documents", "maintenance", "payments", "gallery", "ai"];
 const TAB_ICONS = {
   dashboard: LayoutDashboard,
@@ -104,6 +105,7 @@ const TAB_ICONS = {
   leads: UserPlus2,
   staff: Users,
   schedules: CalendarClock,
+  "on-call": PhoneCall,
   reconciliation: Landmark,
   properties: Building2,
 };
@@ -327,6 +329,7 @@ export default function App() {
             <Route path="leads" element={<LeadsListWrapper />} />
             <Route path="staff" element={<StaffAssignments />} />
             <Route path="schedules" element={<MaintenanceSchedulesWrapper />} />
+            <Route path="on-call" element={<OnCallWrapper />} />
             <Route path="reconciliation" element={<ReconciliationWrapper />} />
             <Route path="properties" element={<PropertyManagement />} />
             <Route path="documents" element={<Documents />} />
@@ -393,6 +396,10 @@ function GalleryWrapper() {
 function MaintenanceSchedulesWrapper() {
   const { effectivePropertyId } = useOutletContext();
   return <MaintenanceSchedules propertyId={effectivePropertyId} />;
+}
+function OnCallWrapper() {
+  const { effectivePropertyId } = useOutletContext();
+  return <OnCall propertyId={effectivePropertyId} />;
 }
 function ReconciliationWrapper() {
   const { effectivePropertyId } = useOutletContext();

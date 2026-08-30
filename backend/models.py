@@ -442,6 +442,39 @@ class Workflow(BaseModel):
 class StaffPropertyAssignment(BaseModel):
     assignedProperties: list[str] = Field(default_factory=list)
 
+
+class StaffPhoneUpdate(BaseModel):
+    """Staff phone number, needed for on-call rotation contact and any
+    future after-hours call routing. Kept as its own small model rather
+    than folded into StaffPropertyAssignment since it's set by a
+    different actor at a different time (a tech setting their own
+    contact info, vs. a manager assigning properties)."""
+    phone: str
+
+
+class OnCallShiftCreate(BaseModel):
+    """A single on-call shift: one staff member covering one or more
+    properties for a time window. Recurring rotations are modeled as
+    multiple shifts (e.g. one created per week), not as a separate
+    recurrence-rule concept — simpler to reason about, and manual
+    swaps/overrides are then just deleting or editing one shift rather
+    than needing special-case override logic layered on top of a
+    recurrence engine."""
+    userId: str
+    propertyIds: list[str] = Field(default_factory=list)
+    startTime: str  # ISO datetime string, parsed on write
+    endTime: str
+    note: Optional[str] = None
+
+
+class OnCallShiftUpdate(BaseModel):
+    userId: Optional[str] = None
+    propertyIds: Optional[list[str]] = None
+    startTime: Optional[str] = None
+    endTime: Optional[str] = None
+    note: Optional[str] = None
+
+
 class TimeEntryCreate(BaseModel):
     hours: float = Field(gt=0)
     note: Optional[str] = None
