@@ -162,8 +162,17 @@ Spot-checked directly, not assumed from the PDF's own status marks:
   thing than what P23 describes.)
 - **P24 Virtual tour integration** (Matterport or similar) — not
   built; needs a real external account.
-- **P25 AI fraud detection in screening** (document upload +
-  tampering analysis) — not built.
+- **✅ P25 AI fraud detection in screening**: built and pushed this
+  session, with real care given the PDF's own explicit fair-housing
+  warning — deliberately produces qualitative, reasoning-visible
+  flags rather than a numeric score, and can structurally never set
+  a screening request's status to `passed`/`failed`, only the
+  pre-existing `manual_review` value. Verified two ways beyond a
+  functional test: an AST-based source inspection confirms
+  `passed`/`failed` appear only in the docstring, never in executable
+  code, and a functional test inspects the real MongoDB `$set` update
+  (not just the HTTP response) to confirm the constraint holds in
+  practice.
 - **✅ P26 Cross-portfolio make-ready board**: built and pushed this
   session — `GET /api/make-ready/board`, real aggregation over
   existing turnover-inspection and unit-`readyToList` data, no new
