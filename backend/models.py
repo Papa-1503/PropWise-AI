@@ -557,6 +557,26 @@ class SendSmsCommunication(BaseModel):
     body: str
 
 
+class GroupMessageSend(BaseModel):
+    """Real dynamic message grouping, scoped honestly to what the data
+    actually supports. propertyId (a real building/property) and
+    occupancyStatus/renewalStatus (real, already-stored lease fields)
+    are genuine group targets. Floor is deliberately NOT one of them -
+    no floor field exists anywhere on the unit model, and this app's
+    real unit IDs (confirmed from actual test data: "251", "19-212",
+    "500") don't follow any single, safely-inferrable numbering
+    convention that floor could be derived from without risking a
+    wrong guess. Rather than fake a floor grouping from an assumption
+    that might not hold, this ships the group targets that are
+    actually real and correct."""
+    propertyId: str
+    channel: Literal["email", "sms"]
+    subject: Optional[str] = None  # required for email, ignored for sms
+    body: str
+    occupancyStatus: Optional[Literal["occupied", "vacant", "maintenance_hold"]] = None
+    renewalStatus: Optional[Literal["not_sent", "sent", "signed"]] = None
+
+
 # ---------- Admin ----------
 
 class AdminKeyPayload(BaseModel):

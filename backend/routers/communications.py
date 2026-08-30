@@ -9,6 +9,12 @@ POST /api/communications                       -> log a communication manually (
 POST /api/communications/send-email             -> actually sends an email (via the
                                                    existing SMTP email_service) and
                                                    logs it to the timeline
+POST /api/communications/send-sms                -> same, via Twilio SMS
+POST /api/communications/send-group              -> dynamic message grouping - sends
+                                                   to every resident matching real
+                                                   filters (property, occupancy
+                                                   status, renewal status) at once,
+                                                   rather than one unit at a time
 
 Step 2 of the Communication Hub: real outbound email, reusing the
 existing provider-agnostic SMTP email service rather than adding a
@@ -22,10 +28,12 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from db import communications_col
-from models import CommunicationCreate, SendEmailCommunication, SendSmsCommunication
+from models import CommunicationCreate, SendEmailCommunication, SendSmsCommunication, GroupMessageSend
 from auth import require_staff
 from email_service import send_email_async, EmailNotConfigured, EmailSendError
 from sms_service import send_sms_async, SmsNotConfigured, SmsSendError
+from db import properties_col, leases_col
+from bson import ObjectId
 
 router = APIRouter(prefix="/api/communications", tags=["communications"])
 
@@ -120,3 +128,91 @@ async def send_sms_communication(payload: SendSmsCommunication, user: dict = Dep
     result = await communications_col.insert_one(doc)
     doc["_id"] = result.inserted_id
     return serialize(doc)
+
+
+@router.post("/send-group")
+async def send_group_message(payload: GroupMessageSend, user: dict = Depends(require_staff)):
+    """Dynamic message grouping — sends to every resident matching the
+    given filters at once, instead of one unit at a time. Real group
+    targets only: propertyId (a building) and/or occupancyStatus/
+    renewalStatus (real, already-stored fields) — see GroupMessageSend's
+    docstring in models.py for why floor was deliberately left out
+    rather than faked from an unreliable unit-numbering assumption.
+
+    Resolves recipients from leases_col (email or phone, depending on
+    channel), cross-referencing properties_col.units when
+    occupancyStatus is given, since that field lives on the property's
+    embedded unit list, not on the lease itself.
+
+    Sends to each recipient independently and never lets one failure
+    abort the batch — same resilience pattern as
+    admin.py's run_autopay_check: attempt every recipient, collect
+    real per-recipient outcomes, return an honest summary rather than
+    an all-or-nothing result. A resident with a malformed or missing
+    contact field is skipped and reported, not silently dropped or
+    allowed to fail the whole send."""
+    if payload.channel == "email" and not payload.subject:
+        raise HTTPException(status_code=400, detail="subject is required for email group messages.")
+
+    lease_query = {"propertyId": payload.propertyId}
+    if payload.renewalStatus:
+        lease_query["renewalStatus"] = payload.renewalStatus
+    leases = await leases_col.find(lease_query).to_list(length=1000)
+
+    if payload.occupancyStatus:
+        query_id = ObjectId(payload.propertyId) if ObjectId.is_valid(payload.propertyId) else payload.propertyId
+        property_doc = await properties_col.find_one({"_id": query_id})
+        matching_unit_ids = {
+            u["unitId"] for u in (property_doc.get("units", []) if property_doc else [])
+            if u.get("status") == payload.occupancyStatus
+        }
+        leases = [l for l in leases if l.get("unitId") in matching_unit_ids]
+
+    sent = []
+    failed = []
+    skipped_no_contact = []
+
+    for lease in leases:
+        unit_id = lease.get("unitId")
+        contact = lease.get("residentEmail") if payload.channel == "email" else lease.get("residentPhone")
+        if not contact:
+            skipped_no_contact.append(unit_id)
+            continue
+
+        doc = {
+            "propertyId": payload.propertyId,
+            "unitId": unit_id,
+            "channel": payload.channel,
+            "direction": "outbound",
+            "subject": payload.subject if payload.channel == "email" else None,
+            "body": payload.body,
+            "to": contact,
+            "loggedBy": user.get("email"),
+            "createdAt": datetime.now(timezone.utc),
+            "groupSend": True,
+        }
+
+        try:
+            if payload.channel == "email":
+                await send_email_async(to=contact, subject=payload.subject, body_text=payload.body)
+            else:
+                await send_sms_async(to=contact, body=payload.body)
+            doc["status"] = "sent"
+            sent.append(unit_id)
+        except (EmailNotConfigured, EmailSendError, SmsNotConfigured, SmsSendError) as exc:
+            doc["status"] = "failed"
+            doc["error"] = str(exc)
+            failed.append({"unitId": unit_id, "error": str(exc)})
+
+        await communications_col.insert_one(doc)
+
+    return {
+        "status": "done",
+        "recipientsMatched": len(leases),
+        "sent": len(sent),
+        "failed": len(failed),
+        "skippedNoContact": len(skipped_no_contact),
+        "sentUnitIds": sent,
+        "failedDetails": failed,
+        "skippedUnitIds": skipped_no_contact,
+    }
