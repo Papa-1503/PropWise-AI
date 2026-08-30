@@ -170,11 +170,14 @@ async def run_lease_renewal_check(payload: AdminKeyPayload, windowDays: int = 60
         end_date_str = lease["endDate"].strftime("%B %d, %Y") if isinstance(lease.get("endDate"), datetime) else str(lease.get("endDate"))
 
         if property_id and unit_id:
+            incentive_note = ""
+            if lease.get("renewalIncentiveStatus") == "offered":
+                incentive_note = f" We're offering: {lease.get('renewalIncentiveDescription', '')}"
             await notifications_service.notify_unit_resident(
                 property_id, unit_id,
                 type="lease_expiring",
                 title="Your lease is expiring soon",
-                body=f"Your lease ends {end_date_str} — contact us about renewal options",
+                body=f"Your lease ends {end_date_str} — contact us about renewal options.{incentive_note}",
                 link="/payments",
             )
 

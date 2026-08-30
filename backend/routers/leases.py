@@ -17,11 +17,12 @@ import cloudinary
 import cloudinary.uploader
 
 from db import leases_col, documents_col, properties_col
-from models import LeaseCreate, LeaseUpdate, InsurancePolicyUpdate
+from models import LeaseCreate, LeaseUpdate, InsurancePolicyUpdate, RenewalIncentiveOffer, RenewalIncentiveResponse
 from date_utils import parse_date_utc
 from auth import require_staff, require_staff_or_owner, get_current_user
 from services.events import emit_event
 from audit_service import log_action
+import notifications_service
 
 cloudinary.config(
     cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
@@ -307,4 +308,89 @@ async def insurance_compliance_report(propertyId: str | None = None, user: dict 
         "outOfComplianceCount": len(out_of_compliance),
         "outOfCompliance": out_of_compliance,
     }
+
+
+@router.post("/{lease_id}/renewal-incentive")
+async def offer_renewal_incentive(lease_id: str, payload: RenewalIncentiveOffer, user: dict = Depends(require_staff)):
+    """A real, specific incentive attached to a lease - see
+    RenewalIncentiveOffer's docstring in models.py. Notifies the
+    resident immediately (rather than waiting for the next
+    run-lease-renewal-check pass) since a staff member actively
+    offering something is a more time-sensitive event than the
+    generic scheduled reminder."""
+    if not ObjectId.is_valid(lease_id):
+        raise HTTPException(status_code=400, detail="Invalid lease ID")
+
+    updates = {
+        "renewalIncentiveDescription": payload.description,
+        "renewalIncentiveStatus": "offered",
+        "renewalIncentiveOfferedAt": datetime.now(timezone.utc),
+    }
+    if payload.expiresAt:
+        updates["renewalIncentiveExpiresAt"] = parse_date_utc(payload.expiresAt)
+
+    result = await leases_col.find_one_and_update(
+        {"_id": ObjectId(lease_id)}, {"$set": updates}, return_document=True
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Lease not found")
+
+    property_id = result.get("propertyId")
+    unit_id = result.get("unitId")
+    if property_id and unit_id:
+        await notifications_service.notify_unit_resident(
+            property_id, unit_id,
+            type="general",
+            title="A renewal offer is waiting for you",
+            body=payload.description,
+            link="/payments",
+        )
+
+    await log_action(
+        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        action="renewal_incentive_offered", target_type="lease", target_id=lease_id,
+        details={"description": payload.description},
+    )
+
+    return serialize(result)
+
+
+@router.post("/{lease_id}/renewal-incentive/respond")
+async def respond_to_renewal_incentive(lease_id: str, payload: RenewalIncentiveResponse, user: dict = Depends(get_current_user)):
+    """Tenant-facing response to an offered incentive. Same never-trust-
+    client-submitted-scope principle established for the FAQ endpoint
+    (ai_copilot.py) and the tenant activation flow (auth.py) - the
+    lease is looked up by lease_id AND cross-checked against this
+    authenticated tenant's own propertyId/unitId, so a resident can
+    never respond to (or even discover the existence of) an incentive
+    offered on a different unit's lease, even by guessing lease IDs."""
+    if not ObjectId.is_valid(lease_id):
+        raise HTTPException(status_code=400, detail="Invalid lease ID")
+
+    lease = await leases_col.find_one({"_id": ObjectId(lease_id)})
+    if not lease:
+        raise HTTPException(status_code=404, detail="Lease not found")
+
+    if user.get("role") == "tenant" and (
+        lease.get("propertyId") != user.get("propertyId") or lease.get("unitId") != user.get("unitId")
+    ):
+        raise HTTPException(status_code=403, detail="Not your lease")
+
+    if lease.get("renewalIncentiveStatus") != "offered":
+        raise HTTPException(status_code=400, detail="No pending renewal incentive to respond to.")
+
+    result = await leases_col.find_one_and_update(
+        {"_id": ObjectId(lease_id)},
+        {"$set": {"renewalIncentiveStatus": payload.status, "renewalIncentiveRespondedAt": datetime.now(timezone.utc)}},
+        return_document=True,
+    )
+
+    await notifications_service.notify_all_staff(
+        type="general",
+        title=f"Renewal incentive {payload.status}",
+        body=f"Unit {lease.get('unitId')} — resident {payload.status} the renewal offer",
+        link="/leases",
+    )
+
+    return serialize(result)
  

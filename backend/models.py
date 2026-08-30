@@ -166,6 +166,22 @@ class LeaseUpdate(BaseModel):
     insuranceRequired: Optional[bool] = None
 
 
+class RenewalIncentiveOffer(BaseModel):
+    """A real, specific renewal incentive staff can attach to a lease -
+    e.g. '$100 off first month', 'no rent increase', 'free parking spot
+    for 6 months' - rather than the generic 'contact us about renewal'
+    notice run_lease_renewal_check already sends on its own. description
+    is free text (staff know their own real incentive programs far
+    better than any fixed enum this app could offer); status tracks
+    whether the resident has actually responded to it."""
+    description: str
+    expiresAt: Optional[str] = None  # ISO date string - offer good until this date
+
+
+class RenewalIncentiveResponse(BaseModel):
+    status: Literal["accepted", "declined"]
+
+
 class InsurancePolicyUpdate(BaseModel):
     """Staff-entered policy details, separate from the actual proof-of-
     insurance document upload (POST /{lease_id}/insurance-proof) - a
