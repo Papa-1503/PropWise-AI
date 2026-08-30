@@ -138,12 +138,10 @@ Spot-checked directly, not assumed from the PDF's own status marks:
   generating once it's actually in use.
 - **🟡 P18 Remaining competitive gaps**: **done this session** — named
   AI agent personas, custom fields, customized communication
-  templates, and custom roles & permissions (a real, additive
-  `require_permission` system alongside the existing 177-usage
-  `require_staff` checks — no core auth rewrite, verified thoroughly
-  given the stakes of touching `auth.py`). **Still genuinely absent**:
-  AI bill scan, write-with-AI assistant, AI summaries, custom report
-  builder, custom rental applications, custom views.
+  templates, custom roles & permissions, and a write-with-AI
+  assistant (real lease-grounded drafting, drafts only, never sends).
+  **Still genuinely absent**: AI bill scan, AI summaries, custom
+  report builder, custom rental applications, custom views.
 - **P19 Deferred**: IoT scaffolding, live bank feed, CRP generation —
   still deferred, nothing changed.
 - **✅ P20 AI-guided DIY troubleshooting**: built and pushed this
