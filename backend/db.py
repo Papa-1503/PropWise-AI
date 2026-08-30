@@ -40,6 +40,8 @@ on_call_shifts_col = db["on_call_shifts"]
 audit_log_col = db["audit_log"]
 budgets_col = db["budgets"]
 kb_articles_col = db["kb_articles"]
+supplies_col = db["supplies"]
+supply_orders_col = db["supply_orders"]
 community_posts_col = db["community_posts"]
 late_notices_col = db["late_notices"]
 async def ensure_indexes():
@@ -79,5 +81,9 @@ async def ensure_indexes():
     await budgets_col.create_index([("propertyId", 1), ("category", 1), ("period", 1)], unique=True)
     await bank_lines_col.create_index([("propertyId", 1), ("category", 1), ("date", 1)])
     await kb_articles_col.create_index([("category", 1), ("updatedAt", -1)])
+    # propertyId, not global - supplies are tracked per property, same
+    # as everything else in this app
+    await supplies_col.create_index([("propertyId", 1), ("category", 1)])
+    await supply_orders_col.create_index([("propertyId", 1), ("createdAt", -1)])
     await community_posts_col.create_index([("propertyId", 1), ("createdAt", -1)])
     await late_notices_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])

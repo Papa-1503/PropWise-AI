@@ -329,6 +329,7 @@ class VendorCreate(BaseModel):
     avgArrivalHours: Optional[float] = None
     baseCost: Optional[float] = Field(ge=0, default=None)
     phone: Optional[str] = None
+    email: Optional[str] = None
     active: bool = True
 
 
@@ -336,6 +337,43 @@ class VendorAssign(BaseModel):
     vendorId: str
     estimatedCost: Optional[float] = None
     estimatedArrivalHours: Optional[float] = None
+    note: Optional[str] = None
+
+
+class SupplyCreate(BaseModel):
+    """P17 Phase 1: manual entry + vendor-linked low-stock alerts, per
+    the reconciled roadmap's own scoping. vendorId is optional at
+    creation - a supply can exist before staff have decided who to
+    order it from, but reorderThreshold is what actually drives the
+    low-stock check below, so it's required, not optional with a
+    silent default that could mean "never alert" without anyone
+    intending that."""
+    propertyId: str
+    name: str
+    category: str
+    quantity: int = Field(ge=0, default=0)
+    reorderThreshold: int = Field(ge=0)
+    vendorId: Optional[str] = None
+    vendorSku: Optional[str] = None
+    unitCost: Optional[float] = Field(ge=0, default=None)
+
+
+class SupplyUpdate(BaseModel):
+    quantity: Optional[int] = Field(default=None, ge=0)
+    reorderThreshold: Optional[int] = Field(default=None, ge=0)
+    vendorId: Optional[str] = None
+    vendorSku: Optional[str] = None
+    unitCost: Optional[float] = Field(default=None, ge=0)
+
+
+class SupplyQuantityAdjust(BaseModel):
+    """The real, actual-usage entry point - staff log a quantity
+    CHANGE (e.g. -3 after using 3 units, +50 after a delivery
+    arrives), not a full quantity overwrite. Overwriting the absolute
+    number is easy to get wrong (a staff member typing what they
+    think the new total is, rather than what actually changed) in a
+    way a signed delta isn't."""
+    delta: int
     note: Optional[str] = None
 
 
