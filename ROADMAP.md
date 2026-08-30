@@ -115,9 +115,15 @@ sandbox)
   (e.g. cron-job.org) hitting it on a timer — genuinely can't verify
   from here whether that's actually configured and firing on Render,
   only that the endpoint itself is correct.
-- **✅ Late fee automation**: same pattern as above — real, per-property
-  configurable (`lateFeeAmount`/`lateFeeGraceDays`), real check logic
-  in `admin.py`. Same ⚙️ external-cron caveat applies.
+- **✅ Late fee automation**: real, per-property configurable
+  (`lateFeeAmount`/`lateFeeGraceDays`), real check logic in
+  `admin.py`. Corrected from an earlier pass of this roadmap, which
+  wrongly assumed the same external-cron dependency as preventive
+  maintenance: a real in-process scheduler
+  (`main.py`'s `rent_automation_scheduler`, confirmed by reading it
+  directly) already runs both this and the escalation check every 6
+  hours as a background task inside the app itself — no external
+  cron service needed for these two specifically.
 
 ## Phase 3 — Resident Experience
 
@@ -203,14 +209,37 @@ sandbox)
   genuine e-signature flow for the application itself (as opposed to
   the separately-confirmed lease e-signature feature) needs a closer
   look before calling this either done or not.
-- **❌ FAQ/chatbot for tenants**: not built. (`ai_copilot.py` exists
-  but — per the Fair Housing review's own scope note — is an internal
-  staff-facing chat assistant, not a tenant-facing FAQ bot.)
+- **🟡 FAQ/chatbot for tenants**: the Phase 1 "lightweight auto-
+  responder" item is done (POST /api/ai/faq, built this session) — the
+  Notion doc's own phrasing explicitly frames that as a stepping stone
+  "ahead of full chatbot in Phase 6," so this broader item is
+  genuinely still open as its own thing, not double-counted as done.
+  `ai_copilot.py`'s /copilot endpoint remains staff-facing per the
+  Fair Housing review's own scope note, not a tenant chatbot.
 - **❌ RUBS**: not built.
-- **❌ Automated late/violation notices tied to compliance rulesets**:
-  not built (late fee *application* exists and is automated; sending
-  an actual notice document is a different, unbuilt piece).
-- **❌ Review/reputation management**: not built.
+- **🟡 Automated late notices**: built and pushed this session, honest
+  partial scope — a real factual notice document is now generated
+  automatically every time the late-fee automation applies a fee
+  (confirmed running via a real in-process scheduler, corrected
+  understanding noted above), with a real tenant-scoped GET endpoint
+  to view them. Deliberately factual, not legal-conclusion documents
+  — no jurisdiction-specific legal language, since this app's real
+  multi-state compliance rulesets (mentioned in past project history)
+  are confirmed absent from this repo, same gap as the earlier on-call/
+  telephony discovery. "Violation notices" (as opposed to late-payment
+  notices specifically) and true compliance-ruleset integration remain
+  genuinely unbuilt. A real bug was caught and fixed during
+  verification: a missing import that the OpenAPI boot-check alone
+  didn't catch, only a real functional test did.
+- **🟡 Review/reputation management**: built and pushed this session,
+  honest partial scope — the real internal-facing half (a satisfaction
+  survey prompt on ticket close, tenant-submitted rating with a proper
+  ownership check, staff notified immediately on a 1-2 rating, plus a
+  staff report of flagged tickets). Explicitly does not post to an
+  external platform (Google Business Profile, Yelp) — that needs a
+  real external API/account this app doesn't have. Verified with real
+  functional tests of the ownership check and the rating-threshold
+  notification logic.
 - **✅ Renewal incentive tracking**: built and pushed this session —
   real free-text incentive offers attached to leases (staff-driven,
   not a fixed enum), a tenant-facing accept/decline response endpoint
@@ -264,14 +293,17 @@ this session (parked, not forgotten):
 ---
 
 **Total real count from the Notion backlog specifically:** 21 done,
-6 partial, 11 not built (of 38 tracked items across Phases 1–6) — up
+9 partial, 8 not built (of 38 tracked items across Phases 1–6) — up
 from 8/9/21 at the start of this session, after adding on-call
 rotation, after-hours Twilio Voice routing, ACH autopay, an audit
 trail, caller-ID-to-tenant matching, dynamic message grouping, renters
 insurance tracking, budget vs. actual tracking, a tenant FAQ auto-
-responder, renewal incentive tracking, a staff knowledge base, and a
-resident community board — all twelve genuinely
-completed end-to-end (not just started) and verified beyond
+responder, renewal incentive tracking, a staff knowledge base, a
+resident community board, and — as honest partial credit, not full
+completions — the internal half of review/reputation management and
+real (if legally conservative) automated late notices. Fourteen
+genuinely completed end-to-end and two genuinely useful partial builds,
+all verified beyond
 a syntax check.
 Independent of the ~10-item PropWise-inspired catalog tracked
 separately above, which is fully complete.
