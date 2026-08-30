@@ -421,10 +421,29 @@ class BankLineCreate(BaseModel):
     description: str
     amount: float
     matchedChargeId: Optional[str] = None
+    category: Optional[str] = None
 
 
 class BankLineMatch(BaseModel):
     chargeId: str
+
+
+class BudgetCreate(BaseModel):
+    """One budget line: what a property expects to spend on one
+    category in one calendar month. period is 'YYYY-MM' rather than a
+    real date range - simpler, sortable as a plain string, and avoids
+    timezone ambiguity around month boundaries that a stored datetime
+    range would introduce for something that's fundamentally a
+    calendar-month concept, not a precise instant."""
+    propertyId: str
+    category: str
+    period: str  # 'YYYY-MM', e.g. '2026-09'
+    budgetedAmount: float = Field(ge=0)
+
+
+class BudgetUpdate(BaseModel):
+    budgetedAmount: Optional[float] = Field(default=None, ge=0)
+
 
 class ApplicantScoreUpdate(BaseModel):
     creditScore: Optional[int] = None

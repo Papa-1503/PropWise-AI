@@ -38,6 +38,7 @@ maintenance_schedules_col = db["maintenance_schedules"]
 communications_col = db["communications"]
 on_call_shifts_col = db["on_call_shifts"]
 audit_log_col = db["audit_log"]
+budgets_col = db["budgets"]
 async def ensure_indexes():
     """Call once at app startup (see main.py) to keep queries fast."""
     await inspections_col.create_index([("propertyId", 1), ("unitId", 1)])
@@ -68,3 +69,9 @@ async def ensure_indexes():
     # log is actually read.
     await audit_log_col.create_index([("targetType", 1), ("targetId", 1), ("createdAt", -1)])
     await audit_log_col.create_index([("actorId", 1), ("createdAt", -1)])
+    # One budget per property+category+period - the natural unique key
+    # for "what did this property expect to spend on this category this
+    # month", preventing an accidental duplicate budget line for the
+    # same real thing.
+    await budgets_col.create_index([("propertyId", 1), ("category", 1), ("period", 1)], unique=True)
+    await bank_lines_col.create_index([("propertyId", 1), ("category", 1), ("date", 1)])
