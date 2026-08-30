@@ -609,6 +609,49 @@ class BudgetCreate(BaseModel):
     budgetedAmount: float = Field(ge=0)
 
 
+class FixedAssetCreate(BaseModel):
+    """P27: a real major property asset - roof, HVAC system, water
+    heater, etc. - tracked with install date and expected lifespan so
+    end-of-life can be proactively flagged, distinct from the reactive
+    maintenance-ticket system already in this app. Reuses the same
+    real straight-line-lifespan concept as P14/P15's repair-item
+    usefulLifeYears, applied here at the whole-asset level rather than
+    a per-damage-instance level."""
+    propertyId: str
+    unitId: Optional[str] = None  # None for a property-wide asset (e.g. a shared roof)
+    name: str
+    category: str
+    installDate: str  # ISO date string
+    expectedLifespanYears: float = Field(gt=0)
+    replacementCost: Optional[float] = Field(default=None, ge=0)
+
+
+class FixedAssetUpdate(BaseModel):
+    name: Optional[str] = None
+    replacementCost: Optional[float] = Field(default=None, ge=0)
+
+
+class CapitalProjectCreate(BaseModel):
+    propertyId: str
+    title: str
+    projectedCost: float = Field(ge=0)
+    targetDate: str  # ISO date string
+    status: Literal["planned", "in_progress", "complete"] = "planned"
+    relatedAssetId: Optional[str] = None
+    budgetPeriod: Optional[str] = None
+    # ^ P27's own stated connection to the Budgeting module (P21,
+    # already built this session): a planned capital project can name
+    # which budget period ('YYYY-MM') it's meant to show up under, so
+    # staff can cross-reference the two rather than tracking them in
+    # two disconnected places.
+
+
+class CapitalProjectUpdate(BaseModel):
+    projectedCost: Optional[float] = Field(default=None, ge=0)
+    targetDate: Optional[str] = None
+    status: Optional[Literal["planned", "in_progress", "complete"]] = None
+
+
 class BudgetUpdate(BaseModel):
     budgetedAmount: Optional[float] = Field(default=None, ge=0)
 
