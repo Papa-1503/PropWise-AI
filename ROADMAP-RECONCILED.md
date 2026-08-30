@@ -163,7 +163,15 @@ Spot-checked directly, not assumed from the PDF's own status marks:
   over pending count, and correct dedup when a unit has more than one
   turnover inspection over its history. Both pieces of nontrivial
   logic verified with real functional tests.
-- **P27 Capital projects & fixed-asset planning** — not built.
+- **✅ P27 Capital projects & fixed-asset planning**: built and pushed
+  this session — real fixed-asset and capital-project CRUD, and the
+  genuine payoff of tracking install date + lifespan: a real
+  end-of-life view flagging assets approaching or past their expected
+  replacement date. Real cross-reference to this session's own
+  Budgeting module, stated as an optional link staff set, not an
+  automatic assumption. Verified with a functional test covering
+  three real cases at once (approaching, already past, correctly
+  excluded as too far out) plus correct sort order.
 - **🟡 P41 Session security hardening**: substantially built and
   pushed this session — real security-headers middleware (CSP/frame-
   ancestors, X-Content-Type-Options, Referrer-Policy, Permissions-
