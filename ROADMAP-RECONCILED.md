@@ -132,7 +132,14 @@ Spot-checked directly, not assumed from the PDF's own status marks:
   built; needs a real external account.
 - **P25 AI fraud detection in screening** (document upload +
   tampering analysis) — not built.
-- **P26 Cross-portfolio make-ready board** — not built.
+- **✅ P26 Cross-portfolio make-ready board**: built and pushed this
+  session — `GET /api/make-ready/board`, real aggregation over
+  existing turnover-inspection and unit-`readyToList` data, no new
+  collections. Real stage logic (repairs needed / inspection in
+  progress / ready to list) with flag/fail correctly taking priority
+  over pending count, and correct dedup when a unit has more than one
+  turnover inspection over its history. Both pieces of nontrivial
+  logic verified with real functional tests.
 - **P27 Capital projects & fixed-asset planning** — not built.
 - **🟡 P41 Session security hardening**: substantially built and
   pushed this session — real security-headers middleware (CSP/frame-
