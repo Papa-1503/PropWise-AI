@@ -49,8 +49,14 @@ sandbox)
   the Twilio console, pointed at this webhook, plus
   `TWILIO_AUTH_TOKEN` set on Render.
 - **❌ Call recording + transcription**: not built.
-- **❌ Caller-ID-to-tenant matching**: not built (was described as
-  part of the same uncommitted on-call/telephony work).
+- **✅ Caller-ID-to-tenant matching**: built and pushed this session —
+  a real phone_utils.normalize_phone() helper solving the actual
+  mismatch (Twilio's E.164 caller ID vs. staff-entered free-form
+  phone numbers), wired into the Voice webhook so the on-call tech
+  hears who's calling and which unit before the call connects, and
+  every call is logged via the audit trail. Verified with a real
+  functional test against a mocked leases collection, including the
+  exact format-mismatch scenario this exists to solve.
 - **❌ Dynamic message grouping** (by building/floor/unit): the
   communications endpoints send to one `to` at a time — no group
   targeting logic exists.
@@ -211,10 +217,11 @@ this session (parked, not forgotten):
 
 ---
 
-**Total real count from the Notion backlog specifically:** 11 done,
-8 partial, 19 not built (of 38 tracked items across Phases 1–6) — up
-from 8/9/21 after this session added on-call rotation, after-hours
-Twilio Voice routing, and ACH autopay, all three genuinely completed
+**Total real count from the Notion backlog specifically:** 14 done,
+6 partial, 18 not built (of 38 tracked items across Phases 1–6) — up
+from 8/9/21 at the start of this session, after adding on-call
+rotation, after-hours Twilio Voice routing, ACH autopay, an audit
+trail, and caller-ID-to-tenant matching — all five genuinely completed
 end-to-end (not just started) and verified beyond a syntax check.
 Independent of the ~10-item PropWise-inspired catalog tracked
 separately above, which is fully complete.
