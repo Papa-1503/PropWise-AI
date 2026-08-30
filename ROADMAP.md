@@ -216,7 +216,15 @@ sandbox)
   genuinely still open as its own thing, not double-counted as done.
   `ai_copilot.py`'s /copilot endpoint remains staff-facing per the
   Fair Housing review's own scope note, not a tenant chatbot.
-- **❌ RUBS**: not built.
+- **✅ RUBS**: built and pushed this session — real per-unit
+  allocation across three honest methods (square footage, bedroom
+  count, equal split), only across occupied units, with a real
+  visible warning (not a silent $0) when an occupied unit is missing
+  the chosen allocation basis. Generates real charges in the existing
+  payments ledger. Added `squareFootage` to the unit model, genuinely
+  missing before this feature needed it. Verified with functional
+  tests confirming exact dollar math across all three methods and the
+  honest missing-data warning path.
 - **🟡 Automated late notices**: built and pushed this session, honest
   partial scope — a real factual notice document is now generated
   automatically every time the late-fee automation applies a fee
