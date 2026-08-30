@@ -136,6 +136,13 @@ class UnitIn(BaseModel):
     bedrooms: int = Field(ge=0, default=0)
     bathrooms: float = 0
     readyToList: bool = True
+    squareFootage: Optional[float] = Field(default=None, ge=0)
+    # ^ Genuinely missing before RUBS (Ratio Utility Billing System)
+    # needed it - square footage is the single most common real RUBS
+    # allocation basis, and there was nothing to allocate against
+    # without this field. Optional, not required, since it's a real
+    # gap in existing unit records this doesn't retroactively force
+    # staff to fill in before using the rest of the app.
 
 
 class PropertyCreate(BaseModel):
@@ -189,6 +196,7 @@ class UnitDetailsUpdate(BaseModel):
     rent: Optional[float] = None
     bedrooms: Optional[int] = None
     bathrooms: Optional[float] = None
+    squareFootage: Optional[float] = None
 
 
 # ---------- Leases ----------
@@ -492,6 +500,27 @@ class CommunityCommentCreate(BaseModel):
 # paid; it doesn't move money. Wire an actual processor (Stripe, etc.)
 # behind `PaymentRecord` if you want this to handle real transactions.
 
+class RubsBillCreate(BaseModel):
+    """RUBS - Ratio Utility Billing System. One real utility bill (water,
+    sewer, trash, etc.) for a whole property, allocated across its
+    occupied units by a real, staff-chosen method rather than split
+    equally by default, since equal split is rarely what a real
+    property actually wants. squareFootage-based allocation depends on
+    UnitIn.squareFootage actually being set - genuinely missing from
+    the unit model before this feature, added alongside it since RUBS
+    is the reason it's needed. bedroomCount allocates by each unit's
+    real bedrooms field (already existed); equalSplit divides evenly
+    across occupied units - the one method that needs no real per-unit
+    data at all, useful for properties that haven't recorded square
+    footage yet."""
+    propertyId: str
+    utilityType: str  # e.g. "water", "sewer", "trash"
+    totalAmount: float = Field(gt=0)
+    billingPeriod: str  # 'YYYY-MM'
+    allocationMethod: Literal["squareFootage", "bedroomCount", "equalSplit"] = "equalSplit"
+    dueDate: str  # ISO date string
+
+
 class ChargeCreate(BaseModel):
     propertyId: str
     unitId: str
@@ -669,7 +698,7 @@ class DashboardPreferencesUpdate(BaseModel):
 # ---------- Workflows ----------
 
 class WorkflowAction(BaseModel):
-    type: Literal["send_email", "create_task", "create_turnover_checklist", "assign_user", "set_status", "webhook"]
+    type: Literal["send_email", "create_task", "create_turnover_checklist", "assign_user", "route_to_team", "set_status", "webhook"]
     config: dict = Field(default_factory=dict)
     order: int
 

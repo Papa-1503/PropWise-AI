@@ -158,18 +158,21 @@ async def get_workforce_stats(propertyId: str | None = None, days: int = 30, use
     return {
         "windowDays": days,
         "maintenanceAI": {
+            "displayName": "Fix-It Frankie",
             "ticketsCreated": tickets_created,
             "autoCreatedFromInspections": auto_created,
             "failuresPrevented": None,
             "tracked": True,
         },
         "operationsAI": {
+            "displayName": "Sage",
             "actionsSuggested": actions_suggested,
             "actionsApproved": actions_approved,
             "revenueProtected": round(revenue_protected, 2),
             "tracked": True,
         },
         "leasingAI": {
+            "displayName": "Ren",
             "leadsProcessed": leads_created,
             "toursScheduled": tours_scheduled,
             "applications": applications_count,
@@ -179,6 +182,7 @@ async def get_workforce_stats(propertyId: str | None = None, days: int = 30, use
         },
     
         "collectionsAI": {
+            "displayName": "Penny",
             "residentsContacted": residents_contacted,
             "recoveredRevenue": round(recovered_revenue, 2),
             "tracked": True,

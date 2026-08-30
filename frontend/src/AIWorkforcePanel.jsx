@@ -20,11 +20,19 @@ function StatLine({ label, value }) {
   );
 }
 
-function AgentCard({ name, tracked, note, children }) {
+function AgentCard({ name, displayName, tracked, note, children }) {
   return (
     <div className={`rounded-lg border p-3.5 ${tracked ? "border-slate-200 bg-white" : "border-dashed border-slate-200 bg-slate-50"}`}>
       <div className="flex items-center justify-between mb-1.5">
-        <h4 className="text-sm font-semibold">{name}</h4>
+        <h4 className="text-sm font-semibold">
+          {displayName ? (
+            <>
+              {displayName} <span className="text-slate-400 font-normal">· {name}</span>
+            </>
+          ) : (
+            name
+          )}
+        </h4>
         {!tracked && (
           <span className="text-[9px] font-mono uppercase text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
             not connected
@@ -67,14 +75,14 @@ export default function AIWorkforcePanel({ propertyId }) {
       <p className="text-xs text-slate-500 mb-4">Last {data.windowDays} days</p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <AgentCard name="LeasingAI" tracked={data.leasingAI.tracked} note={data.leasingAI.note}>
+        <AgentCard name="LeasingAI" displayName={data.leasingAI.displayName} tracked={data.leasingAI.tracked} note={data.leasingAI.note}>
           <StatLine label="Leads Processed" value={data.leasingAI.leadsProcessed} />
           <StatLine label="Tours Scheduled" value={data.leasingAI.toursScheduled} />
           <StatLine label="Applications" value={data.leasingAI.applications} />
           <StatLine label="Leases Signed" value={data.leasingAI.leasesSigned} />
         </AgentCard>
 
-        <AgentCard name="OperationsAI" tracked={data.operationsAI.tracked}>
+        <AgentCard name="OperationsAI" displayName={data.operationsAI.displayName} tracked={data.operationsAI.tracked}>
           <StatLine label="Actions Suggested" value={data.operationsAI.actionsSuggested} />
           <StatLine label="Actions Approved" value={data.operationsAI.actionsApproved} />
           <StatLine label="Est. Revenue Protected" value={data.operationsAI.revenueProtected} />
@@ -83,7 +91,7 @@ export default function AIWorkforcePanel({ propertyId }) {
           </p>
         </AgentCard>
 
-        <AgentCard name="CollectionsAI" tracked={data.collectionsAI.tracked} note={data.collectionsAI.note}>
+        <AgentCard name="CollectionsAI" displayName={data.collectionsAI.displayName} tracked={data.collectionsAI.tracked} note={data.collectionsAI.note}>
           <StatLine label="Residents Contacted" value={data.collectionsAI.residentsContacted} />
           <StatLine label="Recovered Revenue" value={data.collectionsAI.recoveredRevenue} />
           <p className="text-[10px] text-slate-400 italic mt-1">
@@ -91,7 +99,7 @@ export default function AIWorkforcePanel({ propertyId }) {
           </p>
         </AgentCard>
 
-        <AgentCard name="MaintenanceAI" tracked={data.maintenanceAI.tracked}>
+        <AgentCard name="MaintenanceAI" displayName={data.maintenanceAI.displayName} tracked={data.maintenanceAI.tracked}>
           <StatLine label="Tickets Created" value={data.maintenanceAI.ticketsCreated} />
           <StatLine label="Auto-created from Inspections" value={data.maintenanceAI.autoCreatedFromInspections} />
           <StatLine label="Failures Prevented" value={data.maintenanceAI.failuresPrevented} />

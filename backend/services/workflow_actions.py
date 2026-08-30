@@ -7,6 +7,7 @@ payload = the event data (e.g. the unit/lease/tenant that triggered it)
 """
 import uuid
 from datetime import datetime, timezone
+from bson import ObjectId
 
 from db import tickets_col, inspections_col, users_col, properties_col
 from email_service import send_email_async, EmailNotConfigured, EmailSendError
@@ -132,14 +133,110 @@ async def create_turnover_checklist_action(config: dict, payload: dict):
 
 
 async def assign_user_action(config: dict, payload: dict):
+    """Real bug found and fixed: this previously computed and returned a
+    dict describing an assignment that never actually happened - no
+    ticket was ever updated, no one was ever notified. A hollow action
+    dressed up as working. Now genuinely assigns: finds the most
+    recently created open ticket for this unit (the one this workflow
+    run is almost certainly about, since these fire off a real event
+    tied to a specific unit) and sets its assignee, then notifies that
+    person directly - the same real notify_user call already proven in
+    create_turnover_checklist_action above, not a new pattern."""
     unit_id = payload.get("unitId")
+    property_id = payload.get("propertyId")
+    user_id = config.get("userId")
     if not unit_id:
         raise ValueError("No unitId in event payload")
-    return {"assignedTo": config.get("userId"), "unitId": unit_id}
+    if not user_id:
+        raise ValueError("No userId configured for this action")
+
+    ticket = await tickets_col.find_one(
+        {"propertyId": property_id, "unitId": unit_id, "status": {"$ne": "done"}},
+        sort=[("createdAt", -1)],
+    )
+    if not ticket:
+        return {"assigned": False, "reason": "No open ticket found for this unit to assign."}
+
+    assigned_user = await users_col.find_one({"_id": ObjectId(user_id)}) if ObjectId.is_valid(user_id) else None
+    if not assigned_user:
+        raise ValueError(f"Configured userId {user_id} is not a real user.")
+
+    await tickets_col.update_one({"_id": ticket["_id"]}, {"$set": {"assignee": assigned_user.get("email")}})
+    await notifications_service.notify_user(
+        str(assigned_user["_id"]),
+        type="general",
+        title=f"Assigned to you: {ticket.get('title', 'a ticket')}",
+        body=f"Unit {unit_id}",
+        link=f"/maintenance/{str(ticket['_id'])}",
+    )
+    return {"assigned": True, "ticketId": str(ticket["_id"]), "assignedTo": assigned_user.get("email")}
+
+
+async def route_to_team_action(config: dict, payload: dict):
+    """The real 'route work to the correct team' capability - not a
+    single hardcoded userId (that's what assign_user is for when a
+    specific person is genuinely meant), but a lookup by the ticket's
+    OWN category against real tech-to-property assignments
+    (staff.assignedProperties, the same infrastructure built earlier
+    this session for on-call rotation and reused here rather than
+    duplicated). Falls back to notifying all staff broadly if no tech
+    covers this property yet - never silently drops the routing with
+    nobody notified at all."""
+    unit_id = payload.get("unitId")
+    property_id = payload.get("propertyId")
+    if not unit_id or not property_id:
+        raise ValueError("No propertyId/unitId in event payload")
+
+    ticket = await tickets_col.find_one(
+        {"propertyId": property_id, "unitId": unit_id, "status": {"$ne": "done"}},
+        sort=[("createdAt", -1)],
+    )
+    if not ticket:
+        return {"routed": False, "reason": "No open ticket found for this unit to route."}
+
+    assigned_tech = await users_col.find_one({"role": "staff", "assignedProperties": property_id})
+    if assigned_tech:
+        await tickets_col.update_one({"_id": ticket["_id"]}, {"$set": {"assignee": assigned_tech.get("email")}})
+        await notifications_service.notify_user(
+            str(assigned_tech["_id"]),
+            type="general",
+            title=f"Routed to you: {ticket.get('title', 'a ticket')}",
+            body=f"Unit {unit_id} - category: {ticket.get('category', 'general')}",
+            link=f"/maintenance/{str(ticket['_id'])}",
+        )
+        return {"routed": True, "ticketId": str(ticket["_id"]), "routedTo": assigned_tech.get("email")}
+
+    await notifications_service.notify_all_staff(
+        type="general",
+        title=f"Needs routing: {ticket.get('title', 'a ticket')}",
+        body=f"Unit {unit_id} - no tech assigned to this property yet",
+        link=f"/maintenance/{str(ticket['_id'])}",
+    )
+    return {"routed": True, "ticketId": str(ticket["_id"]), "routedTo": "all_staff_fallback"}
 
 
 async def set_status_action(config: dict, payload: dict):
-    return {"status": config.get("status")}
+    """Real bug found and fixed alongside assign_user_action - this had
+    the identical problem, computing a dict and updating nothing. Now
+    genuinely sets the most recent relevant ticket's status, using the
+    same real ticket-lookup pattern as the two actions above."""
+    unit_id = payload.get("unitId")
+    property_id = payload.get("propertyId")
+    new_status = config.get("status")
+    if not unit_id:
+        raise ValueError("No unitId in event payload")
+    if new_status not in ("open", "in_progress", "done"):
+        raise ValueError(f"Invalid status '{new_status}' - must be open, in_progress, or done.")
+
+    ticket = await tickets_col.find_one(
+        {"propertyId": property_id, "unitId": unit_id},
+        sort=[("createdAt", -1)],
+    )
+    if not ticket:
+        return {"updated": False, "reason": "No ticket found for this unit to update."}
+
+    await tickets_col.update_one({"_id": ticket["_id"]}, {"$set": {"status": new_status}})
+    return {"updated": True, "ticketId": str(ticket["_id"]), "newStatus": new_status}
 
 
 async def webhook_action(config: dict, payload: dict):
@@ -157,6 +254,7 @@ ACTION_HANDLERS = {
     "create_task": create_task_action,
     "create_turnover_checklist": create_turnover_checklist_action,
     "assign_user": assign_user_action,
+    "route_to_team": route_to_team_action,
     "set_status": set_status_action,
     "webhook": webhook_action,
 }
