@@ -433,6 +433,25 @@ class DocumentCreate(BaseModel):
 
 class DocumentSign(BaseModel):
     signedByName: str
+
+
+class KbArticleCreate(BaseModel):
+    """Internal staff-only content - SOPs, past issue resolutions,
+    vendor contacts, troubleshooting guides. Deliberately separate
+    from DocumentCreate above (tenant lease documents, e-signature
+    flow) and from the tenant-facing FAQ (ai_copilot.py's /faq, which
+    answers from a resident's own real lease/ticket data, not from
+    static articles) - three genuinely different content types that
+    happen to superficially resemble each other."""
+    title: str
+    category: str
+    content: str
+
+
+class KbArticleUpdate(BaseModel):
+    title: Optional[str] = None
+    category: Optional[str] = None
+    content: Optional[str] = None
     
 class ScreeningRequestCreate(BaseModel):
     leadId: Optional[str] = None

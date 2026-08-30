@@ -39,6 +39,7 @@ communications_col = db["communications"]
 on_call_shifts_col = db["on_call_shifts"]
 audit_log_col = db["audit_log"]
 budgets_col = db["budgets"]
+kb_articles_col = db["kb_articles"]
 async def ensure_indexes():
     """Call once at app startup (see main.py) to keep queries fast."""
     await inspections_col.create_index([("propertyId", 1), ("unitId", 1)])
@@ -75,3 +76,4 @@ async def ensure_indexes():
     # same real thing.
     await budgets_col.create_index([("propertyId", 1), ("category", 1), ("period", 1)], unique=True)
     await bank_lines_col.create_index([("propertyId", 1), ("category", 1), ("date", 1)])
+    await kb_articles_col.create_index([("category", 1), ("updatedAt", -1)])
