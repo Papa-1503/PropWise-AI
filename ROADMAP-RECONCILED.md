@@ -137,14 +137,13 @@ Spot-checked directly, not assumed from the PDF's own status marks:
   attempted — needs real order history this feature will only start
   generating once it's actually in use.
 - **🟡 P18 Remaining competitive gaps**: **done this session** — named
-  AI agent personas (LeasingAI/OperationsAI/CollectionsAI/
-  MaintenanceAI now have real names — Ren, Sage, Penny, Fix-It Frankie
-  — shown in the dashboard), custom fields (real, type-validated,
-  entity-agnostic), customized communication templates (real
-  `{{field}}` substitution against actual lease data). **Still
-  genuinely absent**: AI bill scan, write-with-AI assistant, AI
-  summaries, custom report builder, custom roles & permissions, custom
-  rental applications, custom views.
+  AI agent personas, custom fields, customized communication
+  templates, and custom roles & permissions (a real, additive
+  `require_permission` system alongside the existing 177-usage
+  `require_staff` checks — no core auth rewrite, verified thoroughly
+  given the stakes of touching `auth.py`). **Still genuinely absent**:
+  AI bill scan, write-with-AI assistant, AI summaries, custom report
+  builder, custom rental applications, custom views.
 - **P19 Deferred**: IoT scaffolding, live bank feed, CRP generation —
   still deferred, nothing changed.
 - **✅ P20 AI-guided DIY troubleshooting**: built and pushed this
