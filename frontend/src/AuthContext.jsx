@@ -56,7 +56,16 @@ export function AuthProvider({ children }) {
     (url, options = {}) => {
       const headers = { ...(options.headers || {}) };
       if (token) headers.Authorization = `Bearer ${token}`;
-      return fetch(url, { ...options, headers });
+      // credentials: "include" makes the browser also send the real
+      // HttpOnly session cookie set by login/register (backend/auth.py,
+      // this session's earlier work) on every request - the Bearer
+      // header above is left completely unchanged and still sent
+      // alongside it, so this is purely additive, not a replacement.
+      // get_current_user already accepts either credential source; this
+      // is what makes the frontend actually offer the cookie at all,
+      // rather than the safer path existing on the backend with no way
+      // for the browser to use it.
+      return fetch(url, { ...options, headers, credentials: "include" });
     },
     [token]
   ); 
@@ -159,6 +168,15 @@ export function AuthProvider({ children }) {
   }
 
   function logout() {
+    // The real HttpOnly cookie (backend/auth.py, this session) can't be
+    // cleared from JavaScript at all - that's the entire point of
+    // HttpOnly. Without this call, clearing localStorage alone would
+    // leave a real, still-valid 7-day session cookie active on this
+    // browser even after "logging out." Fire-and-forget: even if this
+    // request fails (offline, etc.), the local token/state is still
+    // cleared below, so the user is genuinely logged out of this
+    // browser's own view of the app either way.
+    fetch(`${API_BASE}/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {});
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);
     setUser(null);
