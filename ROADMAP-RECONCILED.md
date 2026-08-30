@@ -142,8 +142,14 @@ Spot-checked directly, not assumed from the PDF's own status marks:
 - **P42 Public-vs-internal-beta decision, marketing site, broader
   confirmation/audit-trail/idempotency coverage beyond what's already
   covered, AI Actions reasoning/confidence UI** — not built.
-- **P44 Split the public registration schema** to remove the
-  unused/misleading `role` field — small, still open.
+- **✅ P44 Split the public registration schema**: built and pushed
+  this session — `UserRegister` genuinely retired (confirmed zero
+  remaining references), replaced with a real, minimal
+  `StaffOwnerRegister` (email/password/name only). Verified via the
+  live OpenAPI schema that the confusing role/propertyId/unitId
+  fields are actually gone from the API contract, not just hidden,
+  and via a functional test that the stored document is genuinely
+  clean of them too.
 - **P49 Full user manual** — explicitly gated on everything else
   being done first; still not started, correctly.
 
