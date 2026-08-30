@@ -103,7 +103,16 @@ Spot-checked directly, not assumed from the PDF's own status marks:
   partner/API-gated per the PDF's own research flag. (`ROADMAP.md`'s
   public-listings-feed entry is a real, related, but smaller piece —
   a feed URL, not actual syndication integration.)
-- **P17 Supplies/inventory ordering** — not built.
+- **✅ P17 Supplies/inventory ordering, Phase 1**: built and pushed
+  this session — real CRUD, quantity tracking via a signed delta
+  (not an absolute overwrite), real `$expr`-based low-stock detection,
+  and a genuine vendor-order-email action reusing the app's real
+  email infrastructure. A real gap was found and fixed along the way:
+  `VendorCreate` had no email field at all, which would have made the
+  order action fail unconditionally for every vendor. Phase 2
+  (predictive, consumption-rate-based reordering) deliberately not
+  attempted — needs real order history this feature will only start
+  generating once it's actually in use.
 - **P18 Remaining competitive gaps**: AI bill scan, write-with-AI
   assistant, named AI agent personas (P22 scoped this further, still
   not built), AI summaries, custom fields, custom report builder,
