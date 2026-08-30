@@ -37,6 +37,7 @@ from routers import budgets
 from routers import kb
 from routers import community
 from routers import supplies
+from routers import make_ready
 app = FastAPI(title="RentFlow AI API")
 
 
@@ -112,6 +113,7 @@ app.include_router(budgets.router)
 app.include_router(kb.router)
 app.include_router(community.router)
 app.include_router(supplies.router)
+app.include_router(make_ready.router)
 # BUG FIX (found by actually running this): StaticFiles() raises at import
 # time if the directory doesn't already exist on disk. On a fresh checkout
 # there is no ./uploads folder yet, so the server would crash before it
