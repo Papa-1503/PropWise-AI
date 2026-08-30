@@ -143,8 +143,17 @@ Spot-checked directly, not assumed from the PDF's own status marks:
   views, customized communication templates — all confirmed absent.
 - **P19 Deferred**: IoT scaffolding, live bank feed, CRP generation —
   still deferred, nothing changed.
-- **P20 AI-guided DIY troubleshooting** on ticket submission — not
-  built.
+- **✅ P20 AI-guided DIY troubleshooting**: built and pushed this
+  session — a real, code-enforced safety gate
+  (`services/diy_safety.py`) checked before any AI call is ever
+  made, matching the PDF's own explicit requirement. A genuine
+  phrasing bug was caught and fixed during testing: the first keyword
+  list only matched exact multi-word phrase order and missed real
+  variants like "smell of gas" and "ceiling looks like its sagging" —
+  fixed and re-verified against new phrasing, not just the original
+  failing strings. Verified with the test that matters most: confirmed
+  via a mocked AI client that the AI is genuinely never invoked at all
+  for an unsafe request, a structural barrier, not a prompt-level one.
 - **P23 Digital lease e-signatures via a real external provider**
   (DocuSign) — not built; genuinely needs a real external account,
   same as the PDF flagged. (Note: this session's self-service renewal
