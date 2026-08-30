@@ -125,10 +125,20 @@ Spot-checked directly, not assumed from the PDF's own status marks:
   tampering analysis) — not built.
 - **P26 Cross-portfolio make-ready board** — not built.
 - **P27 Capital projects & fixed-asset planning** — not built.
-- **P41 Session security hardening** (HttpOnly cookies instead of
-  localStorage, CSP/frame/referrer/permissions headers, public
-  Swagger docs decision, explicit per-role authorization test suite)
-  — not built; a real, worthwhile security backlog item.
+- **🟡 P41 Session security hardening**: substantially built and
+  pushed this session — real security-headers middleware (CSP/frame-
+  ancestors, X-Content-Type-Options, Referrer-Policy, Permissions-
+  Policy, verified applied globally including on the public `/docs`
+  page), and a real HttpOnly session cookie auth path added
+  alongside (not replacing) the existing Bearer-token flow, correctly
+  handling this app's genuinely cross-origin frontend/backend split
+  (`SameSite=None`+`Secure`, not the more common `Lax`, which would
+  have silently broken it). New `POST /api/auth/logout` to actually
+  clear the cookie, since JavaScript can't. Every piece verified with
+  real functional tests, not assumed. Still open: migrating the
+  frontend's `authFetch` calls to use the cookie instead of
+  localStorage, the public-Swagger-docs decision, and a dedicated
+  per-role authorization test suite.
 - **P42 Public-vs-internal-beta decision, marketing site, broader
   confirmation/audit-trail/idempotency coverage beyond what's already
   covered, AI Actions reasoning/confidence UI** — not built.
