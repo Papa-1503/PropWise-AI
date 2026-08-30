@@ -108,7 +108,19 @@ Spot-checked directly, not assumed from the PDF's own status marks:
   with and without a real rate on file, and three real cases of the
   flagged-item matching endpoint (match, rejected pass, honest
   no-match).
-- **P15 Move-out → deposit-return pipeline** — not built.
+- **🟡 P15 Move-out → deposit-return pipeline**: built and pushed
+  this session, explicitly and repeatedly labeled NOT legal advice —
+  real straight-line depreciation math (correctly floors at 0%
+  billable once an item is past its useful life, verified as the
+  single most important case), a real tenant-facing itemized
+  statement generated through the existing Documents system, and the
+  disclaimer carried through the API response, the module docstring,
+  and the generated document's own text. Confirmed the multi-state
+  HUD engine referenced in past project history genuinely doesn't
+  exist in this repo — real jurisdiction-specific legal correctness
+  was explicitly not attempted here and is stated as such throughout.
+  Verified with real depreciation-math tests covering the zero-floor
+  edge case plus a full end-to-end pipeline test.
 - **P16 Vacancy listing syndication** (Zillow/Apartments.com/
   Facebook Marketplace) — not built; still genuinely
   partner/API-gated per the PDF's own research flag. (`ROADMAP.md`'s
