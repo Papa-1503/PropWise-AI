@@ -8,6 +8,12 @@ Deliberately simple: case-insensitive regex match on a handful of real,
 already-indexed-in-spirit text fields per collection, capped to a small
 result count per type. Not a full-text search engine — a command
 palette needs to feel instant, not exhaustive.
+
+Searches leases (name, unit, resident phone), tickets (title, unit),
+and leads (name, email, phone). Vendors were considered but skipped:
+there's no standalone vendor page to navigate a result to (vendors
+only appear nested inside VendorAssignment during ticket assignment),
+so a vendor search result would have nowhere sensible to land.
 """
 
 from fastapi import APIRouter, Depends
@@ -29,7 +35,7 @@ async def global_search(q: str, propertyId: str | None = None, user: dict = Depe
     scope = {"propertyId": propertyId} if propertyId else {}
     results = []
 
-    async for l in leases_col.find({**scope, "$or": [{"residentName": regex}, {"unitId": regex}]}).limit(RESULT_LIMIT_PER_TYPE):
+    async for l in leases_col.find({**scope, "$or": [{"residentName": regex}, {"unitId": regex}, {"residentPhone": regex}]}).limit(RESULT_LIMIT_PER_TYPE):
         results.append({
             "type": "lease",
             "id": str(l["_id"]),
@@ -47,7 +53,7 @@ async def global_search(q: str, propertyId: str | None = None, user: dict = Depe
             "navigateTo": "maintenance",
         })
 
-    async for ld in leads_col.find({**scope, "$or": [{"name": regex}, {"email": regex}]}).limit(RESULT_LIMIT_PER_TYPE):
+    async for ld in leads_col.find({**scope, "$or": [{"name": regex}, {"email": regex}, {"phone": regex}]}).limit(RESULT_LIMIT_PER_TYPE):
         results.append({
             "type": "lead",
             "id": str(ld["_id"]),
