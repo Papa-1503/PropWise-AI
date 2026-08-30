@@ -151,7 +151,16 @@ sandbox)
   as "not a filed tax document" — real 1099 generation itself doesn't
   exist.
 - **❌ QuickBooks/Xero sync**: not built.
-- **❌ Budget vs. actual tracking**: not built.
+- **✅ Budget vs. actual tracking**: built and pushed this session —
+  real BudgetCreate/BudgetUpdate models (one budget line per
+  property/category/month, enforced by a real unique index), and a
+  GET /report comparison built on the app's existing bank-line data
+  (reconciliation.py) rather than a second, synthetic ledger. Added
+  category to BankLineCreate, previously missing entirely. Verified
+  extensively: category aggregation, sign-convention handling (abs()),
+  categories with no budget line still appearing at budgeted=0, and
+  month-boundary date filtering including the December-to-January
+  year-wrap edge case, all confirmed with real functional tests.
 - **🟡 Fair housing safeguards**: a genuinely careful, real technical
   risk-review document exists (`FAIR_HOUSING_REVIEW.md`), correctly
   scoped to the AI recommendation engine and correctly caveated as
@@ -232,12 +241,13 @@ this session (parked, not forgotten):
 
 ---
 
-**Total real count from the Notion backlog specifically:** 16 done,
-6 partial, 16 not built (of 38 tracked items across Phases 1–6) — up
+**Total real count from the Notion backlog specifically:** 17 done,
+6 partial, 15 not built (of 38 tracked items across Phases 1–6) — up
 from 8/9/21 at the start of this session, after adding on-call
 rotation, after-hours Twilio Voice routing, ACH autopay, an audit
-trail, caller-ID-to-tenant matching, dynamic message grouping, and
-renters insurance tracking — all seven genuinely completed end-to-end
-(not just started) and verified beyond a syntax check.
+trail, caller-ID-to-tenant matching, dynamic message grouping, renters
+insurance tracking, and budget vs. actual tracking — all eight
+genuinely completed end-to-end (not just started) and verified beyond
+a syntax check.
 Independent of the ~10-item PropWise-inspired catalog tracked
 separately above, which is fully complete.
