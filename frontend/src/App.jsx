@@ -121,6 +121,18 @@ function IndexRedirect() {
   return <Navigate to={tabs[0]} replace />;
 }
 
+// A plain <Navigate to="/app/dashboard"> drops the query string entirely
+// on redirect (confirmed real bug: ?resetOnboarding on the root path
+// silently vanished before OnboardingTour ever saw it, since react-
+// router-dom's Navigate does not forward location.search by default).
+// This preserves it, so debugging aids like ?resetOnboarding — and any
+// other query param someone might rely on hitting "/" with — actually
+// survive the redirect to /app/dashboard.
+function RootRedirect() {
+  const location = useLocation();
+  return <Navigate to={`/app/dashboard${location.search}`} replace />;
+}
+
 function AppGate() {
   const { user, loading, logout, selectedProperty } = useAuth();
   const { dark, toggle: toggleDarkMode } = useDarkMode();
@@ -299,7 +311,7 @@ export default function App() {
           <BrowserRouter>
             <Routes>
               <Route path="/apply" element={<LeadCaptureForm />} />
-              <Route path="/" element={<Navigate to="/app/dashboard" replace />} />
+              <Route path="/" element={<RootRedirect />} />
 
           <Route path="/app" element={<AppGate />}>
             <Route index element={<IndexRedirect />} />
