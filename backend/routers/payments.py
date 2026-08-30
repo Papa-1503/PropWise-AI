@@ -5,23 +5,41 @@ POST  /api/payments                 -> create a charge (e.g. this month's rent)
 GET   /api/payments?status=&propertyId=&unitId= -> list charges
 PATCH /api/payments/:id/record      -> record a payment against a charge
 GET   /api/payments/delinquent      -> charges that are past due and not fully paid
-POST  /api/payments/:id/checkout    -> placeholder for a real payment processor
+POST  /api/payments/:id/checkout    -> real Stripe ACH Direct Debit checkout
+POST  /api/payments/setup-intent    -> starts bank-account linking for a resident
+POST  /api/payments/autopay/enroll  -> saves a linked bank account as the resident's
+                                        autopay payment method
+POST  /api/payments/stripe-webhook  -> Stripe calls this when an ACH payment's real,
+                                        eventual outcome is known (succeeded/failed) -
+                                        see stripe_service.py's module docstring for
+                                        why ACH specifically needs this rather than
+                                        trusting the initial API response
 
-This is a ledger, not a payments processor — it tracks what's owed and
-what's been recorded as received. It does not move money. Wire a real
-processor (Stripe, etc.) behind /record and /checkout if you want actual
-transactions instead of manually-recorded payments.
+This is a ledger, not a payments processor by itself — it tracks what's
+owed and what's been recorded as received, and now genuinely can move
+money through Stripe ACH Direct Debit once STRIPE_SECRET_KEY and
+STRIPE_WEBHOOK_SECRET are configured (see stripe_service.py). Until
+then, /checkout and /setup-intent fail with an honest 503, not a
+silent no-op.
 """
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from bson import ObjectId
 
-from db import payments_col
+from db import payments_col, users_col
 from date_utils import parse_date_utc
-from models import ChargeCreate, PaymentRecord, CheckoutSessionCreate, PaymentReturn
+from models import ChargeCreate, PaymentRecord, CheckoutSessionCreate, PaymentReturn, AutopayEnroll
 from auth import require_staff, get_current_user
 from services.events import emit_event
+from stripe_service import (
+    StripeNotConfigured,
+    StripePayError,
+    get_or_create_customer_async,
+    create_setup_intent_async,
+    create_ach_payment_intent_async,
+    construct_webhook_event,
+)
 import notifications_service
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
@@ -202,7 +220,131 @@ async def create_checkout_session(charge_id: str, payload: CheckoutSessionCreate
     ):
         raise HTTPException(status_code=403, detail="Not your charge")
 
-    raise HTTPException(
-        status_code=501,
-        detail="Online payment is not yet configured. Contact staff to pay this charge another way.",
+    payment_method_id = user.get("autopayPaymentMethodId")
+    if not payment_method_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No bank account linked. Set one up under Autopay first.",
+        )
+
+    remaining_due = charge.get("amountDue", 0) - charge.get("amountPaid", 0)
+    if remaining_due <= 0:
+        raise HTTPException(status_code=400, detail="This charge is already fully paid.")
+
+    try:
+        customer_id = await get_or_create_customer_async(
+            str(user["_id"]), user["email"], user.get("name", "")
+        )
+        result = await create_ach_payment_intent_async(
+            customer_id,
+            payment_method_id,
+            amount_cents=round(remaining_due * 100),
+            description=charge.get("description", "Rent payment"),
+        )
+    except StripeNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except StripePayError as exc:
+        raise HTTPException(status_code=402, detail=str(exc))
+
+    # Record the attempt as "processing", not "paid" - ACH takes 4-5
+    # business days to actually clear. The ledger only moves to paid
+    # once the Stripe webhook confirms payment_intent.succeeded (see
+    # stripe_webhook below). Storing the PaymentIntent id here is what
+    # lets that webhook find its way back to this exact charge later.
+    await payments_col.update_one(
+        {"_id": ObjectId(charge_id)},
+        {"$set": {"stripePaymentIntentId": result["paymentIntentId"], "paymentProcessingStatus": result["status"]}},
     )
+    return {"status": result["status"], "paymentIntentId": result["paymentIntentId"]}
+
+
+@router.post("/setup-intent")
+async def create_bank_setup_intent(user: dict = Depends(get_current_user)):
+    """Starts linking a bank account for the current user. Returns a
+    Stripe client_secret the frontend hands to Stripe.js to complete
+    verification entirely in the browser - this endpoint's only job is
+    getting (or creating) the Stripe Customer this SetupIntent attaches
+    to."""
+    try:
+        customer_id = await get_or_create_customer_async(
+            str(user["_id"]), user["email"], user.get("name", "")
+        )
+        result = await create_setup_intent_async(customer_id)
+    except StripeNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except StripePayError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    await users_col.update_one({"_id": user["_id"]}, {"$set": {"stripeCustomerId": customer_id}})
+    return result
+
+
+@router.post("/autopay/enroll")
+async def enroll_autopay(payload: AutopayEnroll, user: dict = Depends(get_current_user)):
+    """Saves a successfully-linked bank account (paymentMethodId, from
+    the completed SetupIntent above) as this resident's autopay method.
+    Doesn't itself charge anything or schedule a recurring job - that's
+    real follow-on work (a scheduled check, same external-cron pattern
+    as late fees and preventive maintenance) once this enrollment step
+    is confirmed working end-to-end."""
+    await users_col.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"autopayPaymentMethodId": payload.paymentMethodId, "autopayEnabled": True}},
+    )
+    return {"autopayEnabled": True}
+
+
+@router.post("/autopay/cancel")
+async def cancel_autopay(user: dict = Depends(get_current_user)):
+    await users_col.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"autopayEnabled": False}},
+    )
+    return {"autopayEnabled": False}
+
+
+@router.post("/stripe-webhook")
+async def stripe_webhook(request: Request):
+    """Real, security-boundary-verified endpoint - Stripe signs every
+    webhook request, and construct_webhook_event rejects anything that
+    isn't genuinely from Stripe before any of its contents are trusted.
+    Public (no user auth possible here, same as Twilio's voice webhook
+    in routers/telephony.py), so this signature check is the only thing
+    standing between this endpoint and someone POSTing a fake "payment
+    succeeded" event at it."""
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature", "")
+    try:
+        event = construct_webhook_event(payload, sig_header)
+    except (StripeNotConfigured, StripePayError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    intent = event["data"]["object"]
+    intent_id = intent.get("id")
+
+    if event["type"] == "payment_intent.succeeded":
+        charge = await payments_col.find_one({"stripePaymentIntentId": intent_id})
+        if charge:
+            amount_paid = intent.get("amount_received", 0) / 100
+            await payments_col.update_one(
+                {"_id": charge["_id"]},
+                {"$set": {
+                    "amountPaid": charge.get("amountPaid", 0) + amount_paid,
+                    "paidDate": datetime.now(timezone.utc),
+                    "paymentProcessingStatus": "succeeded",
+                }},
+            )
+    elif event["type"] == "payment_intent.payment_failed":
+        charge = await payments_col.find_one({"stripePaymentIntentId": intent_id})
+        if charge:
+            # Do NOT touch amountPaid here - a failed PaymentIntent
+            # never actually moved money, so there's nothing to reverse
+            # on the ledger, just a status to record so staff can see
+            # this charge's autopay attempt didn't go through and needs
+            # follow-up.
+            await payments_col.update_one(
+                {"_id": charge["_id"]},
+                {"$set": {"paymentProcessingStatus": "failed"}},
+            )
+
+    return {"received": True}

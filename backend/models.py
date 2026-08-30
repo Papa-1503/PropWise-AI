@@ -351,8 +351,22 @@ class PaymentReturn(BaseModel):
     
 class CheckoutSessionCreate(BaseModel):
     successUrl: Optional[str] = None
-    cancelUrl: Optional[str] = None 
-    
+    cancelUrl: Optional[str] = None
+
+
+class AutopayEnroll(BaseModel):
+    """Enrolls a tenant in recurring ACH autopay. Doesn't take a bank
+    account directly — that would mean this app's own backend handling
+    raw account/routing numbers, which is both a real security
+    liability and outside NACHA/Stripe's intended integration pattern.
+    Instead, the tenant links their bank account through Stripe's own
+    hosted flow (a SetupIntent, confirmed client-side with Stripe.js —
+    see POST /setup-intent below), and only the resulting Stripe
+    paymentMethodId - a reference token, never the real account
+    details - ever reaches this backend."""
+    paymentMethodId: str
+
+
 class LeadCreate(BaseModel):
     name: str
     email: str
