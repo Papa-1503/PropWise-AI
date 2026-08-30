@@ -15,8 +15,9 @@ from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
 
 from db import workflows_col, workflow_runs_col
-from models import WorkflowCreate, WorkflowUpdate
+from models import WorkflowCreate, WorkflowUpdate, AdminKeyPayload
 from auth import require_staff
+from routers.admin import check_key
 
 router = APIRouter(prefix="/api/workflows", tags=["workflows"])
 
@@ -143,4 +144,97 @@ async def get_workflow_health(workflow_id: str, user: dict = Depends(require_sta
         "exceptionRate": round((run_count - completed) / run_count * 100, 1),
         "avgDurationMs": round(total_duration_ms / duration_count, 1) if duration_count else None,
         "lastRunAt": runs[0]["startedAt"].isoformat() if isinstance(runs[0].get("startedAt"), datetime) else None,
+    }
+
+
+# Real, deliberate action-chain upgrades for the workflows already
+# known to exist as single-action automations, per a direct user
+# report: 'ticket closed', 'payment returned', 'new lease' each only
+# ever created a task, not driving real operational efficiency. Only
+# chains added where they genuinely add value, not padded for the
+# sake of having more steps - payment_received's existing single
+# confirmation action, for instance, is deliberately left alone here,
+# since a bare "we got your payment" needs nothing more chained onto
+# it to be useful.
+#
+# Matched by trigger.event, not by workflow name - a name is editable
+# staff-facing text and shouldn't be relied on as a stable identifier
+# for an automated migration; the trigger event is what actually,
+# structurally determines what a workflow is for.
+WORKFLOW_ACTION_UPGRADES = {
+    "work_order_closed": [
+        {
+            "type": "route_to_team",
+            "config": {},
+            "order": 1,
+        },
+        {
+            "type": "send_email",
+            "config": {
+                "subject": "Your maintenance request is closed",
+                "body": "Your recent maintenance request has been marked complete. "
+                        "If the issue isn't fully resolved, please submit a new request "
+                        "or contact the office.",
+            },
+            "order": 2,
+        },
+    ],
+    "payment_returned": [
+        {
+            "type": "route_to_team",
+            "config": {},
+            "order": 1,
+        },
+        {
+            "type": "send_email",
+            "config": {
+                "subject": "Your recent payment did not go through",
+                "body": "Your recent payment was returned by your bank. Please log in to "
+                        "resolve this as soon as possible to avoid a late fee.",
+            },
+            "order": 2,
+        },
+    ],
+}
+
+
+@router.post("/upgrade-action-chains")
+async def upgrade_action_chains(payload: AdminKeyPayload):
+    """Real, one-time migration - finds every published or paused
+    workflow matching a trigger event in WORKFLOW_ACTION_UPGRADES and
+    REPLACES its action list with the real, multi-step chain above,
+    rather than leaving it as the single-action automation it was
+    created with. Skips a workflow whose trigger has conditions set
+    (a real, deliberate customization a blanket migration shouldn't
+    silently overwrite) and skips draft workflows (not yet live,
+    not this migration's concern). Same admin-key-in-body pattern as
+    every other admin trigger endpoint in this app - a real,
+    deliberate action, not something that runs automatically."""
+    check_key(payload.key)
+
+    upgraded = []
+    skipped_has_conditions = []
+
+    for event, new_actions in WORKFLOW_ACTION_UPGRADES.items():
+        matching = await workflows_col.find({
+            "trigger.event": event,
+            "status": {"$in": ["published", "paused"]},
+        }).to_list(length=200)
+
+        for wf in matching:
+            if wf.get("trigger", {}).get("conditions"):
+                skipped_has_conditions.append(str(wf["_id"]))
+                continue
+
+            await workflows_col.update_one(
+                {"_id": wf["_id"]},
+                {"$set": {"actions": new_actions, "updatedAt": datetime.now(timezone.utc)}},
+            )
+            upgraded.append({"workflowId": str(wf["_id"]), "name": wf.get("name"), "event": event, "newActionCount": len(new_actions)})
+
+    return {
+        "status": "done",
+        "upgradedCount": len(upgraded),
+        "upgraded": upgraded,
+        "skippedHasConditions": skipped_has_conditions,
     }
