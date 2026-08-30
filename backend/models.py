@@ -227,13 +227,25 @@ class TenantActivate(BaseModel):
     name: str
 
 
-class UserRegister(BaseModel):
+class StaffOwnerRegister(BaseModel):
+    """The real model for register-staff/register-owner - both
+    staff-authenticated-only endpoints, confirmed via a direct grep
+    to be their sole real usage. Replaces the old UserRegister, which
+    carried role/propertyId/unitId fields that were genuinely dead on
+    every real call site: role was always silently overwritten by the
+    endpoint's own forced_role regardless of what was submitted (see
+    routers/auth.py's _create_staff_or_owner), and propertyId/unitId
+    are never read anywhere for staff or owner accounts - confirmed
+    directly, since owners are scoped via a real reverse lookup
+    (properties_col.ownerId == user id, see routers/owners.py), never
+    via a field stored on the user record itself. Not a live security
+    bug on its own (both endpoints already require an authenticated
+    staff caller), but genuinely confusing API-contract clutter that
+    could mislead anyone reviewing the schema without also reading
+    the enforcement logic underneath it."""
     email: str
     password: str
     name: str
-    role: Literal["staff", "tenant", "owner"] = "tenant"
-    propertyId: Optional[str] = None
-    unitId: Optional[str] = None
 
 
 class UserOut(BaseModel):

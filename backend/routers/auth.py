@@ -54,7 +54,7 @@ from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 
 from db import users_col, leases_col
-from models import UserRegister, TenantActivate, UserLogin, TokenResponse, UserOut, ProfileUpdate, PasswordChange
+from models import StaffOwnerRegister, TenantActivate, UserLogin, TokenResponse, UserOut, ProfileUpdate, PasswordChange
 from email_service import send_email_async, EmailNotConfigured, EmailSendError
 from auth import hash_password, verify_password, create_access_token, get_current_user, require_staff, set_session_cookie, COOKIE_NAME
 
@@ -72,7 +72,7 @@ def to_user_out(user: dict) -> UserOut:
     )
 
 
-async def _create_staff_or_owner(payload: UserRegister, forced_role: str, response: Response) -> TokenResponse:
+async def _create_staff_or_owner(payload: StaffOwnerRegister, forced_role: str, response: Response) -> TokenResponse:
     """Used only by the staff-authenticated register-staff/register-owner
     paths below — the public tenant path has its own function now."""
     doc = payload.model_dump()
@@ -153,12 +153,12 @@ async def register(payload: TenantActivate, response: Response):
 
 
 @router.post("/register-staff", response_model=TokenResponse)
-async def register_staff(payload: UserRegister, response: Response, current_user: dict = Depends(require_staff)):
+async def register_staff(payload: StaffOwnerRegister, response: Response, current_user: dict = Depends(require_staff)):
     """Only an already-authenticated staff member can create another staff account."""
     return await _create_staff_or_owner(payload, forced_role="staff", response=response)
 
 @router.post("/register-owner", response_model=TokenResponse)
-async def register_owner(payload: UserRegister, response: Response, current_user: dict = Depends(require_staff)):
+async def register_owner(payload: StaffOwnerRegister, response: Response, current_user: dict = Depends(require_staff)):
     """Only an already-authenticated staff member can create an owner account."""
     return await _create_staff_or_owner(payload, forced_role="owner", response=response)
 
