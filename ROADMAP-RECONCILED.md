@@ -204,9 +204,17 @@ Spot-checked directly, not assumed from the PDF's own status marks:
   frontend's `authFetch` calls to use the cookie instead of
   localStorage, the public-Swagger-docs decision, and a dedicated
   per-role authorization test suite.
-- **P42 Public-vs-internal-beta decision, marketing site, broader
-  confirmation/audit-trail/idempotency coverage beyond what's already
-  covered, AI Actions reasoning/confidence UI** — not built.
+- **🟡 P42 Public-vs-internal-beta decision, marketing site, AI
+  Actions confidence UI**: the confidence/reasoning UI piece is
+  already substantially complete — confirmed by direct inspection
+  that `AIActionsPanel.jsx` already shows confidence, risk level,
+  rationale, projected outcome, planned steps, and affected unit
+  IDs, more than the earlier tracking credited. Still genuinely
+  open: the public-vs-internal-beta business decision itself and a
+  real marketing site (both need your input, not more code), and
+  broader confirmation/audit-trail/idempotency coverage beyond the
+  8 mutations already wired into the audit trail earlier this
+  session.
 - **✅ P44 Split the public registration schema**: built and pushed
   this session — `UserRegister` genuinely retired (confirmed zero
   remaining references), replaced with a real, minimal
