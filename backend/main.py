@@ -38,6 +38,30 @@ from routers import kb
 from routers import community
 app = FastAPI(title="RentFlow AI API")
 
+
+@app.middleware("http")
+async def security_headers_middleware(request, call_next):
+    """Real security headers, none of which existed before this -
+    confirmed absent via a direct check of the only middleware
+    previously registered (CORS). This is a JSON API, not a page-
+    serving app, so a full page-oriented Content-Security-Policy
+    (script-src, style-src, etc.) doesn't apply in the usual sense -
+    but the headers below are genuinely relevant regardless:
+    X-Frame-Options/frame-ancestors and X-Content-Type-Options guard
+    against clickjacking and MIME-sniffing on any HTML this API does
+    serve (notably /docs, the public Swagger UI - see the module
+    docstring note on whether that should stay public in production),
+    Referrer-Policy limits what leaks to third parties on any redirect
+    or external link, and Permissions-Policy denies browser features
+    this API has no legitimate reason to ever request."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+    return response
+
 # Adjust to your actual frontend origin(s) in production
 app.add_middleware(
     CORSMiddleware,
