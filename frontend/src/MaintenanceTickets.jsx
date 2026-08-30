@@ -456,12 +456,18 @@ export default function MaintenanceTickets({ propertyId }) {
     setConfirmingBulk(null);
 
     // Set the undo toast immediately, before the network calls, not after
-    // awaiting them — real testing (Aug 25, 2026) showed setUndoState was
-    // genuinely being called with correct data after the await (confirmed
-    // via a diagnostic console.log), but the toast never actually
-    // persisted on screen, pointing to something in that async gap. This
-    // also gives the person instant feedback rather than waiting on the
-    // network for the undo option to appear.
+    // awaiting them, so the person gets instant feedback rather than
+    // waiting on the network for the undo option to appear.
+    //
+    // Root cause of the "toast never actually persisted on screen" bug
+    // (investigated Aug 25, 2026 — state was confirmed correct via a
+    // diagnostic console.log, but nothing visible showed up): this toast
+    // and InstallBanner.jsx both render at the exact same fixed position
+    // (bottom-4 left-1/2 -translate-x-1/2). InstallBanner used z-[115]
+    // and this toast used z-30, so whenever the PWA install prompt was
+    // showing, it silently sat on top of and completely hid this toast —
+    // not a state bug at all, a stacking-order collision. Fixed by
+    // bumping this toast to z-[116] so an active undo always wins.
     setUndoState({
       previousStatuses,
       message: `${affectedIds.length} ticket${affectedIds.length !== 1 ? "s" : ""} marked ${STATUS_LABEL[status]}.`,
@@ -636,7 +642,7 @@ export default function MaintenanceTickets({ propertyId }) {
       )}
 
       {undoState && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-3 z-30">
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-3 z-[116]">
           <span>{undoState.message}</span>
           <button onClick={handleUndo} className="font-semibold underline">Undo</button>
         </div>
