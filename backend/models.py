@@ -623,6 +623,26 @@ class CustomFieldValueSet(BaseModel):
     fieldName: str
     value: str | float | bool | None = None
 
+
+class CommunicationTemplateCreate(BaseModel):
+    """P18: reusable email/SMS templates with real variable
+    substitution, rather than staff retyping (or copy-pasting and
+    editing) the same message every time. Placeholders use
+    {{fieldName}} syntax, substituted against a real lease's actual
+    fields at render time (see communication_templates.py) - never a
+    separate, hand-maintained set of merge fields that could drift
+    from what a lease record actually contains."""
+    name: str
+    channel: Literal["email", "sms"]
+    subject: Optional[str] = None  # ignored for sms
+    body: str
+
+
+class CommunicationTemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    subject: Optional[str] = None
+    body: Optional[str] = None
+
 class ScreeningRequestCreate(BaseModel):
     leadId: Optional[str] = None
     applicantName: str

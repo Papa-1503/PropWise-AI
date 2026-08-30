@@ -48,6 +48,7 @@ fixed_assets_col = db["fixed_assets"]
 capital_projects_col = db["capital_projects"]
 custom_field_definitions_col = db["custom_field_definitions"]
 custom_field_values_col = db["custom_field_values"]
+communication_templates_col = db["communication_templates"]
 community_posts_col = db["community_posts"]
 late_notices_col = db["late_notices"]
 async def ensure_indexes():
