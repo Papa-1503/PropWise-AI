@@ -23,6 +23,7 @@ then, /checkout and /setup-intent fail with an honest 503, not a
 silent no-op.
 """
 from datetime import datetime, timezone
+import os
 
 from fastapi import APIRouter, HTTPException, Depends, Request
 from bson import ObjectId
@@ -256,6 +257,23 @@ async def create_checkout_session(charge_id: str, payload: CheckoutSessionCreate
         {"$set": {"stripePaymentIntentId": result["paymentIntentId"], "paymentProcessingStatus": result["status"]}},
     )
     return {"status": result["status"], "paymentIntentId": result["paymentIntentId"]}
+
+
+@router.get("/stripe-config")
+async def get_stripe_config(user: dict = Depends(get_current_user)):
+    """Returns the Stripe publishable key so the frontend can initialize
+    Stripe.js, or null if it isn't configured yet. Safe to expose - a
+    publishable key is, by Stripe's own design, meant to be public (it's
+    literally embedded in every Stripe.js page load on any site that
+    uses it); the secret key stays server-side only, in
+    STRIPE_SECRET_KEY, never returned by this or any endpoint. This
+    lets the frontend show an honest "autopay isn't set up yet" state
+    instead of attempting to load Stripe.js against a key that doesn't
+    exist, or worse, a hardcoded placeholder key baked into the
+    frontend bundle that silently breaks on every deploy until someone
+    remembers to update it."""
+    key = os.getenv("STRIPE_PUBLISHABLE_KEY")
+    return {"publishableKey": key}
 
 
 @router.post("/setup-intent")

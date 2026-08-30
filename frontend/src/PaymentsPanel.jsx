@@ -3,6 +3,7 @@ import { useAuth } from "./AuthContext";
 import { API_BASE } from "./config";
 import EmptyState from "./EmptyState";
 import { DollarSign } from "lucide-react";
+import AutopaySetup from "./AutopaySetup";
 
 
 const STATUS_STYLE = {
@@ -108,6 +109,12 @@ export default function PaymentsPanel({ propertyId }) {
         <h2 className="text-lg font-semibold">Payments</h2>
         <span className="text-xs text-slate-500">${totalOutstanding.toLocaleString()} outstanding</span>
       </div>
+
+      {!isStaff && (
+        <div className="my-3">
+          <AutopaySetup />
+        </div>
+      )}
 
       <div className="flex gap-1 mb-3">
         {["all", "pending", "late", "paid"].map((s) => (

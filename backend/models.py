@@ -185,6 +185,7 @@ class UserOut(BaseModel):
     role: Literal["staff", "tenant", "owner"]
     propertyId: Optional[str] = None
     unitId: Optional[str] = None
+    autopayEnabled: bool = False
 
 
 class ProfileUpdate(BaseModel):
