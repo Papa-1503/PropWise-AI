@@ -34,11 +34,20 @@ sandbox)
   `sms_service.py`, honest `SmsNotConfigured`/`SmsSendError` exceptions
   rather than a silent no-op. ⚙️ Needs `TWILIO_ACCOUNT_SID`,
   `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` set on Render.
-- **❌ On-call rotation scheduler**: no trace in this repo on any
-  branch. Real code for this was built in a past session but never
-  actually committed — needs to be rebuilt from scratch, not resumed.
-- **❌ After-hours Twilio Voice routing**: same as above — no trace,
-  needs rebuilding.
+- **✅ On-call rotation scheduler**: built and pushed this session
+  (routers/oncall.py, models, db collection+indexes, frontend
+  OnCall.jsx) after confirming the prior session's version genuinely
+  never made it into git. Real shift CRUD, real "who's on call right
+  now" lookup. Verified via actual FastAPI schema introspection, not
+  just a syntax check.
+- **✅ After-hours Twilio Voice routing**: built and pushed this
+  session (routers/telephony.py). Real signature validation,
+  functionally tested against Twilio's own RequestValidator (valid
+  signature accepted, tampered params rejected). Real after-hours
+  window logic including the midnight-wrap case, verified with 7 real
+  test cases. ⚙️ Needs a real Twilio number purchased/configured in
+  the Twilio console, pointed at this webhook, plus
+  `TWILIO_AUTH_TOKEN` set on Render.
 - **❌ Call recording + transcription**: not built.
 - **❌ Caller-ID-to-tenant matching**: not built (was described as
   part of the same uncommitted on-call/telephony work).
@@ -46,12 +55,22 @@ sandbox)
   communications endpoints send to one `to` at a time — no group
   targeting logic exists.
 - **❌ Lightweight auto-responder FAQ tool**: not built.
-- **❌ Online rent collection / ACH autopay**: genuinely not built —
-  `"ach"` exists only as one literal option in a payment *method*
-  dropdown (for staff manually logging a payment they know happened
-  by ACH elsewhere), not real bank-account-linked autopay processing.
-  Worth flagging clearly since this is an easy one to mistake for
-  done from a surface grep.
+- **✅ Online rent collection / ACH autopay**: built and pushed this
+  session — real Stripe ACH Direct Debit end-to-end. Backend
+  (stripe_service.py, setup-intent/enroll/checkout/webhook endpoints,
+  the recurring run-autopay-check trigger) correctly treats ACH as
+  asynchronous — a charge is never marked paid until a verified Stripe
+  webhook confirms real settlement, matching how ACH actually clears
+  (4-5 business days, can still fail after initially looking fine).
+  Never handles a raw bank account/routing number on this backend at
+  any point — only a tokenized paymentMethodId, via Stripe's own
+  client-side flow. Frontend (AutopaySetup.jsx) confirmed against the
+  real installed @stripe/stripe-js API, honestly shows "not available
+  yet" if unconfigured rather than crashing. A real bug was caught and
+  fixed along the way: GET /auth/me's response_model was silently
+  stripping the autopayEnabled field. ⚙️ Needs a real Stripe account,
+  `STRIPE_SECRET_KEY`/`STRIPE_PUBLISHABLE_KEY`/`STRIPE_WEBHOOK_SECRET`
+  on Render, and an external cron pointed at run-autopay-check.
 - **🟡 Customizable owner dashboards**: `owners.py` has real, working
   dashboard/statement endpoints, but nothing "customizable" about them
   — no per-owner widget/layout configuration exists anywhere.
@@ -185,7 +204,10 @@ this session (parked, not forgotten):
 
 ---
 
-**Total real count from the Notion backlog specifically:** 8 done,
-9 partial, 21 not built (of 38 tracked items across Phases 1–6),
-independent of the ~10-item PropWise-inspired catalog tracked
+**Total real count from the Notion backlog specifically:** 11 done,
+8 partial, 19 not built (of 38 tracked items across Phases 1–6) — up
+from 8/9/21 after this session added on-call rotation, after-hours
+Twilio Voice routing, and ACH autopay, all three genuinely completed
+end-to-end (not just started) and verified beyond a syntax check.
+Independent of the ~10-item PropWise-inspired catalog tracked
 separately above, which is fully complete.
