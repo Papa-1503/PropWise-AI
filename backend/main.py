@@ -43,6 +43,7 @@ from routers import deposit_pipeline
 from routers import capital_planning
 from routers import diy_troubleshooting
 from routers import rubs
+from routers import custom_fields
 app = FastAPI(title="RentFlow AI API")
 
 
@@ -124,6 +125,7 @@ app.include_router(deposit_pipeline.router)
 app.include_router(capital_planning.router)
 app.include_router(diy_troubleshooting.router)
 app.include_router(rubs.router)
+app.include_router(custom_fields.router)
 # BUG FIX (found by actually running this): StaticFiles() raises at import
 # time if the directory doesn't already exist on disk. On a fresh checkout
 # there is no ./uploads folder yet, so the server would crash before it

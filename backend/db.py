@@ -46,6 +46,8 @@ repair_items_col = db["repair_items"]
 labor_rates_col = db["labor_rates"]
 fixed_assets_col = db["fixed_assets"]
 capital_projects_col = db["capital_projects"]
+custom_field_definitions_col = db["custom_field_definitions"]
+custom_field_values_col = db["custom_field_values"]
 community_posts_col = db["community_posts"]
 late_notices_col = db["late_notices"]
 async def ensure_indexes():
@@ -93,5 +95,7 @@ async def ensure_indexes():
     await labor_rates_col.create_index([("category", 1)], unique=True)
     await fixed_assets_col.create_index([("propertyId", 1)])
     await capital_projects_col.create_index([("propertyId", 1), ("targetDate", 1)])
+    await custom_field_definitions_col.create_index([("entityType", 1), ("fieldName", 1)], unique=True)
+    await custom_field_values_col.create_index([("entityType", 1), ("entityId", 1), ("fieldName", 1)], unique=True)
     await community_posts_col.create_index([("propertyId", 1), ("createdAt", -1)])
     await late_notices_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])

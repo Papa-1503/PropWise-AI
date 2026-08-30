@@ -599,7 +599,30 @@ class KbArticleUpdate(BaseModel):
     title: Optional[str] = None
     category: Optional[str] = None
     content: Optional[str] = None
-    
+
+
+class CustomFieldDefinitionCreate(BaseModel):
+    """P18: arbitrary staff-defined fields on real entities (units,
+    leases, vendors, tickets) - genuinely absent before this, confirmed
+    by a direct search. Deliberately a real, validated definitions
+    registry rather than letting staff write arbitrary keys directly
+    onto a record: a defined field has a real type staff chose (text,
+    number, boolean, date), so a value set later can actually be
+    validated against it instead of silently accepting anything.
+    entityType controls which real collection this field applies to -
+    checked directly against a real, closed list of this app's actual
+    entity types, not an arbitrary string that could reference
+    something that doesn't exist."""
+    entityType: Literal["unit", "lease", "vendor", "ticket"]
+    fieldName: str
+    fieldType: Literal["text", "number", "boolean", "date"]
+    required: bool = False
+
+
+class CustomFieldValueSet(BaseModel):
+    fieldName: str
+    value: str | float | bool | None = None
+
 class ScreeningRequestCreate(BaseModel):
     leadId: Optional[str] = None
     applicantName: str
