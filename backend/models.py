@@ -27,6 +27,32 @@ class ItemStatusUpdate(BaseModel):
     status: Literal["pass", "flag", "fail", "pending"]
     description: Optional[str] = None
 
+
+class RepairItemCreate(BaseModel):
+    """P14: a reference catalog entry - one common damage type mapped
+    to a plain-language part name, a staff-entered labor-hours
+    estimate, and a search query string. Deliberately does NOT store
+    a live price or a specific product URL - per the roadmap's own
+    revised scope, this constructs a retailer SEARCH link at request
+    time (see repair_estimate_service.py), not a scraped/API-fetched
+    price or a curated product URL that could go stale. No API keys,
+    no partner access, nothing to break if a retailer changes their
+    backend - the tradeoff, stated honestly, is the tenant sees a
+    search results page rather than one guaranteed price, so the
+    estimate's real accuracy still rests on the staff-entered
+    labor/part figures here, with the link serving as a transparency
+    tool, not the pricing source of truth."""
+    damageType: str
+    partName: str
+    laborHours: float = Field(ge=0)
+    searchQuery: str
+    category: str  # matches a LaborRateCreate.category for the $/hour lookup
+
+
+class LaborRateCreate(BaseModel):
+    category: str
+    hourlyRate: float = Field(ge=0)
+
 # ---------- Maintenance ----------
 
 class TicketCreate(BaseModel):
