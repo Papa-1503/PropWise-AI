@@ -43,6 +43,7 @@ from db import on_call_shifts_col, users_col
 from date_utils import parse_date_utc
 from models import OnCallShiftCreate, OnCallShiftUpdate
 from auth import require_staff
+from audit_service import log_action
 
 router = APIRouter(prefix="/api/on-call", tags=["on-call"])
 
@@ -111,6 +112,13 @@ async def create_shift(payload: OnCallShiftCreate, user: dict = Depends(require_
 
     result = await on_call_shifts_col.insert_one(doc)
     doc["_id"] = result.inserted_id
+
+    await log_action(
+        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        action="on_call_shift_created", target_type="on_call_shift", target_id=str(result.inserted_id),
+        details={"assignedUserId": payload.userId, "propertyIds": payload.propertyIds},
+    )
+
     return await _attach_staff_name(serialize(doc))
 
 
@@ -158,6 +166,12 @@ async def delete_shift(shift_id: str, user: dict = Depends(require_staff)):
     result = await on_call_shifts_col.delete_one({"_id": ObjectId(shift_id)})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Shift not found")
+
+    await log_action(
+        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        action="on_call_shift_deleted", target_type="on_call_shift", target_id=shift_id,
+    )
+
     return {"deleted": True}
 
 

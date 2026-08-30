@@ -41,6 +41,7 @@ from stripe_service import (
     create_ach_payment_intent_async,
     construct_webhook_event,
 )
+from audit_service import log_action
 import notifications_service
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
@@ -138,6 +139,12 @@ async def record_payment(charge_id: str, payload: PaymentRecord, user: dict = De
 
     result = await payments_col.find_one_and_update(
         {"_id": ObjectId(charge_id)}, {"$set": updates}, return_document=True
+    )
+
+    await log_action(
+        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        action="payment_recorded", target_type="payment", target_id=charge_id,
+        details={"amountPaid": payload.amountPaid, "method": payload.method},
     )
 
     await notifications_service.notify_unit_resident(

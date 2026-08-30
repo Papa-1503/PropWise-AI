@@ -20,6 +20,7 @@ from bson import ObjectId
 from db import properties_col, payments_col
 from datetime import datetime, timezone, timedelta
 from services.events import emit_event
+from audit_service import log_action
 from auth import require_staff
 from models import PropertyCreate, PropertyUpdate, UnitStatusUpdate, UnitDetailsUpdate, UnitIn, OwnerAssign, RentRulesUpdate, TelephonyConfigUpdate
 
@@ -48,6 +49,12 @@ async def update_unit_status(property_id: str, unit_id: str, payload: UnitStatus
     )
     if not result:
         raise HTTPException(status_code=404, detail="Property or unit not found")
+
+    await log_action(
+        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        action="unit_status_changed", target_type="unit", target_id=f"{property_id}/{unit_id}",
+        details={"newStatus": payload.status},
+    )
 
     if payload.status == "vacant":
         try:
@@ -103,6 +110,13 @@ async def update_rent_rules(property_id: str, payload: RentRulesUpdate, user: di
     )
     if not result:
         raise HTTPException(status_code=404, detail="Property not found")
+
+    await log_action(
+        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        action="rent_rules_updated", target_type="property", target_id=property_id,
+        details=updates,
+    )
+
     return serialize(result)
 
 

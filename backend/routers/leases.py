@@ -17,6 +17,7 @@ from models import LeaseCreate, LeaseUpdate
 from date_utils import parse_date_utc
 from auth import require_staff, require_staff_or_owner, get_current_user
 from services.events import emit_event
+from audit_service import log_action
 router = APIRouter(prefix="/api/leases", tags=["leases"])
 
 # Excludes visually ambiguous characters (0/O, 1/I/l) so a resident can
@@ -99,6 +100,12 @@ async def create_lease(payload: LeaseCreate, user: dict = Depends(require_staff)
     result = await leases_col.insert_one(doc)
     doc["_id"] = result.inserted_id
 
+    await log_action(
+        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        action="lease_created", target_type="lease", target_id=str(result.inserted_id),
+        details={"propertyId": doc.get("propertyId"), "unitId": doc.get("unitId"), "residentName": doc.get("residentName")},
+    )
+
     try:
         await emit_event("lease_created", {
             "leaseId": str(result.inserted_id),
@@ -127,6 +134,13 @@ async def update_lease(lease_id: str, payload: LeaseUpdate, user: dict = Depends
     )
     if not result:
         raise HTTPException(status_code=404, detail="Lease not found")
+
+    await log_action(
+        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        action="lease_updated", target_type="lease", target_id=lease_id,
+        details={"fields": list(updates.keys())},
+    )
+
     return serialize(result)
 
 @router.post("/{lease_id}/generate-document")
