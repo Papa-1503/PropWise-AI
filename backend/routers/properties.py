@@ -21,7 +21,7 @@ from db import properties_col, payments_col
 from datetime import datetime, timezone, timedelta
 from services.events import emit_event
 from auth import require_staff
-from models import PropertyCreate, PropertyUpdate, UnitStatusUpdate, UnitDetailsUpdate, UnitIn, OwnerAssign, RentRulesUpdate
+from models import PropertyCreate, PropertyUpdate, UnitStatusUpdate, UnitDetailsUpdate, UnitIn, OwnerAssign, RentRulesUpdate, TelephonyConfigUpdate
 
 router = APIRouter(prefix="/api/properties", tags=["properties"])
 
@@ -94,6 +94,27 @@ async def update_rent_rules(property_id: str, payload: RentRulesUpdate, user: di
     property silently used the same global defaults regardless. dueDay
     is stored for a future invoice-generation feature to use; nothing
     reads it yet, so setting it has no automated effect today."""
+    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    result = await properties_col.find_one_and_update(
+        {"_id": query_id}, {"$set": updates}, return_document=True
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Property not found")
+    return serialize(result)
+
+
+@router.patch("/{property_id}/telephony")
+async def update_telephony_config(property_id: str, payload: TelephonyConfigUpdate, user: dict = Depends(require_staff)):
+    """Sets which Twilio number routes to this property's after-hours
+    on-call line, and the after-hours time window itself. Doesn't touch
+    Twilio at all — purchasing/configuring the actual number in the
+    Twilio console (and pointing its Voice webhook at
+    /api/telephony/voice) is a one-time manual setup step outside this
+    app; this endpoint just tells RentFlow which number belongs to
+    which property once that's done."""
     query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not updates:

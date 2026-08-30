@@ -31,6 +31,7 @@ from routers import maintenance_schedules
 from routers import communications
 from routers import resident_360
 from routers import oncall
+from routers import telephony
 app = FastAPI(title="RentFlow AI API")
 
 # Adjust to your actual frontend origin(s) in production
@@ -71,6 +72,7 @@ app.include_router(maintenance_schedules.router)
 app.include_router(communications.router)
 app.include_router(resident_360.router)
 app.include_router(oncall.router)
+app.include_router(telephony.router)
 # BUG FIX (found by actually running this): StaticFiles() raises at import
 # time if the directory doesn't already exist on disk. On a fresh checkout
 # there is no ./uploads folder yet, so the server would crash before it

@@ -102,6 +102,20 @@ class RentRulesUpdate(BaseModel):
     # before it's automatically escalated — read by run_escalation_check.
 
 
+class TelephonyConfigUpdate(BaseModel):
+    """The Twilio phone number that routes to this property's after-
+    hours on-call line. Twilio's Voice webhook (routers/telephony.py)
+    looks up the property by matching the incoming call's `To` number
+    against this field, so it knows whose on-call rotation to check.
+    Each property that wants after-hours routing needs its own real
+    Twilio number purchased/configured in the Twilio console first —
+    this field just tells RentFlow which number maps to which
+    property, it doesn't provision the number itself."""
+    twilioNumber: Optional[str] = None
+    afterHoursStart: Optional[str] = Field(default=None, description="24h HH:MM, e.g. '18:00'")
+    afterHoursEnd: Optional[str] = Field(default=None, description="24h HH:MM, e.g. '08:00'")
+
+
 class UnitStatusUpdate(BaseModel):
     status: Literal["occupied", "vacant", "maintenance_hold"]
 
