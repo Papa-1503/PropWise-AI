@@ -21,7 +21,15 @@ Routing logic:
     window (afterHoursStart/afterHoursEnd, wrapping past midnight is
     handled explicitly below), look up who's on call right now — the
     same query GET /api/on-call/current uses (see routers/oncall.py)
-  - Look up that person's phone (users_col.phone, set via
+  - Match the caller's number (the `From` param, Twilio sends E.164)
+    against that property's leases via phone_utils.normalize_phone -
+    see _match_caller_to_resident below. When matched, the on-call
+    tech hears who's calling and which unit before the call connects,
+    the same context a caller-ID-aware office phone gives a human
+    receptionist. Every call is also logged to the audit trail
+    (routers/audit.py) with the match result, whether or not one was
+    found.
+  - Look up the on-call tech's phone (users_col.phone, set via
     PATCH /api/staff/{id}/phone) and dial it
   - Otherwise (no on-call shift, no phone on file, or outside the
     after-hours window) fall back to an honest spoken message rather
@@ -44,7 +52,9 @@ from fastapi.responses import Response
 from twilio.request_validator import RequestValidator
 from twilio.twiml.voice_response import VoiceResponse
 
-from db import properties_col, on_call_shifts_col, users_col
+from db import properties_col, on_call_shifts_col, users_col, leases_col
+from phone_utils import normalize_phone
+from audit_service import log_action
 
 router = APIRouter(prefix="/api/telephony", tags=["telephony"])
 
@@ -84,6 +94,37 @@ def _is_after_hours(now_utc: datetime, start_hhmm: str | None, end_hhmm: str | N
     return now_t >= start or now_t < end
 
 
+async def _match_caller_to_resident(from_number: str, property_id: str) -> dict | None:
+    """Matches an incoming call's caller ID to a real resident, scoped to
+    the specific property that was called - a phone number matching a
+    lease at a *different* property is not a meaningful match for this
+    call, even if the digits happen to line up (e.g. a former resident
+    who moved between two of the same landlord's buildings).
+
+    Real normalization tradeoff, stated honestly: residentPhone is
+    stored exactly as staff typed it (612-555-9999, (612) 555-9999,
+    etc. - all seen in real use), so an exact-string Mongo query against
+    it would almost never match Twilio's E.164-formatted caller ID even
+    for the correct number. Rather than a bigger, riskier change
+    normalizing every stored residentPhone at write time, this fetches
+    that property's leases (a small, bounded set - one property, not
+    the whole leases collection) and normalizes both sides in Python at
+    read time. Simple, safe, and correct for the realistic call volume
+    a single after-hours line sees; would need real reconsideration if
+    this endpoint's call volume ever grew large enough for per-call
+    full-property lease scans to become a genuine performance concern."""
+    normalized_caller = normalize_phone(from_number)
+    if not normalized_caller:
+        return None
+
+    cursor = leases_col.find({"propertyId": property_id, "residentPhone": {"$ne": None}})
+    leases = await cursor.to_list(length=500)
+    for lease in leases:
+        if normalize_phone(lease.get("residentPhone")) == normalized_caller:
+            return lease
+    return None
+
+
 @router.post("/voice")
 async def voice_webhook(request: Request):
     form = await request.form()
@@ -114,6 +155,9 @@ async def voice_webhook(request: Request):
         return Response(content=str(response), media_type="application/xml")
 
     property_id = str(property_doc["_id"])
+    caller_number = form_dict.get("From", "")
+    matched_lease = await _match_caller_to_resident(caller_number, property_id)
+
     on_call_shift = await on_call_shifts_col.find_one({
         "propertyIds": property_id,
         "startTime": {"$lte": now},
@@ -125,7 +169,29 @@ async def voice_webhook(request: Request):
         tech = await users_col.find_one({"_id": ObjectId(on_call_shift["userId"])})
         tech_phone = tech.get("phone") if tech else None
 
+    await log_action(
+        actor_id="twilio_voice_webhook", actor_email="",
+        action="after_hours_call_routed",
+        target_type="property", target_id=property_id,
+        details={
+            "callerNumber": caller_number,
+            "matchedResident": matched_lease.get("residentName") if matched_lease else None,
+            "matchedUnitId": matched_lease.get("unitId") if matched_lease else None,
+            "routedToTechPhone": bool(tech_phone),
+        },
+    )
+
     if tech_phone:
+        if matched_lease:
+            # A real, if small, staff-facing improvement: the tech
+            # answering hears who's calling and which unit before
+            # picking up, the same context a caller-ID-aware office
+            # phone would already give a human receptionist - this
+            # after-hours line otherwise gives none of that.
+            response.say(
+                f"Incoming after-hours call from {matched_lease.get('residentName', 'a resident')}, "
+                f"unit {matched_lease.get('unitId', 'unknown')}. Connecting now."
+            )
         response.dial(tech_phone)
     else:
         response.say(
