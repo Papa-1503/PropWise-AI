@@ -121,11 +121,14 @@ sandbox)
 
 ## Phase 3 — Resident Experience
 
-- **❌ Resident portal community/announcement board**: not built (the
-  existing "social feed" — `social.py`/`SocialFeed.jsx` — is a
-  different, already-built feature; worth confirming with you whether
-  it already covers this ask or whether a distinct board is still
-  wanted).
+- **✅ Resident portal community/announcement board**: built and
+  pushed this session — confirmed social.py's staff feed is genuinely,
+  explicitly internal-only (its own docstring says so), so this is a
+  real, distinct collection/router, not that feed reopened to tenants.
+  Scoped per-property from the authenticated user's own server-
+  verified record (a tenant can't override it), and only staff can
+  post the "announcement" category, enforced in code. Verified with
+  real functional tests of both trust-relevant pieces.
 - **❌ Package/delivery tracking with OCR**: not built, zero trace.
 - **✅ Renters insurance requirement tracking/enforcement**: built and
   pushed this session — insuranceRequired on leases, real policy-detail
@@ -222,7 +225,12 @@ sandbox)
   with a real config editor for the target URL) — genuine one-way
   outbound webhook support exists. Not the same as full two-way Zapier
   app integration, which hasn't been built.
-- **❌ Staff knowledge base**: not built.
+- **✅ Staff knowledge base**: built and pushed this session — real
+  CRUD + regex-based search (matching search.py's established
+  approach for consistency), internal-only, explicitly distinguished
+  from two similar-looking existing features (tenant lease documents,
+  the tenant FAQ) directly in the model's docstring. Verified with a
+  real functional test of the search/filter query construction.
 
 ---
 
@@ -255,13 +263,14 @@ this session (parked, not forgotten):
 
 ---
 
-**Total real count from the Notion backlog specifically:** 19 done,
-6 partial, 13 not built (of 38 tracked items across Phases 1–6) — up
+**Total real count from the Notion backlog specifically:** 21 done,
+6 partial, 11 not built (of 38 tracked items across Phases 1–6) — up
 from 8/9/21 at the start of this session, after adding on-call
 rotation, after-hours Twilio Voice routing, ACH autopay, an audit
 trail, caller-ID-to-tenant matching, dynamic message grouping, renters
 insurance tracking, budget vs. actual tracking, a tenant FAQ auto-
-responder, and renewal incentive tracking — all ten genuinely
+responder, renewal incentive tracking, a staff knowledge base, and a
+resident community board — all twelve genuinely
 completed end-to-end (not just started) and verified beyond
 a syntax check.
 Independent of the ~10-item PropWise-inspired catalog tracked
