@@ -65,6 +65,21 @@ class CopilotResponse(BaseModel):
     sources: list[str] = Field(default_factory=list)
 
 
+class FaqRequest(BaseModel):
+    """Tenant-facing auto-responder, deliberately separate from
+    CopilotRequest above rather than reusing the staff copilot
+    endpoint directly - propertyId/unitId are NOT accepted here at
+    all, unlike the staff copilot which takes an explicit propertyId.
+    Scope is derived entirely from the authenticated tenant's own user
+    record (never trusted from the request body), so there's no way
+    for a resident to ask about a different unit's data even by
+    passing different values - the same never-trust-client-submitted-
+    scope principle already established in auth.py's tenant activation
+    flow."""
+    message: str
+    history: list[ChatTurn] = Field(default_factory=list)
+
+
 # ---------- Properties / Units ----------
 
 class UnitIn(BaseModel):

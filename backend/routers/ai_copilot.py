@@ -2,6 +2,10 @@
 AI Copilot endpoint.
 
 POST /api/ai/copilot
+POST /api/ai/faq     -> lightweight tenant-facing auto-responder, real
+                        data only (that resident's own lease and
+                        maintenance tickets), never the broader
+                        staff-scoped context /copilot uses
 
 Pulls live context from Mongo (vacant units, leases expiring soon, recent
 inspection flags, open maintenance tickets), hands that to Claude along
@@ -17,7 +21,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from anthropic import AsyncAnthropic
 
 from db import tickets_col, inspections_col, leases_col, properties_col
-from models import CopilotRequest, CopilotResponse
+from models import CopilotRequest, CopilotResponse, FaqRequest
 from auth import get_current_user
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
@@ -127,3 +131,81 @@ async def ask_copilot(payload: CopilotRequest, user: dict = Depends(get_current_
     )
 
     return CopilotResponse(answer=answer_text, sources=sources)
+
+
+async def _gather_tenant_context(user: dict) -> str:
+    """Scoped strictly to the authenticated tenant's own unit - never
+    accepts propertyId/unitId from the request, only ever reads them
+    off the server-verified user record. Pulls the tenant's own lease
+    (rent, dates, renewal status) and their own open/recent maintenance
+    tickets - real, honest context this resident is actually entitled
+    to see, nothing about any other unit or resident."""
+    property_id = user.get("propertyId")
+    unit_id = user.get("unitId")
+    sections = []
+
+    if property_id and unit_id:
+        lease = await leases_col.find_one({"propertyId": property_id, "unitId": unit_id})
+        if lease:
+            sections.append(
+                f"Your lease: unit {unit_id}, rent ${lease.get('rent', 0):,.2f}/month, "
+                f"term {lease.get('startDate')} to {lease.get('endDate')}, "
+                f"renewal status: {lease.get('renewalStatus', 'not_sent')}."
+            )
+
+        tickets = await tickets_col.find({"propertyId": property_id, "unitId": unit_id}).sort("createdAt", -1).limit(10).to_list(length=10)
+        if tickets:
+            ticket_lines = [f"  - {t.get('title', 'Untitled')}: {t.get('status', 'unknown')}" for t in tickets]
+            sections.append("Your recent maintenance requests:\n" + "\n".join(ticket_lines))
+
+    if not sections:
+        return "No lease or maintenance information is on file for this account yet."
+    return "\n\n".join(sections)
+
+
+@router.post("/faq", response_model=CopilotResponse)
+async def tenant_faq(payload: FaqRequest, user: dict = Depends(get_current_user)):
+    """Lightweight tenant-facing auto-responder - answers common
+    questions instantly using only that tenant's own real data (lease
+    terms, their own maintenance ticket status), ahead of a full
+    tenant-facing chatbot (a separate, larger Notion backlog item).
+    Deliberately narrow context, not the broader staff-copilot context
+    (vacancy counts, other units' leases) - a resident should never be
+    able to see that regardless of what they ask."""
+    if user.get("role") != "tenant":
+        raise HTTPException(status_code=403, detail="This endpoint is for tenant accounts.")
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY is not configured")
+
+    context_text = await _gather_tenant_context(user)
+
+    system_prompt = (
+        "You are RentFlow AI's resident help assistant. Answer only using the CONTEXT "
+        "below, which is this specific resident's own real lease and maintenance "
+        "information. Be friendly, brief, and specific. If the context doesn't contain "
+        "what's needed to answer a question, say so plainly and suggest contacting the "
+        "property office rather than guessing at policies or information not provided "
+        "here.\n\n"
+        f"CONTEXT:\n{context_text}"
+    )
+
+    messages = [{"role": t.role, "content": t.content} for t in payload.history]
+    messages.append({"role": "user", "content": payload.message})
+
+    try:
+        response = await anthropic_client.messages.create(
+            model=MODEL,
+            max_tokens=400,
+            system=system_prompt,
+            messages=messages,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AI backend error: {exc}") from exc
+
+    answer_text = "".join(
+        block.text for block in response.content if getattr(block, "type", None) == "text"
+    )
+
+    return CopilotResponse(answer=answer_text, sources=["your lease", "your maintenance requests"])
