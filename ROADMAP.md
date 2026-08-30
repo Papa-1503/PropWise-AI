@@ -57,9 +57,15 @@ sandbox)
   every call is logged via the audit trail. Verified with a real
   functional test against a mocked leases collection, including the
   exact format-mismatch scenario this exists to solve.
-- **❌ Dynamic message grouping** (by building/floor/unit): the
-  communications endpoints send to one `to` at a time — no group
-  targeting logic exists.
+- **✅ Dynamic message grouping** (by building + occupancy/renewal
+  status): built and pushed this session — POST /send-group, scoped
+  honestly to real stored fields (propertyId, occupancyStatus,
+  renewalStatus). Floor deliberately excluded, not faked - no floor
+  field exists on the unit model and real unit IDs don't follow a
+  safely-inferrable numbering convention. Verified with two real
+  functional tests: one failing send among several doesn't abort the
+  batch, and the occupancy cross-reference join correctly excludes a
+  vacant unit even with a valid lease+email on file.
 - **❌ Lightweight auto-responder FAQ tool**: not built.
 - **✅ Online rent collection / ACH autopay**: built and pushed this
   session — real Stripe ACH Direct Debit end-to-end. Backend
@@ -114,7 +120,16 @@ sandbox)
   it already covers this ask or whether a distinct board is still
   wanted).
 - **❌ Package/delivery tracking with OCR**: not built, zero trace.
-- **❌ Renters insurance requirement tracking/enforcement**: not built.
+- **✅ Renters insurance requirement tracking/enforcement**: built and
+  pushed this session — insuranceRequired on leases, real policy-detail
+  tracking separate from the actual proof-document upload (which
+  reuses the app's existing Cloudinary pattern, extended to accept
+  PDFs), and a real GET /insurance-compliance report distinguishing
+  "no policy on file" from "policy expired" — the actual enforcement
+  side, not just a place to store numbers nobody checks. Verified with
+  a real TestClient request confirming the static compliance-report
+  route isn't shadowed by the dynamic /{lease_id}/... pattern, plus a
+  functional test of the compliance logic itself.
 - **✅ Push notifications**: real, both `push.py` (backend) and
   `push_service.py` — genuinely built, not a stub.
 
@@ -217,11 +232,12 @@ this session (parked, not forgotten):
 
 ---
 
-**Total real count from the Notion backlog specifically:** 14 done,
-6 partial, 18 not built (of 38 tracked items across Phases 1–6) — up
+**Total real count from the Notion backlog specifically:** 16 done,
+6 partial, 16 not built (of 38 tracked items across Phases 1–6) — up
 from 8/9/21 at the start of this session, after adding on-call
 rotation, after-hours Twilio Voice routing, ACH autopay, an audit
-trail, and caller-ID-to-tenant matching — all five genuinely completed
-end-to-end (not just started) and verified beyond a syntax check.
+trail, caller-ID-to-tenant matching, dynamic message grouping, and
+renters insurance tracking — all seven genuinely completed end-to-end
+(not just started) and verified beyond a syntax check.
 Independent of the ~10-item PropWise-inspired catalog tracked
 separately above, which is fully complete.
