@@ -66,6 +66,11 @@ async def security_headers_middleware(request, call_next):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "https://rentflow-ai-1.onrender.com"],
+    allow_credentials=True,  # required for the new HttpOnly session cookie to be
+                             # sent on cross-origin requests at all - browsers
+                             # silently drop credentialed cookies otherwise. Only
+                             # safe to combine with an explicit origin list (never
+                             # "*") - already true above, confirmed before adding this.
     allow_methods=["*"],
     allow_headers=["*"],
 )

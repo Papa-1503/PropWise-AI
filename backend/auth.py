@@ -10,7 +10,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 import bcrypt
@@ -43,12 +43,29 @@ def create_access_token(user_id: str, role: str) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
-async def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> dict:
+COOKIE_NAME = "rentflow_session"
+
+
+async def get_current_user(request: Request, token: Optional[str] = Depends(oauth2_scheme)) -> dict:
+    """Accepts EITHER an Authorization: Bearer header (the existing,
+    unchanged flow every current frontend call still uses) OR a real
+    HttpOnly session cookie (COOKIE_NAME, set by login/register - see
+    routers/auth.py) - whichever is present. This is a deliberately
+    backward-compatible transition, not a hard cutover: the existing
+    localStorage-token flow keeps working exactly as it does today
+    (nothing about it changes), while the strictly more secure cookie
+    path (immune to XSS token theft in a way localStorage never was,
+    since JavaScript can't read an HttpOnly cookie at all) becomes
+    available immediately. A full migration away from the header flow
+    entirely - updating every frontend authFetch call - is real,
+    separate follow-on work, not bundled into this change."""
     unauthorized = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Not authenticated",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    if not token:
+        token = request.cookies.get(COOKIE_NAME)
     if not token:
         raise unauthorized
     try:
@@ -85,3 +102,27 @@ require_staff = require_role("staff")
 require_owner = require_role("owner")
 require_staff_or_owner = require_role("staff", "owner")
 require_any_authenticated = get_current_user
+
+
+def set_session_cookie(response, token: str) -> None:
+    """Sets the real HttpOnly session cookie alongside the existing
+    Bearer-token response body - see get_current_user's docstring for
+    why this is additive, not a replacement. SameSite=None (not the
+    more common Lax) is a deliberate, necessary choice here, not an
+    oversight: the frontend (rentflow-ai-1.onrender.com) and backend
+    (rentflow-ai.onrender.com) are genuinely different origins, not
+    same-site variants - SameSite=Lax would silently block this cookie
+    from ever being sent on the frontend's cross-origin API calls,
+    making the whole cookie pointless. SameSite=None requires
+    Secure=True together (browsers reject the combination otherwise),
+    which is correctly satisfied here since both are real HTTPS
+    origins already."""
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=token,
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/",
+    )

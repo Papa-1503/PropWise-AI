@@ -49,14 +49,14 @@ in an earlier session, the third is today's further hardening):
 """
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Response
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 
 from db import users_col, leases_col
 from models import UserRegister, TenantActivate, UserLogin, TokenResponse, UserOut, ProfileUpdate, PasswordChange
 from email_service import send_email_async, EmailNotConfigured, EmailSendError
-from auth import hash_password, verify_password, create_access_token, get_current_user, require_staff
+from auth import hash_password, verify_password, create_access_token, get_current_user, require_staff, set_session_cookie, COOKIE_NAME
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -72,7 +72,7 @@ def to_user_out(user: dict) -> UserOut:
     )
 
 
-async def _create_staff_or_owner(payload: UserRegister, forced_role: str) -> TokenResponse:
+async def _create_staff_or_owner(payload: UserRegister, forced_role: str, response: Response) -> TokenResponse:
     """Used only by the staff-authenticated register-staff/register-owner
     paths below — the public tenant path has its own function now."""
     doc = payload.model_dump()
@@ -86,11 +86,12 @@ async def _create_staff_or_owner(payload: UserRegister, forced_role: str) -> Tok
 
     doc["id"] = str(result.inserted_id)
     token = create_access_token(doc["id"], doc["role"])
+    set_session_cookie(response, token)
     return TokenResponse(accessToken=token, user=to_user_out(doc))
 
 
 @router.post("/register", response_model=TokenResponse)
-async def register(payload: TenantActivate):
+async def register(payload: TenantActivate, response: Response):
     """Public resident activation. The invite code is the sole source of
     truth for which unit this account binds to — nothing client-submitted
     is trusted for that purpose."""
@@ -119,6 +120,7 @@ async def register(payload: TenantActivate):
 
     doc["id"] = str(result.inserted_id)
     token = create_access_token(doc["id"], doc["role"])
+    set_session_cookie(response, token)
 
     # Real welcome email, using this tenant's actual lease — not a
     # fabricated "lease signed by both parties" flow, since RentFlow
@@ -151,30 +153,45 @@ async def register(payload: TenantActivate):
 
 
 @router.post("/register-staff", response_model=TokenResponse)
-async def register_staff(payload: UserRegister, current_user: dict = Depends(require_staff)):
+async def register_staff(payload: UserRegister, response: Response, current_user: dict = Depends(require_staff)):
     """Only an already-authenticated staff member can create another staff account."""
-    return await _create_staff_or_owner(payload, forced_role="staff")
+    return await _create_staff_or_owner(payload, forced_role="staff", response=response)
 
 @router.post("/register-owner", response_model=TokenResponse)
-async def register_owner(payload: UserRegister, current_user: dict = Depends(require_staff)):
+async def register_owner(payload: UserRegister, response: Response, current_user: dict = Depends(require_staff)):
     """Only an already-authenticated staff member can create an owner account."""
-    return await _create_staff_or_owner(payload, forced_role="owner")
+    return await _create_staff_or_owner(payload, forced_role="owner", response=response)
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(payload: UserLogin):
+async def login(payload: UserLogin, response: Response):
     user = await users_col.find_one({"email": payload.email})
     if not user or not verify_password(payload.password, user["password"]):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
 
     user["id"] = str(user["_id"])
     token = create_access_token(user["id"], user["role"])
+    set_session_cookie(response, token)
     return TokenResponse(accessToken=token, user=to_user_out(user))
 
 
 @router.get("/me", response_model=UserOut)
 async def me(user: dict = Depends(get_current_user)):
     return to_user_out(user)
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    """Clears the real session cookie - genuinely needed now that one
+    exists. An HttpOnly cookie can't be cleared from JavaScript (that's
+    the whole point - it's immune to XSS reading it), so the frontend's
+    existing "logout" (just clearing localStorage) would otherwise leave
+    a valid cookie sitting active for up to its full 7-day lifetime.
+    Doesn't require auth to call - a browser with no valid session has
+    nothing meaningful to log out of, and this only ever clears the
+    cookie on the caller's own browser, never anyone else's."""
+    response.delete_cookie(key=COOKIE_NAME, path="/")
+    return {"loggedOut": True}
 
 
 @router.patch("/me", response_model=UserOut)
