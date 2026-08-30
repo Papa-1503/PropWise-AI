@@ -140,10 +140,11 @@ Spot-checked directly, not assumed from the PDF's own status marks:
   AI agent personas (LeasingAI/OperationsAI/CollectionsAI/
   MaintenanceAI now have real names — Ren, Sage, Penny, Fix-It Frankie
   — shown in the dashboard), custom fields (real, type-validated,
-  entity-agnostic — see its own entry above). **Still genuinely
-  absent**: AI bill scan, write-with-AI assistant, AI summaries,
-  custom report builder, custom roles & permissions, custom rental
-  applications, custom views, customized communication templates.
+  entity-agnostic), customized communication templates (real
+  `{{field}}` substitution against actual lease data). **Still
+  genuinely absent**: AI bill scan, write-with-AI assistant, AI
+  summaries, custom report builder, custom roles & permissions, custom
+  rental applications, custom views.
 - **P19 Deferred**: IoT scaffolding, live bank feed, CRP generation —
   still deferred, nothing changed.
 - **✅ P20 AI-guided DIY troubleshooting**: built and pushed this
