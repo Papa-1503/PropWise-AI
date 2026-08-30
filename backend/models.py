@@ -368,6 +368,25 @@ class PostOut(BaseModel):
     createdAt: str
 
 
+class CommunityPostCreate(BaseModel):
+    """Real resident community board, genuinely separate from
+    social.py's staff feed above - that feed is explicitly internal-
+    only per its own module docstring, so this is a distinct
+    collection and router, not the same feed reopened to tenants.
+    Scoped per-property (a resident should never see a different
+    building's board) with the propertyId taken from the
+    authenticated user's own record, same never-trust-client-
+    submitted-scope pattern used elsewhere - never from this payload.
+    No shoutout/tagging concept here - that's a staff-internal
+    recognition idea, not something resident-appropriate."""
+    content: str = Field(min_length=1, max_length=2000)
+    category: Literal["general", "announcement"] = "general"
+
+
+class CommunityCommentCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=1000)
+
+
 # ---------- Payments / Collections ----------
 #
 # Deliberately minimal — this is a rent-charge/payment ledger, not a real
