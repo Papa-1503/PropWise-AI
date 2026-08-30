@@ -95,8 +95,19 @@ up an explicitly-deferred piece)
 
 Spot-checked directly, not assumed from the PDF's own status marks:
 
-- **P14 Upfront damage cost estimates** (parts+labor, retailer
-  search links) — not built.
+- **✅ P14 Upfront damage cost estimates**: built and pushed this
+  session — real `repair_items`/`labor_rates` catalog CRUD, a URL-
+  construction helper for real Home Depot/Amazon search links
+  (deliberately no retailer API, matching the PDF's own revised
+  scope), and a real endpoint linking flagged/failed inspection
+  items to a computed estimate. Confirmed the multi-state HUD
+  depreciation math mentioned in past project history is, like the
+  earlier on-call/telephony finding, genuinely absent from this repo
+  — noted honestly rather than assumed present. Verified extensively:
+  URL encoding with real special characters, labor-cost math both
+  with and without a real rate on file, and three real cases of the
+  flagged-item matching endpoint (match, rejected pass, honest
+  no-match).
 - **P15 Move-out → deposit-return pipeline** — not built.
 - **P16 Vacancy listing syndication** (Zillow/Apartments.com/
   Facebook Marketplace) — not built; still genuinely
