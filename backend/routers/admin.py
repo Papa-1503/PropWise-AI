@@ -51,7 +51,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException
 from bson import ObjectId
 
-from db import maintenance_schedules_col, tickets_col, users_col, leases_col, payments_col, properties_col, ai_actions_col
+from db import maintenance_schedules_col, tickets_col, users_col, leases_col, payments_col, properties_col, ai_actions_col, late_notices_col
 from models import AdminKeyPayload
 from stripe_service import (
     StripeNotConfigured,
@@ -422,6 +422,39 @@ async def _do_late_fee_check():
         )
 
         unit_id = charge.get("unitId")
+
+        # A real notice document, not just a fee silently applied.
+        # Deliberately factual, not a legal-conclusion document: states
+        # what's owed and when, without using jurisdiction-specific
+        # legal terms (e.g. "Notice to Quit") or claiming to satisfy
+        # any particular state's statutory notice-period requirements -
+        # this app's real, multi-state compliance rules (mentioned in
+        # project history but confirmed absent from this actual repo,
+        # same as the earlier on-call/telephony gap this session found)
+        # would need to genuinely exist and be verified correct before
+        # a document claiming legal compliance would be honest to
+        # generate. A factual notice of the real charge is safe and
+        # useful on its own without needing that.
+        notice_content = (
+            f"This is a notice that a late fee has been applied to your account.\n\n"
+            f"Charge: {charge.get('description', 'Rent')}\n"
+            f"Original amount due: ${charge['amountDue']:,.2f}\n"
+            f"Late fee applied: ${late_fee_amount:,.2f}\n"
+            f"New amount due: ${new_amount_due:,.2f}\n"
+            f"Original due date: {due_date_naive.strftime('%B %d, %Y')}\n"
+            f"Notice date: {now.strftime('%B %d, %Y')}\n\n"
+            f"Please contact the property office with any questions about this charge."
+        )
+        notice_doc = {
+            "propertyId": property_id,
+            "unitId": unit_id,
+            "chargeId": str(charge["_id"]),
+            "content": notice_content,
+            "amountDue": new_amount_due,
+            "createdAt": now,
+        }
+        await late_notices_col.insert_one(notice_doc)
+
         if property_id and unit_id:
             await notifications_service.notify_unit_resident(
                 property_id, unit_id,
