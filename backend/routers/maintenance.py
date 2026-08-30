@@ -24,7 +24,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
 
 from db import tickets_col, users_col
-from models import TicketCreate, TicketUpdate, TimeEntryCreate
+from models import TicketCreate, TicketUpdate, TimeEntryCreate, TicketSatisfactionSubmit
 import notifications_service
 from auth import require_staff, get_current_user
 from services.events import emit_event
@@ -149,6 +149,17 @@ async def update_ticket(ticket_id: str, payload: TicketUpdate, user: dict = Depe
         except Exception as e:
             print(f"Workflow dispatch failed: {e}")
 
+        property_id = result.get("propertyId")
+        unit_id = result.get("unitId")
+        if property_id and unit_id:
+            await notifications_service.notify_unit_resident(
+                property_id, unit_id,
+                type="general",
+                title="How did we do?",
+                body=f"Your maintenance request '{result.get('title', 'ticket')}' is closed — rate how it went.",
+                link=f"/maintenance/{ticket_id}/rate",
+            )
+
     return serialize(result)
 
 
@@ -175,3 +186,64 @@ async def log_time(ticket_id: str, payload: TimeEntryCreate, user: dict = Depend
     if not result:
         raise HTTPException(status_code=404, detail="Ticket not found")
     return serialize(result)
+
+
+@router.post("/{ticket_id}/satisfaction")
+async def submit_satisfaction(ticket_id: str, payload: TicketSatisfactionSubmit, user: dict = Depends(get_current_user)):
+    """Tenant-facing satisfaction rating on a closed ticket. Same
+    never-trust-client-submitted-scope pattern used throughout this
+    session - the ticket is cross-checked against the authenticated
+    tenant's OWN propertyId/unitId, so a resident can't rate (or even
+    confirm the existence of) a ticket that isn't theirs."""
+    if not ObjectId.is_valid(ticket_id):
+        raise HTTPException(status_code=400, detail="Invalid ticket ID")
+    ticket = await tickets_col.find_one({"_id": ObjectId(ticket_id)})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    if user.get("role") == "tenant" and (
+        ticket.get("propertyId") != user.get("propertyId") or ticket.get("unitId") != user.get("unitId")
+    ):
+        raise HTTPException(status_code=403, detail="Not your ticket")
+
+    if ticket.get("status") != "done":
+        raise HTTPException(status_code=400, detail="Only closed tickets can be rated.")
+
+    result = await tickets_col.find_one_and_update(
+        {"_id": ObjectId(ticket_id)},
+        {"$set": {
+            "satisfactionRating": payload.rating,
+            "satisfactionComment": payload.comment,
+            "satisfactionSubmittedAt": datetime.now(timezone.utc),
+        }},
+        return_document=True,
+    )
+
+    # The actual "flag unhappy ones internally" half of the original
+    # ask - a low rating notifies staff immediately rather than
+    # silently sitting in the data waiting for someone to run a
+    # report. 1-2 is genuinely dissatisfied, not just "fine, not great."
+    if payload.rating <= 2:
+        await notifications_service.notify_all_staff(
+            type="general",
+            title="Low satisfaction rating on a closed ticket",
+            body=f"Unit {ticket.get('unitId')} rated '{ticket.get('title', 'a ticket')}' {payload.rating}/5"
+                 + (f": {payload.comment}" if payload.comment else ""),
+            link=f"/maintenance/{ticket_id}",
+        )
+
+    return serialize(result)
+
+
+@router.get("/satisfaction/flagged")
+async def list_flagged_satisfaction(propertyId: str | None = None, user: dict = Depends(require_staff)):
+    """Staff-facing report of low-satisfaction closed tickets (rating
+    1-2), the other real half of this feature - somewhere staff can
+    actually go look, not just react to the real-time notification
+    above."""
+    query = {"satisfactionRating": {"$lte": 2}}
+    if propertyId:
+        query["propertyId"] = propertyId
+    cursor = tickets_col.find(query).sort("satisfactionSubmittedAt", -1).limit(200)
+    tickets = await cursor.to_list(length=200)
+    return {"tickets": [serialize(t) for t in tickets]}

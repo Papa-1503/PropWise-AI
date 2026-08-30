@@ -47,6 +47,20 @@ class TicketUpdate(BaseModel):
     priority: Optional[Literal["normal", "urgent"]] = None
 
 
+class TicketSatisfactionSubmit(BaseModel):
+    """Real resident satisfaction signal on a closed maintenance
+    ticket - the genuine input review/reputation-management logic
+    needs to actually gate anything on ('flag unhappy ones
+    internally', per the original Notion backlog phrasing). Nothing
+    in this app tracked resolution satisfaction before this - without
+    it, there was no honest signal to build the rest of that feature
+    on. Posting an external review (Google/Yelp) is explicitly out of
+    scope here - that needs a real external platform API and account
+    this app doesn't have; this is the internal-facing half only."""
+    rating: int = Field(ge=1, le=5)
+    comment: Optional[str] = None
+
+
 # ---------- AI Copilot ----------
 
 class ChatTurn(BaseModel):
