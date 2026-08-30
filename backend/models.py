@@ -47,6 +47,13 @@ class RepairItemCreate(BaseModel):
     laborHours: float = Field(ge=0)
     searchQuery: str
     category: str  # matches a LaborRateCreate.category for the $/hour lookup
+    usefulLifeYears: Optional[float] = Field(default=None, ge=0)
+    # ^ P15: HUD life-expectancy depreciation input - how many years
+    # this item type is expected to last before normal wear and tear
+    # alone would have required replacement anyway. Optional here
+    # (not every damage type needs depreciation math - a one-time
+    # consumable has none), but required for a real deposit-deduction
+    # calculation to run - see deposit_pipeline.py.
 
 
 class LaborRateCreate(BaseModel):
@@ -197,6 +204,7 @@ class LeaseCreate(BaseModel):
     rent: float = Field(ge=0, default=0)
     renewalStatus: Literal["not_sent", "sent", "signed"] = "not_sent"
     insuranceRequired: bool = False
+    depositAmount: float = Field(ge=0, default=0)
 
 
 class LeaseUpdate(BaseModel):
@@ -538,7 +546,7 @@ class DocumentCreate(BaseModel):
     leaseId: Optional[str] = None
     title: str
     content: str
-    documentType: Literal["lease", "renewal"] = "lease"
+    documentType: Literal["lease", "renewal", "deposit_statement"] = "lease"
 
 
 class DocumentSign(BaseModel):
