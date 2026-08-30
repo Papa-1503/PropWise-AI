@@ -8,16 +8,27 @@ PATCH /api/leases/:id                                -> update renewal status / 
 from datetime import datetime, timedelta, timezone
 import secrets
 import string
+import os
+import uuid
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from bson import ObjectId
+import cloudinary
+import cloudinary.uploader
 
 from db import leases_col, documents_col, properties_col
-from models import LeaseCreate, LeaseUpdate
+from models import LeaseCreate, LeaseUpdate, InsurancePolicyUpdate
 from date_utils import parse_date_utc
 from auth import require_staff, require_staff_or_owner, get_current_user
 from services.events import emit_event
 from audit_service import log_action
+
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET"),
+    secure=True,
+)
 router = APIRouter(prefix="/api/leases", tags=["leases"])
 
 # Excludes visually ambiguous characters (0/O, 1/I/l) so a resident can
@@ -190,4 +201,110 @@ async def generate_lease_document(lease_id: str, user: dict = Depends(require_st
     }
     result = await documents_col.insert_one(doc)
     return {"documentId": str(result.inserted_id), "alreadyExisted": False}
+
+
+@router.patch("/{lease_id}/insurance-policy")
+async def update_insurance_policy(lease_id: str, payload: InsurancePolicyUpdate, user: dict = Depends(require_staff)):
+    """Real renters insurance requirement tracking. Policy details are
+    entered separately from the actual proof-of-insurance document
+    (see POST /{lease_id}/insurance-proof below) - a resident might
+    call in their carrier and policy number before the certificate
+    itself is ever uploaded, or the reverse."""
+    if not ObjectId.is_valid(lease_id):
+        raise HTTPException(status_code=400, detail="Invalid lease ID")
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    if "expirationDate" in updates:
+        updates["expirationDate"] = parse_date_utc(updates["expirationDate"])
+    updates = {f"insurance{k[0].upper()}{k[1:]}": v for k, v in updates.items()}
+
+    result = await leases_col.find_one_and_update(
+        {"_id": ObjectId(lease_id)}, {"$set": updates}, return_document=True
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Lease not found")
+
+    await log_action(
+        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        action="insurance_policy_updated", target_type="lease", target_id=lease_id,
+        details={k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in updates.items()},
+    )
+
+    return serialize(result)
+
+
+@router.post("/{lease_id}/insurance-proof")
+async def upload_insurance_proof(
+    lease_id: str,
+    file: UploadFile = File(...),
+    user: dict = Depends(require_staff),
+):
+    """Uploads the actual certificate of insurance document. Reuses the
+    same Cloudinary pattern already established in gallery.py/
+    inspections.py, extended to resource_type='auto' rather than
+    'image' - a real certificate of insurance is very commonly a PDF,
+    not a photo, and this is the app's first upload endpoint that
+    needs to accept both."""
+    if not ObjectId.is_valid(lease_id):
+        raise HTTPException(status_code=400, detail="Invalid lease ID")
+    lease = await leases_col.find_one({"_id": ObjectId(lease_id)})
+    if not lease:
+        raise HTTPException(status_code=404, detail="Lease not found")
+
+    file.file.seek(0)
+    result = cloudinary.uploader.upload(
+        file.file,
+        folder=f"rentflow/insurance/{lease_id}",
+        public_id=uuid.uuid4().hex,
+        resource_type="auto",
+    )
+
+    await leases_col.update_one(
+        {"_id": ObjectId(lease_id)},
+        {"$set": {"insuranceProofUrl": result["secure_url"], "insuranceProofUploadedAt": datetime.now(timezone.utc)}},
+    )
+
+    await log_action(
+        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        action="insurance_proof_uploaded", target_type="lease", target_id=lease_id,
+    )
+
+    return {"url": result["secure_url"]}
+
+
+@router.get("/insurance-compliance")
+async def insurance_compliance_report(propertyId: str | None = None, user: dict = Depends(require_staff)):
+    """The actual enforcement side of this feature - who's out of
+    compliance right now, for staff to act on. A lease is
+    out-of-compliance if insuranceRequired is true and either no
+    expiration date is on file at all, or that date has already
+    passed - the exact same real-world condition a habitability or
+    lease-compliance check needs to catch."""
+    query = {"insuranceRequired": True}
+    if propertyId:
+        query["propertyId"] = propertyId
+    leases = await leases_col.find(query).to_list(length=1000)
+
+    now = datetime.now(timezone.utc)
+    out_of_compliance = []
+    for lease in leases:
+        expiration = lease.get("insuranceExpirationDate")
+        if isinstance(expiration, datetime) and expiration.tzinfo is None:
+            expiration = expiration.replace(tzinfo=timezone.utc)
+        if not expiration or expiration < now:
+            out_of_compliance.append({
+                "leaseId": str(lease["_id"]),
+                "propertyId": lease.get("propertyId"),
+                "unitId": lease.get("unitId"),
+                "residentName": lease.get("residentName"),
+                "reason": "no_policy_on_file" if not expiration else "expired",
+                "expirationDate": expiration.isoformat() if expiration else None,
+            })
+
+    return {
+        "requiredCount": len(leases),
+        "outOfComplianceCount": len(out_of_compliance),
+        "outOfCompliance": out_of_compliance,
+    }
  

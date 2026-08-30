@@ -141,12 +141,25 @@ class LeaseCreate(BaseModel):
     endDate: str
     rent: float = Field(ge=0, default=0)
     renewalStatus: Literal["not_sent", "sent", "signed"] = "not_sent"
+    insuranceRequired: bool = False
 
 
 class LeaseUpdate(BaseModel):
     renewalStatus: Optional[Literal["not_sent", "sent", "signed"]] = None
     endDate: Optional[str] = None
     balance: Optional[float] = None
+    insuranceRequired: Optional[bool] = None
+
+
+class InsurancePolicyUpdate(BaseModel):
+    """Staff-entered policy details, separate from the actual proof-of-
+    insurance document upload (POST /{lease_id}/insurance-proof) - a
+    resident might call in their policy number before the certificate
+    itself is on file, or vice versa, so these are independent, not
+    bundled into one required step."""
+    carrier: Optional[str] = None
+    policyNumber: Optional[str] = None
+    expirationDate: Optional[str] = None  # ISO date string
 
 
 # ---------- Auth ----------
