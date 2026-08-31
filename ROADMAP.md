@@ -161,7 +161,14 @@ sandbox)
 
 ## Phase 5 — Compliance & Finance Polish
 
-- **❌ Trust accounting**: not built.
+- **🟡 Trust accounting**: built and pushed this session, explicitly
+  and repeatedly labeled not a compliance substitute — real
+  fund-classification tracking (`fundType`: trust vs. operating) on
+  bank reconciliation lines, a real per-property trust balance, and a
+  real commingling flag (negative trust balance). Does not and cannot
+  verify actual bank-level fund segregation, which needs a licensed
+  accountant/attorney per state. Verified with functional tests of
+  the real balance math and the flag logic.
 - **🟡 1099 generation**: the owner tax-summary endpoint exists and is
   real, but is explicitly, correctly self-described in its own output
   as "not a filed tax document" — real 1099 generation itself doesn't
@@ -203,7 +210,10 @@ sandbox)
   predictive-maintenance pattern-detection system was built in an
   earlier phase of this project per the stored project memory — worth
   confirming whether that's the intended foundation to extend here.)
-- **❌ Self-service lease renewal portal**: not built.
+- **✅ Self-service lease renewal portal**: built and pushed earlier
+  this session — real resident-initiated renewal request, using the
+  existing e-signature flow. Confirmed still present and correct
+  during this later audit pass; this entry was previously stale.
 - **🟡 Online rental applications with e-signature**: tenant screening
   (`screening.py`) is real and built; whether it already includes a
   genuine e-signature flow for the application itself (as opposed to
