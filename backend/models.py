@@ -869,6 +869,25 @@ class ApplicationAnswerSubmit(BaseModel):
     # its defined fieldType at submission time - see
     # custom_rental_applications.py
 
+
+class PackageLogCreate(BaseModel):
+    """Package/delivery tracking. propertyId is required and staff-set
+    directly (they're the one physically receiving the package);
+    unitId/residentName are optional at creation - OCR (see
+    package_tracking.py) attempts to fill them in from a real label
+    photo, but a staff member can also just type them in directly if
+    OCR doesn't pick up a legible label, or leave them blank for a
+    package requiring manual identification."""
+    propertyId: str
+    unitId: Optional[str] = None
+    residentName: Optional[str] = None
+    carrier: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class PackagePickup(BaseModel):
+    pickedUpBy: str
+
 # ---------- Workflows ----------
 
 class WorkflowAction(BaseModel):

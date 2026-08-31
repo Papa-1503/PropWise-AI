@@ -53,6 +53,7 @@ custom_roles_col = db["custom_roles"]
 custom_views_col = db["custom_views"]
 custom_reports_col = db["custom_reports"]
 application_questions_col = db["application_questions"]
+packages_col = db["packages"]
 community_posts_col = db["community_posts"]
 late_notices_col = db["late_notices"]
 async def ensure_indexes():
@@ -105,3 +106,4 @@ async def ensure_indexes():
     await community_posts_col.create_index([("propertyId", 1), ("createdAt", -1)])
     await late_notices_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])
     await custom_views_col.create_index([("ownerId", 1), ("entityType", 1)])
+    await packages_col.create_index([("propertyId", 1), ("pickedUp", 1), ("loggedAt", -1)])
