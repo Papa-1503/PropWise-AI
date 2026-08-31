@@ -78,6 +78,15 @@ class TicketUpdate(BaseModel):
     status: Optional[Literal["open", "in_progress", "done"]] = None
     assignee: Optional[str] = None
     priority: Optional[Literal["normal", "urgent"]] = None
+    resolutionNotes: Optional[str] = None
+    # ^ What the tech found and what they did to fix it - a real,
+    # human-written resolution summary, genuinely distinct from
+    # timeEntries' per-session work-log notes (which are about hours
+    # logged, not a coherent final summary a resident would want to
+    # read). Required when actually closing a ticket (status="done") -
+    # enforced in the endpoint, not here, since "required only under
+    # this specific condition" isn't expressible as a plain Optional
+    # field.
 
 
 class TicketSatisfactionSubmit(BaseModel):

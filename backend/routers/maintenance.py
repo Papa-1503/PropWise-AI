@@ -129,6 +129,23 @@ async def update_ticket(ticket_id: str, payload: TicketUpdate, user: dict = Depe
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
+
+    if updates.get("status") == "done":
+        # A real, human-written resolution summary is required to
+        # actually close a ticket - either provided in this same
+        # request, or already on file from an earlier PATCH (e.g. a
+        # tech writes it up first, then a supervisor changes status
+        # separately). Never allowed to silently close with nothing
+        # explaining what was actually done - that's the entire point
+        # of this feature, not an optional nice-to-have.
+        existing = await tickets_col.find_one({"_id": ObjectId(ticket_id)}, {"resolutionNotes": 1})
+        has_existing_notes = bool(existing and existing.get("resolutionNotes"))
+        if not updates.get("resolutionNotes") and not has_existing_notes:
+            raise HTTPException(
+                status_code=400,
+                detail="Resolution notes are required to close a ticket - describe what was found and what was done to fix it.",
+            )
+
     updates["updatedAt"] = datetime.now(timezone.utc)
     result = await tickets_col.find_one_and_update(
         {"_id": ObjectId(ticket_id)},
@@ -152,11 +169,22 @@ async def update_ticket(ticket_id: str, payload: TicketUpdate, user: dict = Depe
         property_id = result.get("propertyId")
         unit_id = result.get("unitId")
         if property_id and unit_id:
+            resolution_summary = result.get("resolutionNotes", "")
+            body = f"Your maintenance request '{result.get('title', 'ticket')}' is closed."
+            if resolution_summary:
+                # Real, genuine transparency - the resident sees what
+                # the tech actually found and did, not just a bare
+                # "closed" status with no explanation. Truncated for a
+                # notification body (a full-length writeup belongs on
+                # the ticket detail itself, which the link below opens),
+                # not truncated in the stored/API-served field.
+                body += f" What was done: {resolution_summary[:200]}{'...' if len(resolution_summary) > 200 else ''}"
+            body += " Rate how it went."
             await notifications_service.notify_unit_resident(
                 property_id, unit_id,
                 type="general",
                 title="How did we do?",
-                body=f"Your maintenance request '{result.get('title', 'ticket')}' is closed — rate how it went.",
+                body=body,
                 link=f"/maintenance/{ticket_id}/rate",
             )
 
