@@ -47,7 +47,7 @@ export default defineConfig({
   },
   define: {
     'import.meta.env.VITE_API_BASE': JSON.stringify(
-      process.env.VITE_API_BASE || 'https://propwise-ai-backend.onrender.com/api'
+      process.env.VITE_API_BASE || 'https://rentflow-ai.onrender.com/api'
     ),
   },
 })

@@ -10,7 +10,7 @@ Setup this depends on (manual, one-time, outside this app, per
 property that wants after-hours routing):
   1. Buy a real Twilio phone number in the Twilio console
   2. Point that number's Voice webhook at
-     https://propwise-ai-backend.onrender.com/api/telephony/voice (POST)
+     https://rentflow-ai.onrender.com/api/telephony/voice (POST)
   3. Set that number as the property's `twilioNumber` via
      PATCH /api/properties/{id}/telephony (routers/properties.py)
 

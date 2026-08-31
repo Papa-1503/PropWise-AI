@@ -143,8 +143,8 @@ def set_session_cookie(response, token: str) -> None:
     Bearer-token response body - see get_current_user's docstring for
     why this is additive, not a replacement. SameSite=None (not the
     more common Lax) is a deliberate, necessary choice here, not an
-    oversight: the frontend (propwise-ai-frontend.onrender.com) and backend
-    (propwise-ai-backend.onrender.com) are genuinely different origins, not
+    oversight: the frontend (rentflow-ai-1.onrender.com) and backend
+    (rentflow-ai.onrender.com) are genuinely different origins, not
     same-site variants - SameSite=Lax would silently block this cookie
     from ever being sent on the frontend's cross-origin API calls,
     making the whole cookie pointless. SameSite=None requires

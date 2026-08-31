@@ -81,7 +81,7 @@ async def security_headers_middleware(request, call_next):
 # Adjust to your actual frontend origin(s) in production
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "https://propwise-ai-frontend.onrender.com"],
+    allow_origins=["http://localhost:5173", "https://rentflow-ai-1.onrender.com"],
     allow_credentials=True,  # required for the new HttpOnly session cookie to be
                              # sent on cross-origin requests at all - browsers
                              # silently drop credentialed cookies otherwise. Only
