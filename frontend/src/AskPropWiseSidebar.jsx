@@ -49,14 +49,14 @@ export default function AskPropWiseSidebar({ propertyId }) {
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-4">
-      <h3 className="text-sm font-semibold mb-2">Ask PropWise</h3>
+      <h3 className="text-sm font-semibold mb-2">Ask PropWise AI</h3>
 
       <div className="flex gap-1.5">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && ask(input)}
-          placeholder="Ask PropWise..."
+          placeholder="Ask PropWise AI..."
           className="flex-1 text-xs border border-slate-200 rounded-lg px-2.5 py-2"
         />
         <button

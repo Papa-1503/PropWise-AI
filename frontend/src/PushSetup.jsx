@@ -86,7 +86,7 @@ export default function PushSetup() {
       });
       if (!res.ok) throw new Error("Couldn't save your subscription.");
 
-      showToast("Notifications enabled — you'll get alerts even when PropWise is closed.", "success");
+      showToast("Notifications enabled — you'll get alerts even when PropWise AI is closed.", "success");
       dismiss();
     } catch (err) {
       showToast(err.message || "Couldn't enable notifications.", "error");
@@ -109,7 +109,7 @@ export default function PushSetup() {
         <div>
           <p className="text-sm font-semibold text-slate-800">Stay in the loop</p>
           <p className="text-xs text-slate-500 mt-0.5">
-            Get notified about urgent tickets, payments, and updates — even when PropWise isn't open.
+            Get notified about urgent tickets, payments, and updates — even when PropWise AI isn't open.
           </p>
         </div>
       </div>

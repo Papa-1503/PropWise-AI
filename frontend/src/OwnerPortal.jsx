@@ -316,7 +316,7 @@ export default function OwnerPortal({ user, logout }) {
   return (
     <div className="min-h-screen app-bg">
       <header className="bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 text-white px-6 py-3 flex items-center justify-between shadow-md">
-        <h1 className="font-serif font-bold text-lg">PropWise</h1>
+        <h1 className="font-serif font-bold text-lg">PropWise AI</h1>
         <div className="flex items-center gap-3 text-sm">
           <div className="flex items-center gap-2">
             <Avatar name={user.name} size={26} />

@@ -8,11 +8,11 @@ import { API_BASE } from "./config";
  *
  * Modeled on the shared design's tabbed Settings page, but honestly
  * scoped down: that design had Profile/Notifications/Billing/Security
- * tabs, but PropWise has no real backend behind notification
+ * tabs, but PropWise AI has no real backend behind notification
  * preferences at the user level, and no real subscription/billing
  * system for itself as a product. Building those tabs would mean UI
  * with nothing functional behind it — the same category of gap flagged
- * and avoided in the original PropWise assessment. Built the two tabs
+ * and avoided in the original PropWise AI assessment. Built the two tabs
  * that have genuine, real capability: editing your name, and changing
  * your password (neither existed anywhere in the app before this).
  */

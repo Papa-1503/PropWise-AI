@@ -127,7 +127,7 @@ async def update_telephony_config(property_id: str, payload: TelephonyConfigUpda
     Twilio at all — purchasing/configuring the actual number in the
     Twilio console (and pointing its Voice webhook at
     /api/telephony/voice) is a one-time manual setup step outside this
-    app; this endpoint just tells PropWise which number belongs to
+    app; this endpoint just tells PropWise AI which number belongs to
     which property once that's done."""
     query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}

@@ -123,7 +123,7 @@ async def register(payload: TenantActivate, response: Response):
     set_session_cookie(response, token)
 
     # Real welcome email, using this tenant's actual lease — not a
-    # fabricated "lease signed by both parties" flow, since PropWise
+    # fabricated "lease signed by both parties" flow, since PropWise AI
     # doesn't have formal digital co-signing; account activation via
     # invite code is the real equivalent trigger point in this app.
     # A send failure never blocks activation itself — the account is
@@ -134,7 +134,7 @@ async def register(payload: TenantActivate, response: Response):
         rent_line = f"${lease.get('rent', 0):,.0f}/month" if lease.get("rent") else "your rent amount"
         await send_email_async(
             to=payload.email,
-            subject="Welcome to PropWise",
+            subject="Welcome to PropWise AI",
             body_text=(
                 f"Hi {payload.name},\n\n"
                 f"Your resident account for Unit {lease['unitId']} is now active.\n\n"

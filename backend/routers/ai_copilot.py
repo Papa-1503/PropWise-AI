@@ -121,7 +121,7 @@ async def ask_copilot(payload: CopilotRequest, user: dict = Depends(get_current_
     context_text, sources = await gather_context(payload.propertyId)
 
     system_prompt = (
-        "You are PropWise's operations copilot for property management staff. "
+        "You are PropWise AI's operations copilot for property management staff. "
         "Answer only using the CONTEXT below, which was just pulled live from the database. "
         "Be specific and concise — cite unit numbers and counts. "
         "If the context doesn't contain what's needed to answer, say so plainly rather than guessing.\n\n"
@@ -197,7 +197,7 @@ async def tenant_faq(payload: FaqRequest, user: dict = Depends(get_current_user)
     context_text = await _gather_tenant_context(user)
 
     system_prompt = (
-        "You are PropWise's resident help assistant. Answer only using the CONTEXT "
+        "You are PropWise AI's resident help assistant. Answer only using the CONTEXT "
         "below, which is this specific resident's own real lease and maintenance "
         "information. Be friendly, brief, and specific. If the context doesn't contain "
         "what's needed to answer a question, say so plainly and suggest contacting the "

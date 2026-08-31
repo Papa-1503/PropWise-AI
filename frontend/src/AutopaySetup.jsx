@@ -18,7 +18,7 @@ import { Landmark, CheckCircle2, AlertCircle } from "lucide-react";
  *   2. stripe.createPaymentMethod({type: 'us_bank_account', ...}) -
  *      collects account/routing number, exchanges for a tokenized
  *      PaymentMethod. Account/routing numbers exist only in this
- *      browser call to Stripe directly; they never touch PropWise's
+ *      browser call to Stripe directly; they never touch PropWise AI's
  *      own backend at any point.
  *   3. stripe.confirmUsBankAccountSetup(clientSecret, {payment_method})
  *      - attaches that PaymentMethod to the SetupIntent, completing
@@ -211,7 +211,7 @@ export default function AutopaySetup() {
       </div>
 
       <p className="text-[11px] text-slate-400 mb-3">
-        Your bank details go directly to Stripe, our payment processor — PropWise never
+        Your bank details go directly to Stripe, our payment processor — PropWise AI never
         stores your account or routing number.
       </p>
 

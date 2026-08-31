@@ -12,7 +12,7 @@ in a comparable format to begin with.
 
 US-specific, honestly: assumes a 10-digit number (area code + 7
 digits) or an 11-digit number with a leading country code 1 - correct
-for PropWise's current scope (this app's compliance rules are already
+for PropWise AI's current scope (this app's compliance rules are already
 US state-specific), but would need real extension for international
 numbers if that scope ever changes. Returns None rather than guessing
 at anything that doesn't cleanly fit one of those two shapes, since a

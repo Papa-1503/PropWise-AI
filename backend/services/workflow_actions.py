@@ -41,7 +41,7 @@ async def send_email_action(config: dict, payload: dict):
     to = payload.get("tenantEmail") or payload.get("residentEmail") or payload.get("email")
     if not to:
         raise ValueError("No recipient email found in event payload")
-    subject = config.get("subject", "Notification from PropWise")
+    subject = config.get("subject", "Notification from PropWise AI")
     body_text = config.get("body", "")
     try:
         await send_email_async(to=to, subject=subject, body_text=body_text)

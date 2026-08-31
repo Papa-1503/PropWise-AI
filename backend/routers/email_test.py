@@ -15,7 +15,7 @@ async def test_send(to: str, user: dict = Depends(require_staff)):
     try:
         await email_service.send_email_async(
             to=to,
-            subject="PropWise — test email",
+            subject="PropWise AI — test email",
             body_text="If you're reading this, your SMTP configuration is working correctly.",
         )
     except email_service.EmailNotConfigured as exc:

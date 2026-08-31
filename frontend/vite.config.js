@@ -18,8 +18,8 @@ export default defineConfig({
       },
       includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
       manifest: {
-        name: 'PropWise',
-        short_name: 'PropWise',
+        name: 'PropWise AI',
+        short_name: 'PropWise AI',
         description: 'Property management, powered by AI',
         theme_color: '#0f172a',
         background_color: '#0f172a',

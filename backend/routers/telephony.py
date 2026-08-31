@@ -40,7 +40,7 @@ Security: every request is verified against Twilio's request signature
 already used for outbound SMS in sms_service.py. An unsigned or
 incorrectly-signed request is rejected with 403 before any TwiML is
 generated - this endpoint is public (Twilio can't authenticate as a
-PropWise user), so signature validation is the only thing standing
+PropWise AI user), so signature validation is the only thing standing
 between it and anyone who finds the URL and POSTs fake call data to it.
 """
 import os

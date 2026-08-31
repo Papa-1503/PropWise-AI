@@ -61,7 +61,7 @@ function actionLabel(type) {
 // here rather than shown with nothing to fill in.
 const ACTION_CONFIG_FIELDS = {
   send_email: [
-    { key: "subject", label: "Subject", placeholder: "Notification from PropWise" },
+    { key: "subject", label: "Subject", placeholder: "Notification from PropWise AI" },
     { key: "body", label: "Body", placeholder: "" },
   ],
   create_task: [{ key: "title", label: "Task title", placeholder: "Automated task" }],
