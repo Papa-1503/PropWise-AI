@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Outlet, useOutletContext } from "react-router-dom";
 import { useState, lazy, Suspense } from "react";
-import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList, Package, Droplets } from "lucide-react";
+import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList, Package, Droplets, TrendingUp } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";
 import { ToastProvider } from "./ToastContext";
 import { DarkModeProvider, useDarkMode } from "./DarkModeContext";
@@ -36,6 +36,7 @@ import Packages from "./Packages";
 import RubsBilling from "./RubsBilling";
 import TrustAccounting from "./TrustAccounting";
 import CapitalPlanning from "./CapitalPlanning";
+import PredictiveAnalytics from "./PredictiveAnalytics";
 import CommunicationsPanel from "./CommunicationsPanel";
 import LeasesList from "./LeasesList";
 import ScreeningList from "./ScreeningList";
@@ -91,7 +92,7 @@ function TabNotFound() {
  * their own unit's property.
  */
 
-const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "communications", "leases", "screening", "leads", "staff", "schedules", "on-call", "reconciliation", "properties", "documents", "gallery", "feed", "ai", "forms", "packages", "rubs", "trust-accounting", "capital-planning"];
+const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "communications", "leases", "screening", "leads", "staff", "schedules", "on-call", "reconciliation", "properties", "documents", "gallery", "feed", "ai", "forms", "packages", "rubs", "trust-accounting", "capital-planning", "predictive-analytics"];
 const TENANT_TABS = ["documents", "maintenance", "payments", "gallery", "ai"];
 const TAB_ICONS = {
   dashboard: LayoutDashboard,
@@ -118,6 +119,7 @@ const TAB_ICONS = {
   rubs: Droplets,
   "trust-accounting": Landmark,
   "capital-planning": Wrench,
+  "predictive-analytics": TrendingUp,
 };
 
 /** Auth gate + layout for everything under /app. Renders LoginScreen
@@ -346,6 +348,7 @@ export default function App() {
             <Route path="rubs" element={<RubsBillingWrapper />} />
             <Route path="trust-accounting" element={<TrustAccountingWrapper />} />
             <Route path="capital-planning" element={<CapitalPlanningWrapper />} />
+            <Route path="predictive-analytics" element={<PredictiveAnalyticsWrapper />} />
             <Route path="properties" element={<PropertyManagement />} />
             <Route path="documents" element={<Documents />} />
             <Route path="gallery" element={<GalleryWrapper />} />
@@ -399,6 +402,10 @@ function TrustAccountingWrapper() {
 function CapitalPlanningWrapper() {
   const { effectivePropertyId } = useOutletContext();
   return <CapitalPlanning propertyId={effectivePropertyId} />;
+}
+function PredictiveAnalyticsWrapper() {
+  const { effectivePropertyId } = useOutletContext();
+  return <PredictiveAnalytics propertyId={effectivePropertyId} />;
 }
 function PaymentsPanelWrapper() {
   const { effectivePropertyId } = useOutletContext();

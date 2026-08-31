@@ -119,6 +119,11 @@ FORM_CATALOG = [
                 "description": "Track a real property asset's expected end-of-life, or plan a larger capital project.",
                 "realEndpoint": "POST /api/fixed-assets",
             },
+            {
+                "name": "Predictive analytics",
+                "description": "Real churn-risk scoring and historical vacancy patterns.",
+                "realEndpoint": "GET /api/predictive/churn-risk",
+            },
         ],
     },
     {

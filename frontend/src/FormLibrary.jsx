@@ -38,6 +38,7 @@ const FORM_DESTINATIONS = {
   "RUBS utility bill": "/app/rubs",
   "Trust accounting": "/app/trust-accounting",
   "Fixed asset / capital project": "/app/capital-planning",
+  "Predictive analytics": "/app/predictive-analytics",
   "New on-call shift": "/app/on-call",
   "New vendor": "/app/maintenance",
   "Package/delivery log": "/app/packages",
