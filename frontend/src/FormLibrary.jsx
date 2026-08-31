@@ -37,6 +37,7 @@ const FORM_DESTINATIONS = {
   "Record a payment": "/app/payments",
   "New bank reconciliation line": "/app/reconciliation",
   "RUBS utility bill": "/app/rubs",
+  "Bill scan": "/app/bill-scan",
   "Trust accounting": "/app/trust-accounting",
   "Fixed asset / capital project": "/app/capital-planning",
   "Predictive analytics": "/app/predictive-analytics",

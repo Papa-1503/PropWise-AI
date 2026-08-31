@@ -115,6 +115,11 @@ FORM_CATALOG = [
                 "realEndpoint": "POST /api/rubs/generate",
             },
             {
+                "name": "Bill scan",
+                "description": "Scan a real bill photo for a draft vendor/amount/date extraction.",
+                "realEndpoint": "POST /api/bill-scan/extract",
+            },
+            {
                 "name": "Trust accounting",
                 "description": "Real trust-fund balance and commingling check, based on how staff classify bank lines.",
                 "realEndpoint": "GET /api/trust-accounting/balance",
