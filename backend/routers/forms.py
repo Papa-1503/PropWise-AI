@@ -140,6 +140,11 @@ FORM_CATALOG = [
                 "realEndpoint": "GET/POST /api/custom-roles",
             },
             {
+                "name": "Custom fields",
+                "description": "Define custom fields for units, leases, vendors, or tickets.",
+                "realEndpoint": "GET/POST /api/custom-fields/definitions",
+            },
+            {
                 "name": "New vendor",
                 "description": "Add a vendor for maintenance/repair work.",
                 "realEndpoint": "POST /api/vendors",

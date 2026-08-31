@@ -41,6 +41,7 @@ const FORM_DESTINATIONS = {
   "Predictive analytics": "/app/predictive-analytics",
   "New on-call shift": "/app/on-call",
   "Custom roles & permissions": "/app/custom-roles",
+  "Custom fields": "/app/custom-fields",
   "New vendor": "/app/maintenance",
   "Package/delivery log": "/app/packages",
 };
