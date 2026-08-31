@@ -55,6 +55,7 @@ from routers import custom_rental_applications
 from routers import trust_accounting
 from routers import package_tracking
 from routers import predictive_analytics
+from routers import forms
 app = FastAPI(title="PropWise AI API")
 
 
@@ -153,6 +154,7 @@ app.include_router(custom_rental_applications.router)
 app.include_router(trust_accounting.router)
 app.include_router(package_tracking.router)
 app.include_router(predictive_analytics.router)
+app.include_router(forms.router)
 # BUG FIX (found by actually running this): StaticFiles() raises at import
 # time if the directory doesn't already exist on disk. On a fresh checkout
 # there is no ./uploads folder yet, so the server would crash before it
