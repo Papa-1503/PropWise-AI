@@ -373,13 +373,29 @@ async def upload_inspection_photo(
 
 
 @router.get("/{inspection_id}")
-async def get_inspection(inspection_id: str, user: dict = Depends(require_staff)):
+async def get_inspection(inspection_id: str, role: str | None = None, user: dict = Depends(require_staff)):
+    """role=maintenance or role=cleaning genuinely scopes the returned
+    items to that role only - the real "separate form" behavior
+    requested directly: a maintenance tech and a cleaner working the
+    same turnover each see only their own real checklist, not the
+    other's items mixed in. Both roles' progress lives in the SAME
+    underlying inspection record (items each carry their own role tag,
+    set at creation - see workflow_actions.py's
+    create_turnover_checklist_action), not two separate records that
+    could drift out of sync - omitting role returns every item, the
+    existing full-detail behavior unchanged for anyone not filtering
+    by role."""
     if not ObjectId.is_valid(inspection_id):
         raise HTTPException(status_code=400, detail="Invalid inspection ID")
     inspection = await inspections_col.find_one({"_id": ObjectId(inspection_id)})
     if not inspection:
         raise HTTPException(status_code=404, detail="Inspection not found")
     inspection["_id"] = str(inspection["_id"])
+    if role:
+        inspection["items"] = [
+            item for item in inspection.get("items", [])
+            if item.get("role", "maintenance") == role  # backward-compatible default for pre-role items
+        ]
     photos = await photos_col.find({"inspectionId": inspection_id}).to_list(length=200)
     for p in photos:
         p["_id"] = str(p["_id"])

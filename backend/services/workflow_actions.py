@@ -20,20 +20,60 @@ from services.ticket_severity import compute_severity
 # Each becomes one inspection line item the assigned tech marks
 # pass/flag/fail, same UI as a regular inspection.
 TURNOVER_CHECKLIST_ITEMS = [
-    # Housekeeping
-    {"room": "Kitchen", "description": "Deep clean counters, cabinets, appliances"},
-    {"room": "Bathroom", "description": "Deep clean tub/shower, toilet, sink, mirrors"},
-    {"room": "General", "description": "Carpet cleaning"},
-    {"room": "General", "description": "Wipe down all interior doors and trim"},
-    {"room": "General", "description": "Window and window sill cleaning"},
-    {"room": "General", "description": "Paint touch-up as needed"},
-    # Maintenance
-    {"room": "HVAC", "description": "Check/replace HVAC filter"},
-    {"room": "General", "description": "Test all smoke and CO detectors"},
-    {"room": "General", "description": "Re-key locks"},
-    {"room": "Kitchen", "description": "Confirm all appliances functional"},
-    {"room": "General", "description": "Check for leaks under sinks and around toilets"},
-    {"room": "General", "description": "Test all outlets and switches"},
+    # Cleaning - real, specific detail on what "clean" actually means
+    # for each area, not a bare one-line label. Genuinely distinct
+    # from the maintenance items below so a real cleaner's form only
+    # ever shows what a cleaner is responsible for.
+    {"room": "Kitchen", "role": "cleaning",
+     "description": "Deep clean counters, cabinets (inside and out), backsplash, and all appliances "
+                     "(inside/outside fridge, oven, microwave, dishwasher). Check for grease buildup on "
+                     "stovetop/hood, food debris in drawers and behind appliances."},
+    {"room": "Bathroom", "role": "cleaning",
+     "description": "Deep clean tub/shower (including grout and caulk for mold/mildew), toilet (inside and "
+                     "base), sink and vanity, mirrors. Check for mineral buildup around fixtures and soap scum."},
+    {"room": "General", "role": "cleaning",
+     "description": "Carpet cleaning (steam clean or replace if stained/worn) and vacuum/mop all hard floors, "
+                     "including under furniture footprints and along baseboards."},
+    {"room": "General", "role": "cleaning",
+     "description": "Wipe down all interior doors, door frames, and trim/baseboards - check for scuff marks, "
+                     "fingerprints, and cobwebs in corners."},
+    {"room": "General", "role": "cleaning",
+     "description": "Clean windows (inside), window sills, and tracks - check for dead insects, dust buildup, "
+                     "and mold on sills."},
+    {"room": "General", "role": "cleaning",
+     "description": "Wipe down light fixtures, ceiling fans, and vents/registers - check for dust accumulation."},
+    {"room": "General", "role": "cleaning",
+     "description": "Clean closets fully, including shelving and floor - check for leftover items and dust."},
+    # Maintenance - real, specific detail on what to actually check
+    # for, not just "check it."
+    {"room": "General", "role": "maintenance",
+     "description": "Paint touch-up or full repaint as needed - check for nail holes, scuffs, and color "
+                     "consistency between walls."},
+    {"room": "HVAC", "role": "maintenance",
+     "description": "Check/replace HVAC filter, test heating and cooling both actually cycle on and reach "
+                     "set temperature, check for unusual noise or odor from vents."},
+    {"room": "General", "role": "maintenance",
+     "description": "Test all smoke and CO detectors (press test button, confirm audible alarm), replace "
+                     "batteries, check expiration date on the unit itself."},
+    {"room": "General", "role": "maintenance",
+     "description": "Re-key all locks (entry door, any interior locks), confirm the new key genuinely works "
+                     "in every lock before considering this complete."},
+    {"room": "Kitchen", "role": "maintenance",
+     "description": "Confirm all appliances are functional: fridge cools to proper temp, oven/stovetop "
+                     "burners all heat, dishwasher runs a full cycle, garbage disposal (if present) runs "
+                     "without jamming."},
+    {"room": "General", "role": "maintenance",
+     "description": "Check for leaks under all sinks and around toilets (run water, check under the fixture "
+                     "for several minutes, not just a visual glance while dry)."},
+    {"room": "General", "role": "maintenance",
+     "description": "Test all outlets and switches (a plug-in tester or lamp at each outlet, not just a "
+                     "visual check), confirm GFCI outlets in kitchen/bathroom actually trip and reset."},
+    {"room": "General", "role": "maintenance",
+     "description": "Check all windows and doors open, close, and lock properly - look for warping, "
+                     "stuck tracks, or broken weatherstripping."},
+    {"room": "General", "role": "maintenance",
+     "description": "Inspect caulking around tub/shower and countertops for cracking or gaps that could "
+                     "let water damage the wall behind."},
 ]
 
 
@@ -87,7 +127,8 @@ async def create_turnover_checklist_action(config: dict, payload: dict):
     unit_id = payload.get("unitId")
 
     items = [
-        {"id": uuid.uuid4().hex[:8], "room": item["room"], "description": item["description"], "status": "pending"}
+        {"id": uuid.uuid4().hex[:8], "room": item["room"], "description": item["description"],
+         "status": "pending", "role": item["role"]}
         for item in TURNOVER_CHECKLIST_ITEMS
     ]
 

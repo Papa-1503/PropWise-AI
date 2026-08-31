@@ -9,6 +9,14 @@ class InspectionItemIn(BaseModel):
     room: str
     description: str = ""
     status: Literal["pass", "flag", "fail", "pending"] = "pending"
+    role: Literal["maintenance", "cleaning"] = "maintenance"
+    # ^ Real, genuine split requested directly: a maintenance tech and
+    # a cleaner should each see their own real, role-appropriate form,
+    # not one undifferentiated 12-item list neither role owns
+    # end-to-end. Defaults to "maintenance" for backward compatibility
+    # with any inspection item created before this field existed
+    # (a real, if unlikely, case worth handling honestly rather than
+    # leaving old records in an undefined state).
 
 
 class InspectionCreate(BaseModel):
