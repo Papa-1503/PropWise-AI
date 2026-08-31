@@ -79,6 +79,11 @@ async def security_headers_middleware(request, call_next):
     return response
 
 # Adjust to your actual frontend origin(s) in production
+# Still "rentflow-ai-1" despite the product being renamed to PropWise
+# AI - Render's .onrender.com subdomain can't be changed after a
+# service is created (confirmed directly, no dashboard workaround
+# exists); see config.js's fuller note. Deliberately living with the
+# old URL rather than migrating to a real custom domain for now.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "https://rentflow-ai-1.onrender.com"],
