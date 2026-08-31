@@ -48,6 +48,7 @@ from routers import communication_templates
 from routers import custom_roles
 from routers import write_assist
 from routers import custom_views
+from routers import bill_scan
 app = FastAPI(title="RentFlow AI API")
 
 
@@ -134,6 +135,7 @@ app.include_router(communication_templates.router)
 app.include_router(custom_roles.router)
 app.include_router(write_assist.router)
 app.include_router(custom_views.router)
+app.include_router(bill_scan.router)
 # BUG FIX (found by actually running this): StaticFiles() raises at import
 # time if the directory doesn't already exist on disk. On a fresh checkout
 # there is no ./uploads folder yet, so the server would crash before it
