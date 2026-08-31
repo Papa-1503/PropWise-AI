@@ -135,7 +135,13 @@ sandbox)
   verified record (a tenant can't override it), and only staff can
   post the "announcement" category, enforced in code. Verified with
   real functional tests of both trust-relevant pieces.
-- **❌ Package/delivery tracking with OCR**: not built, zero trace.
+- **✅ Package/delivery tracking with OCR**: built and pushed this
+  session — real vision-assisted label extraction (carrier, unit,
+  resident name), always staff-confirmed before a record is created
+  (matches the "AI drafts, human confirms" principle used across
+  every AI feature in this app), and a real resident notification on
+  logging. Verified with functional tests of the notification trigger
+  and the honest OCR fallback on unparseable output.
 - **✅ Renters insurance requirement tracking/enforcement**: built and
   pushed this session — insuranceRequired on leases, real policy-detail
   tracking separate from the actual proof-document upload (which
