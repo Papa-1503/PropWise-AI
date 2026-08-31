@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Outlet, useOutletContext } from "react-router-dom";
 import { useState, lazy, Suspense } from "react";
-import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList, Package } from "lucide-react";
+import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList, Package, Droplets } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";
 import { ToastProvider } from "./ToastContext";
 import { DarkModeProvider, useDarkMode } from "./DarkModeContext";
@@ -33,6 +33,8 @@ import NotificationBell from "./NotificationBell";
 import Workflows from "./Workflows";
 import FormLibrary from "./FormLibrary";
 import Packages from "./Packages";
+import RubsBilling from "./RubsBilling";
+import TrustAccounting from "./TrustAccounting";
 import CommunicationsPanel from "./CommunicationsPanel";
 import LeasesList from "./LeasesList";
 import ScreeningList from "./ScreeningList";
@@ -88,7 +90,7 @@ function TabNotFound() {
  * their own unit's property.
  */
 
-const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "communications", "leases", "screening", "leads", "staff", "schedules", "on-call", "reconciliation", "properties", "documents", "gallery", "feed", "ai", "forms", "packages"];
+const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "communications", "leases", "screening", "leads", "staff", "schedules", "on-call", "reconciliation", "properties", "documents", "gallery", "feed", "ai", "forms", "packages", "rubs", "trust-accounting"];
 const TENANT_TABS = ["documents", "maintenance", "payments", "gallery", "ai"];
 const TAB_ICONS = {
   dashboard: LayoutDashboard,
@@ -112,6 +114,8 @@ const TAB_ICONS = {
   properties: Building2,
   forms: ClipboardList,
   packages: Package,
+  rubs: Droplets,
+  "trust-accounting": Landmark,
 };
 
 /** Auth gate + layout for everything under /app. Renders LoginScreen
@@ -337,6 +341,8 @@ export default function App() {
             <Route path="schedules" element={<MaintenanceSchedulesWrapper />} />
             <Route path="on-call" element={<OnCallWrapper />} />
             <Route path="reconciliation" element={<ReconciliationWrapper />} />
+            <Route path="rubs" element={<RubsBillingWrapper />} />
+            <Route path="trust-accounting" element={<TrustAccountingWrapper />} />
             <Route path="properties" element={<PropertyManagement />} />
             <Route path="documents" element={<Documents />} />
             <Route path="gallery" element={<GalleryWrapper />} />
@@ -378,6 +384,14 @@ function MaintenanceTicketsWrapper() {
 function PackagesWrapper() {
   const { effectivePropertyId } = useOutletContext();
   return <Packages propertyId={effectivePropertyId} />;
+}
+function RubsBillingWrapper() {
+  const { effectivePropertyId } = useOutletContext();
+  return <RubsBilling propertyId={effectivePropertyId} />;
+}
+function TrustAccountingWrapper() {
+  const { effectivePropertyId } = useOutletContext();
+  return <TrustAccounting propertyId={effectivePropertyId} />;
 }
 function PaymentsPanelWrapper() {
   const { effectivePropertyId } = useOutletContext();

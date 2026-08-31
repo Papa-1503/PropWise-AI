@@ -109,6 +109,11 @@ FORM_CATALOG = [
                 "description": "Allocate a real utility bill across occupied units.",
                 "realEndpoint": "POST /api/rubs/generate",
             },
+            {
+                "name": "Trust accounting",
+                "description": "Real trust-fund balance and commingling check, based on how staff classify bank lines.",
+                "realEndpoint": "GET /api/trust-accounting/balance",
+            },
         ],
     },
     {
