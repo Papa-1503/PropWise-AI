@@ -136,12 +136,16 @@ Spot-checked directly, not assumed from the PDF's own status marks:
   (predictive, consumption-rate-based reordering) deliberately not
   attempted — needs real order history this feature will only start
   generating once it's actually in use.
-- **🟡 P18 Remaining competitive gaps**: **done this session** — named
-  AI agent personas, custom fields, customized communication
-  templates, custom roles & permissions, and a write-with-AI
-  assistant (real lease-grounded drafting, drafts only, never sends).
-  **Still genuinely absent**: AI bill scan, AI summaries, custom
-  report builder, custom rental applications, custom views.
+- **✅ P18 Remaining competitive gaps — COMPLETE**: named AI agent
+  personas, custom fields, customized communication templates, custom
+  roles & permissions, write-with-AI assistant, custom views, AI bill
+  scan, AI summaries, custom report builder, and custom rental
+  applications — every single item now genuinely built, tested, and
+  pushed. The custom report builder and bill scan were both
+  deliberately scoped safely rather than as open-ended tools (a closed
+  set of vetted report types instead of an arbitrary query builder; AI
+  extraction always produces a draft for human review, never an
+  auto-created financial record).
 - **P19 Deferred**: IoT scaffolding, live bank feed, CRP generation —
   still deferred, nothing changed.
 - **✅ P20 AI-guided DIY troubleshooting**: built and pushed this
