@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Outlet, useOutletContext } from "react-router-dom";
 import { useState, lazy, Suspense } from "react";
-import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList, Package, Droplets, TrendingUp } from "lucide-react";
+import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList, Package, Droplets, TrendingUp, Shield } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";
 import { ToastProvider } from "./ToastContext";
 import { DarkModeProvider, useDarkMode } from "./DarkModeContext";
@@ -37,6 +37,7 @@ import RubsBilling from "./RubsBilling";
 import TrustAccounting from "./TrustAccounting";
 import CapitalPlanning from "./CapitalPlanning";
 import PredictiveAnalytics from "./PredictiveAnalytics";
+import CustomRoles from "./CustomRoles";
 import CommunicationsPanel from "./CommunicationsPanel";
 import LeasesList from "./LeasesList";
 import ScreeningList from "./ScreeningList";
@@ -92,7 +93,7 @@ function TabNotFound() {
  * their own unit's property.
  */
 
-const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "communications", "leases", "screening", "leads", "staff", "schedules", "on-call", "reconciliation", "properties", "documents", "gallery", "feed", "ai", "forms", "packages", "rubs", "trust-accounting", "capital-planning", "predictive-analytics"];
+const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "communications", "leases", "screening", "leads", "staff", "schedules", "on-call", "reconciliation", "properties", "documents", "gallery", "feed", "ai", "forms", "packages", "rubs", "trust-accounting", "capital-planning", "predictive-analytics", "custom-roles"];
 const TENANT_TABS = ["documents", "maintenance", "payments", "gallery", "ai"];
 const TAB_ICONS = {
   dashboard: LayoutDashboard,
@@ -120,6 +121,7 @@ const TAB_ICONS = {
   "trust-accounting": Landmark,
   "capital-planning": Wrench,
   "predictive-analytics": TrendingUp,
+  "custom-roles": Shield,
 };
 
 /** Auth gate + layout for everything under /app. Renders LoginScreen
@@ -349,6 +351,7 @@ export default function App() {
             <Route path="trust-accounting" element={<TrustAccountingWrapper />} />
             <Route path="capital-planning" element={<CapitalPlanningWrapper />} />
             <Route path="predictive-analytics" element={<PredictiveAnalyticsWrapper />} />
+            <Route path="custom-roles" element={<CustomRoles />} />
             <Route path="properties" element={<PropertyManagement />} />
             <Route path="documents" element={<Documents />} />
             <Route path="gallery" element={<GalleryWrapper />} />

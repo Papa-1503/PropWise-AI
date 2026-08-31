@@ -135,6 +135,11 @@ FORM_CATALOG = [
                 "realEndpoint": "POST /api/on-call/shifts",
             },
             {
+                "name": "Custom roles & permissions",
+                "description": "Define named roles and assign them to staff members.",
+                "realEndpoint": "GET/POST /api/custom-roles",
+            },
+            {
                 "name": "New vendor",
                 "description": "Add a vendor for maintenance/repair work.",
                 "realEndpoint": "POST /api/vendors",

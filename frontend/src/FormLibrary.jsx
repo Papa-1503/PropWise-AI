@@ -40,6 +40,7 @@ const FORM_DESTINATIONS = {
   "Fixed asset / capital project": "/app/capital-planning",
   "Predictive analytics": "/app/predictive-analytics",
   "New on-call shift": "/app/on-call",
+  "Custom roles & permissions": "/app/custom-roles",
   "New vendor": "/app/maintenance",
   "Package/delivery log": "/app/packages",
 };
