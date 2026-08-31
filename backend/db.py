@@ -37,6 +37,7 @@ workflow_runs_col = db["workflow_runs"]
 maintenance_schedules_col = db["maintenance_schedules"]
 communications_col = db["communications"]
 on_call_shifts_col = db["on_call_shifts"]
+on_call_log_col = db["on_call_log"]
 audit_log_col = db["audit_log"]
 budgets_col = db["budgets"]
 kb_articles_col = db["kb_articles"]
@@ -80,6 +81,8 @@ async def ensure_indexes():
     # sorted chronologically.
     await on_call_shifts_col.create_index([("propertyIds", 1), ("startTime", 1), ("endTime", 1)])
     await on_call_shifts_col.create_index([("startTime", 1)])
+    await on_call_log_col.create_index([("recordingSid", 1)], unique=True, sparse=True)
+    await on_call_log_col.create_index([("createdAt", -1)])
     # Two indexes for audit log: the common "show me everything on this
     # record" lookup, and the common "show me everything this person
     # did" lookup. Both sorted newest-first since that's how an audit

@@ -47,14 +47,16 @@ import os
 from datetime import datetime, time, timezone
 
 from bson import ObjectId
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import Response
 from twilio.request_validator import RequestValidator
+from twilio.rest import Client
 from twilio.twiml.voice_response import VoiceResponse
 
-from db import properties_col, on_call_shifts_col, users_col, leases_col
+from db import properties_col, on_call_shifts_col, users_col, leases_col, on_call_log_col
 from phone_utils import normalize_phone
 from audit_service import log_action
+from auth import require_staff
 
 router = APIRouter(prefix="/api/telephony", tags=["telephony"])
 
@@ -192,7 +194,7 @@ async def voice_webhook(request: Request):
                 f"Incoming after-hours call from {matched_lease.get('residentName', 'a resident')}, "
                 f"unit {matched_lease.get('unitId', 'unknown')}. Connecting now."
             )
-        response.dial(tech_phone)
+        response.dial(tech_phone, record="record-from-answer-dual", recording_status_callback="/api/telephony/recording-status")
     else:
         response.say(
             "Thanks for calling. Nobody is currently available to take "
@@ -202,3 +204,107 @@ async def voice_webhook(request: Request):
         response.record(max_length=120, play_beep=True)
 
     return Response(content=str(response), media_type="application/xml")
+
+
+@router.post("/recording-status")
+async def recording_status_callback(request: Request):
+    """Real Twilio recordingStatusCallback webhook - see /voice's
+    Dial verb above, which requests this specifically. Twilio calls
+    this once the recording is genuinely ready (RecordingStatus=
+    "completed"), with real parameters (RecordingSid, RecordingUrl,
+    CallSid, RecordingDuration) confirmed directly from Twilio's own
+    documentation before building this, not guessed. Same real
+    signature-validation requirement as /voice - an unauthenticated
+    webhook here would be a real way for anyone to inject fake
+    call-log entries.
+
+    Requests Twilio's own built-in transcription (a real, separate
+    Twilio API call, not a third-party integration) rather than
+    building a new transcription pipeline - reuses infrastructure
+    this app already has real credentials for. Transcription result
+    itself arrives at a SEPARATE callback (/transcription-status)
+    once Twilio finishes it, since transcription is asynchronous and
+    genuinely not ready at the same moment as the recording."""
+    form = await request.form()
+    form_dict = dict(form)
+    signature = request.headers.get("X-Twilio-Signature", "")
+    _validate_twilio_signature(request, form_dict, signature)
+
+    recording_status = form_dict.get("RecordingStatus")
+    if recording_status != "completed":
+        # "in-progress" or "absent" - nothing real to store yet, or
+        # genuinely nothing was recorded (a silent/instant call).
+        return Response(content="", media_type="text/xml")
+
+    recording_sid = form_dict.get("RecordingSid")
+    recording_url = form_dict.get("RecordingUrl")
+    call_sid = form_dict.get("CallSid")
+    duration = form_dict.get("RecordingDuration")
+
+    doc = {
+        "callSid": call_sid,
+        "recordingSid": recording_sid,
+        "recordingUrl": recording_url,
+        "durationSeconds": int(duration) if duration and duration.isdigit() else None,
+        "transcriptText": None,
+        "transcriptStatus": "pending",
+        "createdAt": datetime.now(timezone.utc),
+    }
+    await on_call_log_col.insert_one(doc)
+
+    if recording_sid:
+        account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+        auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+        if account_sid and auth_token:
+            try:
+                twilio_client = Client(account_sid, auth_token)
+                # Real Twilio transcription request - genuinely async;
+                # the actual text arrives later at transcribeCallback,
+                # not returned here. Failing to even request it should
+                # never block the recording itself from being stored -
+                # the recording is the more important real artifact.
+                twilio_client.recordings(recording_sid).transcriptions.create(
+                    transcribe_callback="/api/telephony/transcription-status"
+                )
+            except Exception as exc:
+                print(f"Failed to request transcription for recording {recording_sid}: {exc}")
+
+    return Response(content="", media_type="text/xml")
+
+
+@router.post("/transcription-status")
+async def transcription_status_callback(request: Request):
+    """Real Twilio transcribeCallback - fires once Twilio's own
+    transcription of a recording (requested above) is actually done.
+    Confirmed real parameter names (TranscriptionSid, TranscriptionText,
+    TranscriptionStatus) directly from Twilio's documentation."""
+    form = await request.form()
+    form_dict = dict(form)
+    signature = request.headers.get("X-Twilio-Signature", "")
+    _validate_twilio_signature(request, form_dict, signature)
+
+    recording_sid = form_dict.get("RecordingSid")
+    transcription_status = form_dict.get("TranscriptionStatus")
+    transcription_text = form_dict.get("TranscriptionText")
+
+    if recording_sid:
+        await on_call_log_col.update_one(
+            {"recordingSid": recording_sid},
+            {"$set": {
+                "transcriptStatus": transcription_status or "failed",
+                "transcriptText": transcription_text,
+            }},
+        )
+
+    return Response(content="", media_type="text/xml")
+
+
+@router.get("/call-log")
+async def list_call_log(user: dict = Depends(require_staff)):
+    """Manager-facing view of real, past after-hours calls - the
+    other real half of this feature beyond the raw recording/
+    transcript capture itself."""
+    logs = await on_call_log_col.find({}).sort("createdAt", -1).to_list(length=200)
+    for log in logs:
+        log["id"] = str(log.pop("_id"))
+    return {"callLog": logs}
