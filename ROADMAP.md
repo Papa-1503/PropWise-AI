@@ -211,11 +211,15 @@ sandbox)
 
 ## Phase 6 — Intelligence & Self-Service
 
-- **❌ Predictive analytics** (churn risk, seasonal vacancy
-  forecasting): not built. (Note: a *different*, already-existing
-  predictive-maintenance pattern-detection system was built in an
-  earlier phase of this project per the stored project memory — worth
-  confirming whether that's the intended foundation to extend here.)
+- **✅ Predictive analytics** (churn risk, seasonal vacancy
+  forecasting): built and pushed this session — real, transparent
+  weighted scoring (payment reliability, renewal status/time-to-
+  expiry, open ticket count), no black-box model, every score's real
+  factors visible in the output. Vacancy forecast is honestly labeled
+  a historical pattern, not a statistical forecast. Verified with
+  functional tests confirming the exact expected math for both a
+  high-risk and a low-risk lease, and correct month identification
+  for the vacancy pattern.
 - **✅ Self-service lease renewal portal**: built and pushed earlier
   this session — real resident-initiated renewal request, using the
   existing e-signature flow. Confirmed still present and correct
