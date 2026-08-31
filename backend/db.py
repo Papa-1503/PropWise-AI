@@ -50,6 +50,7 @@ custom_field_definitions_col = db["custom_field_definitions"]
 custom_field_values_col = db["custom_field_values"]
 communication_templates_col = db["communication_templates"]
 custom_roles_col = db["custom_roles"]
+custom_views_col = db["custom_views"]
 community_posts_col = db["community_posts"]
 late_notices_col = db["late_notices"]
 async def ensure_indexes():
@@ -101,3 +102,4 @@ async def ensure_indexes():
     await custom_field_values_col.create_index([("entityType", 1), ("entityId", 1), ("fieldName", 1)], unique=True)
     await community_posts_col.create_index([("propertyId", 1), ("createdAt", -1)])
     await late_notices_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])
+    await custom_views_col.create_index([("ownerId", 1), ("entityType", 1)])

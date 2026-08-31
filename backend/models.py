@@ -785,6 +785,34 @@ class ApplicantScoreUpdate(BaseModel):
 class DashboardPreferencesUpdate(BaseModel):
     visibleWidgets: list[str]
     widgetOrder: list[str]
+
+
+class CustomViewCreate(BaseModel):
+    """P18: a real, staff-saved filter/sort/column configuration for a
+    real list page (leases, tickets, leads, vendors) - so a leasing
+    agent can save 'expiring in 60 days, sorted by rent' as a genuine,
+    reusable view instead of re-entering the same filter every time.
+    Owned per-staff-member (see the router - always scoped to the
+    creating user's own ID, never shared globally by default), since a
+    saved view is a personal workflow shortcut, not a shared team
+    configuration - real shared views would be a separate, later
+    feature with its own real design questions about who can edit a
+    shared one."""
+    entityType: Literal["lease", "ticket", "lead", "vendor"]
+    name: str
+    filters: dict = Field(default_factory=dict)
+    sortField: Optional[str] = None
+    sortDirection: Literal["asc", "desc"] = "asc"
+    visibleColumns: list[str] = Field(default_factory=list)
+
+
+class CustomViewUpdate(BaseModel):
+    name: Optional[str] = None
+    filters: Optional[dict] = None
+    sortField: Optional[str] = None
+    sortDirection: Optional[Literal["asc", "desc"]] = None
+    visibleColumns: Optional[list[str]] = None
+
 # ---------- Workflows ----------
 
 class WorkflowAction(BaseModel):
