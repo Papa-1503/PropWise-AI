@@ -64,7 +64,7 @@ export default function LoginScreen() {
         onSubmit={handleSubmit}
         className="bg-white border border-slate-200 rounded-xl p-9 w-full max-w-[340px] text-center shadow-sm"
       >
-        <h1 className="text-2xl font-serif font-bold mb-1">RentFlow AI</h1>
+        <h1 className="text-2xl font-serif font-bold mb-1">PropWise</h1>
         <p className="text-xs text-slate-500 mb-5">Property operations &amp; resident tools</p>
 
         <div role="tablist" aria-label="Sign in or activate account" className="flex bg-slate-100 rounded-lg p-1 mb-4 text-xs font-semibold">

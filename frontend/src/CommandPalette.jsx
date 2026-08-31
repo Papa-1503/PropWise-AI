@@ -6,7 +6,7 @@ import { API_BASE } from "./config";
 
 /**
  * Command palette — Ctrl+K (Cmd+K on Mac), modeled on the same shortcut
- * a shared design used, reimplemented against RentFlow's own real
+ * a shared design used, reimplemented against PropWise's own real
  * data via a genuine backend search (routers/search.py) rather than
  * PropWise's version, which only toggled an empty overlay with no real
  * search behind it. Also fulfils the separate, previously-flagged

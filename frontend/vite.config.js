@@ -18,8 +18,8 @@ export default defineConfig({
       },
       includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
       manifest: {
-        name: 'RentFlow AI',
-        short_name: 'RentFlow',
+        name: 'PropWise',
+        short_name: 'PropWise',
         description: 'Property management, powered by AI',
         theme_color: '#0f172a',
         background_color: '#0f172a',

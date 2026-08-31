@@ -52,7 +52,7 @@ function extractUrl(text) {
 }
 
 const ACTION_DEFAULTS = {
-  send_email: () => ({ subject: "Notification from RentFlow AI", body: "" }),
+  send_email: () => ({ subject: "Notification from PropWise", body: "" }),
   create_task: () => ({ title: "Automated task" }),
   create_turnover_checklist: () => ({}),
   assign_user: () => ({ userId: "" }),

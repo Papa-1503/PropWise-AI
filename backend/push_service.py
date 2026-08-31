@@ -1,6 +1,6 @@
 """
 Push notification sending via the Web Push protocol (pywebpush), for
-Priority 8 — notifications that reach a user even when RentFlow AI
+Priority 8 — notifications that reach a user even when PropWise
 isn't open, unlike the existing in-app notification bell.
 
 Required environment variables (see .env.example):

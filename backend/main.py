@@ -52,7 +52,7 @@ from routers import bill_scan
 from routers import ai_summaries
 from routers import custom_reports
 from routers import custom_rental_applications
-app = FastAPI(title="RentFlow AI API")
+app = FastAPI(title="PropWise API")
 
 
 @app.middleware("http")

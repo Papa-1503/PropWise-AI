@@ -178,7 +178,7 @@ class TelephonyConfigUpdate(BaseModel):
     against this field, so it knows whose on-call rotation to check.
     Each property that wants after-hours routing needs its own real
     Twilio number purchased/configured in the Twilio console first —
-    this field just tells RentFlow which number maps to which
+    this field just tells PropWise which number maps to which
     property, it doesn't provision the number itself."""
     twilioNumber: Optional[str] = None
     afterHoursStart: Optional[str] = Field(default=None, description="24h HH:MM, e.g. '18:00'")

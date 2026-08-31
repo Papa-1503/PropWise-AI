@@ -25,7 +25,7 @@ import PaymentsPanel from "./PaymentsPanel";
 import PortfolioHealthHeader from "./PortfolioHealthHeader";
 import AIWorkforcePanel from "./AIWorkforcePanel";
 import OccupancyInsight from "./OccupancyInsight";
-import AskRentFlowSidebar from "./AskRentFlowSidebar";
+import AskPropWiseSidebar from "./AskPropWiseSidebar";
 import ConfidenceDistribution from "./ConfidenceDistribution";
 import MaintenanceTrendAlert from "./MaintenanceTrendAlert";
 import SocialFeed from "./SocialFeed";
@@ -176,7 +176,7 @@ function AppGate() {
         <div className="w-8 h-8 bg-gradient-to-br from-indigo-600 to-fuchsia-600 rounded-lg flex items-center justify-center shrink-0">
           <span className="text-white font-bold text-sm">R</span>
         </div>
-        <span className="font-serif font-bold text-slate-900 truncate">RentFlow AI</span>
+        <span className="font-serif font-bold text-slate-900 truncate">PropWise</span>
       </div>
       <nav data-onboarding-target="sidebar-nav" className="flex-1 p-3 space-y-0.5 overflow-y-auto">
         {tabs.map((t) => {
@@ -256,7 +256,7 @@ function AppGate() {
             <button onClick={() => setMobileNavOpen(true)} className="lg:hidden p-1.5 -ml-1.5 rounded hover:bg-white/10 shrink-0">
               <Menu size={20} />
             </button>
-            <span className="font-serif font-bold text-lg lg:hidden truncate">RentFlow AI</span>
+            <span className="font-serif font-bold text-lg lg:hidden truncate">PropWise</span>
           </div>
           <div className="flex items-center gap-2 text-sm shrink-0">
             {user.role === "staff" && <BuildingSelector />}
@@ -295,7 +295,7 @@ function DashboardTab({ effectivePropertyId, userName }) {
         <AIWorkforcePanel propertyId={effectivePropertyId} />
       </div>
       <div className="space-y-5">
-        <AskRentFlowSidebar propertyId={effectivePropertyId} />
+        <AskPropWiseSidebar propertyId={effectivePropertyId} />
         <RecentActivity propertyId={effectivePropertyId} />
         <MaintenanceTrendAlert propertyId={effectivePropertyId} />
         <ConfidenceDistribution propertyId={effectivePropertyId} />

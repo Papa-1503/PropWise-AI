@@ -22,7 +22,7 @@ self.skipWaiting();
 clientsClaim();
 
 self.addEventListener("push", (event) => {
-  let data = { title: "RentFlow AI", body: "You have a new notification.", link: "/" };
+  let data = { title: "PropWise", body: "You have a new notification.", link: "/" };
   try {
     if (event.data) data = { ...data, ...event.data.json() };
   } catch {
@@ -44,7 +44,7 @@ self.addEventListener("notificationclick", (event) => {
   const link = event.notification.data?.link || "/";
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
-      // Focus an already-open RentFlow tab/window if one exists, rather
+      // Focus an already-open PropWise tab/window if one exists, rather
       // than always opening a new one.
       for (const client of clientList) {
         if (client.url.includes(self.location.origin) && "focus" in client) {

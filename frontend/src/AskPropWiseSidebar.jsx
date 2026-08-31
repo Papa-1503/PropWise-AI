@@ -11,13 +11,13 @@ const QUICK_PROMPTS = [
 ];
 
 /**
- * AskRentFlowSidebar
+ * AskPropWiseSidebar
  *
  * Compact single-turn version of the AI Copilot for the dashboard
  * sidebar — same real backend call as AICopilot.jsx, just a smaller
  * footprint (one question, one answer, no persistent thread).
  */
-export default function AskRentFlowSidebar({ propertyId }) {
+export default function AskPropWiseSidebar({ propertyId }) {
   const [answer, setAnswer] = useState(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -49,14 +49,14 @@ export default function AskRentFlowSidebar({ propertyId }) {
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-4">
-      <h3 className="text-sm font-semibold mb-2">Ask RentFlow AI</h3>
+      <h3 className="text-sm font-semibold mb-2">Ask PropWise</h3>
 
       <div className="flex gap-1.5">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && ask(input)}
-          placeholder="Ask RentFlow AI..."
+          placeholder="Ask PropWise..."
           className="flex-1 text-xs border border-slate-200 rounded-lg px-2.5 py-2"
         />
         <button

@@ -60,7 +60,7 @@ export default function InstallBanner() {
         <span className="text-white font-bold text-sm">R</span>
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-slate-800">Install RentFlow AI</p>
+        <p className="text-sm font-semibold text-slate-800">Install PropWise</p>
         <p className="text-xs text-slate-500">Quick access from your home screen</p>
       </div>
       <button
