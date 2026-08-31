@@ -830,6 +830,28 @@ class CustomReportCreate(BaseModel):
     startDate: Optional[str] = None
     endDate: Optional[str] = None
 
+
+class ApplicationQuestionCreate(BaseModel):
+    """P18: custom rental application questions, per property - reuses
+    the exact same real, closed field-type set already proven for
+    custom fields (CustomFieldDefinitionCreate) rather than inventing a
+    second, parallel type system. A property can define its own real
+    application questions (e.g. 'Do you have pets?', 'Move-in date
+    preference') beyond the fixed applicantName/applicantEmail every
+    screening request already has."""
+    propertyId: str
+    questionText: str
+    fieldType: Literal["text", "number", "boolean", "date"]
+    required: bool = False
+    order: int = 0
+
+
+class ApplicationAnswerSubmit(BaseModel):
+    answers: dict[str, str | float | bool | None]
+    # ^ keyed by the real question's ID (string), validated against
+    # its defined fieldType at submission time - see
+    # custom_rental_applications.py
+
 # ---------- Workflows ----------
 
 class WorkflowAction(BaseModel):

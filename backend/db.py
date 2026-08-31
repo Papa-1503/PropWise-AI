@@ -52,6 +52,7 @@ communication_templates_col = db["communication_templates"]
 custom_roles_col = db["custom_roles"]
 custom_views_col = db["custom_views"]
 custom_reports_col = db["custom_reports"]
+application_questions_col = db["application_questions"]
 community_posts_col = db["community_posts"]
 late_notices_col = db["late_notices"]
 async def ensure_indexes():
