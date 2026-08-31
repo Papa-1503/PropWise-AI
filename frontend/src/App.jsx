@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Outlet, useOutletContext } from "react-router-dom";
 import { useState, lazy, Suspense } from "react";
-import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList } from "lucide-react";
+import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList, Package } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";
 import { ToastProvider } from "./ToastContext";
 import { DarkModeProvider, useDarkMode } from "./DarkModeContext";
@@ -32,6 +32,7 @@ import SocialFeed from "./SocialFeed";
 import NotificationBell from "./NotificationBell";
 import Workflows from "./Workflows";
 import FormLibrary from "./FormLibrary";
+import Packages from "./Packages";
 import CommunicationsPanel from "./CommunicationsPanel";
 import LeasesList from "./LeasesList";
 import ScreeningList from "./ScreeningList";
@@ -87,7 +88,7 @@ function TabNotFound() {
  * their own unit's property.
  */
 
-const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "communications", "leases", "screening", "leads", "staff", "schedules", "on-call", "reconciliation", "properties", "documents", "gallery", "feed", "ai", "forms"];
+const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "communications", "leases", "screening", "leads", "staff", "schedules", "on-call", "reconciliation", "properties", "documents", "gallery", "feed", "ai", "forms", "packages"];
 const TENANT_TABS = ["documents", "maintenance", "payments", "gallery", "ai"];
 const TAB_ICONS = {
   dashboard: LayoutDashboard,
@@ -110,6 +111,7 @@ const TAB_ICONS = {
   reconciliation: Landmark,
   properties: Building2,
   forms: ClipboardList,
+  packages: Package,
 };
 
 /** Auth gate + layout for everything under /app. Renders LoginScreen
@@ -326,6 +328,7 @@ export default function App() {
             <Route path="payments" element={<PaymentsPanelWrapper />} />
             <Route path="workflows" element={<Workflows />} />
             <Route path="forms" element={<FormLibrary />} />
+            <Route path="packages" element={<PackagesWrapper />} />
             <Route path="communications" element={<CommunicationsPanelWrapper />} />
             <Route path="leases" element={<LeasesListWrapper />} />
             <Route path="screening" element={<ScreeningListWrapper />} />
@@ -371,6 +374,10 @@ function InspectionsListWrapper() {
 function MaintenanceTicketsWrapper() {
   const { effectivePropertyId } = useOutletContext();
   return <MaintenanceTickets propertyId={effectivePropertyId} />;
+}
+function PackagesWrapper() {
+  const { effectivePropertyId } = useOutletContext();
+  return <Packages propertyId={effectivePropertyId} />;
 }
 function PaymentsPanelWrapper() {
   const { effectivePropertyId } = useOutletContext();
