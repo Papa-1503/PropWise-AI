@@ -33,6 +33,7 @@ const FORM_DESTINATIONS = {
   "New lease": "/app/leases",
   "Screening request": "/app/screening",
   "Lease renewal offer": "/app/leases",
+  "Write with AI": "/app/write-assist",
   "Record a payment": "/app/payments",
   "New bank reconciliation line": "/app/reconciliation",
   "RUBS utility bill": "/app/rubs",

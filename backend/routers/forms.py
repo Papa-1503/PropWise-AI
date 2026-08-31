@@ -89,6 +89,11 @@ FORM_CATALOG = [
                 "description": "Offer a renewal incentive on an existing lease.",
                 "realEndpoint": "POST /api/leases/{lease_id}/renewal-incentive",
             },
+            {
+                "name": "Write with AI",
+                "description": "Draft an email or SMS to a resident, optionally grounded in their real lease.",
+                "realEndpoint": "POST /api/write-assist/draft",
+            },
         ],
     },
     {
