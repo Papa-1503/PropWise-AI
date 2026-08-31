@@ -813,6 +813,23 @@ class CustomViewUpdate(BaseModel):
     sortDirection: Optional[Literal["asc", "desc"]] = None
     visibleColumns: Optional[list[str]] = None
 
+
+class CustomReportCreate(BaseModel):
+    """P18: a real, saved report definition - deliberately a closed set
+    of real report TYPES (reportType below), each with its own real,
+    safe, hand-written aggregation (see custom_reports.py), not an
+    open-ended query builder accepting arbitrary filter/aggregation
+    input. An arbitrary user-constructed MongoDB pipeline would be a
+    genuine injection and performance risk (an unbounded $lookup or a
+    pipeline scanning every document in a large collection with no
+    real limit); a closed set of vetted report types with real,
+    bounded parameters is the safe version of the same idea."""
+    name: str
+    reportType: Literal["revenue_by_property", "maintenance_by_category", "occupancy_trend"]
+    propertyId: Optional[str] = None
+    startDate: Optional[str] = None
+    endDate: Optional[str] = None
+
 # ---------- Workflows ----------
 
 class WorkflowAction(BaseModel):
