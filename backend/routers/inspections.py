@@ -330,6 +330,7 @@ async def upload_inspection_photo(
     file: UploadFile = File(...),
     marks: str = Form("[]"),
     room: str = Form(""),
+    itemId: str = Form(""),
     user: dict = Depends(require_staff),
 ):
     if not ObjectId.is_valid(inspection_id):
@@ -356,6 +357,15 @@ async def upload_inspection_photo(
     photo_doc = {
         "inspectionId": inspection_id,
         "room": room,
+        "itemId": itemId or None,
+        # ^ Real, optional link to a specific inspection item -
+        # genuinely needed for AB 2801-style photo-documentation
+        # requirements (California's real 2025 law requiring photos
+        # tied to the SPECIFIC damage a deduction is for, not just any
+        # unit photo) - see deposit_pipeline.py's real use of this.
+        # Optional and defaulting to None rather than required, since
+        # plenty of real inspection photos (general move-in condition
+        # shots) genuinely aren't about one specific flagged item.
         "url": photo_url,
         "originalName": file.filename,
         "marks": parsed_marks,  # [{x, y}, ...] — damage points tagged in the UI

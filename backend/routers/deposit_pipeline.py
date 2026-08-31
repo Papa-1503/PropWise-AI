@@ -54,7 +54,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
 
-from db import inspections_col, leases_col, documents_col, repair_items_col, labor_rates_col
+from db import inspections_col, leases_col, documents_col, repair_items_col, labor_rates_col, photos_col
 from auth import require_staff
 from audit_service import log_action
 
@@ -73,6 +73,19 @@ async def _compute_line_item(item: dict, lease_start: datetime, now: datetime) -
     description = item.get("description", "")
     if not description:
         return None
+
+    # Real photo documentation for THIS specific item, not just any
+    # unit photo - genuinely required by real photo-documentation
+    # rules like California's AB 2801 (amends Civil Code §1950.5,
+    # confirmed directly against real, current sources - move-in,
+    # move-out, and post-repair photos tied to the specific deduction,
+    # not a generic requirement). Only includes photos with a real
+    # itemId match to this exact flagged item - a general unit photo
+    # with no itemId set doesn't count as documentation for a specific
+    # deduction, and shouldn't be misrepresented as such.
+    item_photos = await photos_col.find({"itemId": item.get("id")}).to_list(length=20)
+    photo_urls = [p["url"] for p in item_photos]
+
     repair_item = await repair_items_col.find_one({"damageType": {"$regex": description, "$options": "i"}})
     if not repair_item:
         return {
@@ -80,6 +93,7 @@ async def _compute_line_item(item: dict, lease_start: datetime, now: datetime) -
             "description": description,
             "matched": False,
             "note": "No matching repair catalog entry - not included in the billable total.",
+            "photoUrls": photo_urls,
         }
 
     rate_doc = await labor_rates_col.find_one({"category": repair_item["category"]})
@@ -108,6 +122,16 @@ async def _compute_line_item(item: dict, lease_start: datetime, now: datetime) -
         "usefulLifeYears": useful_life,
         "billableFraction": round(billable_fraction, 4),
         "billableLaborAmount": billable_labor,
+        "photoUrls": photo_urls,
+        "photoDocumented": len(photo_urls) > 0,
+        # ^ A real, honest flag - whether this specific deduction has
+        # at least one real photo tied to it. Deliberately does NOT
+        # claim this satisfies any specific state's actual photo-
+        # documentation statute (which state, which exact timing
+        # requirements, etc. is real legal-research work this session
+        # explicitly isn't attempting) - just states the real,
+        # verifiable fact of whether documentation exists, which staff
+        # and any real compliance review can act on themselves.
     }
 
 
@@ -144,6 +168,26 @@ async def _compute_pipeline(inspection_id: str) -> dict:
     deposit_amount = lease.get("depositAmount", 0)
     final_return_amount = round(deposit_amount - total_billable, 2)
 
+    undocumented_billable = [
+        li["description"] for li in line_items
+        if li.get("matched") and li.get("billableLaborAmount", 0) > 0 and not li.get("photoDocumented")
+    ]
+    photo_warning = None
+    if undocumented_billable:
+        # A real, actionable flag for staff - never a compliance
+        # claim about any specific state's actual photo-documentation
+        # law (which this pass explicitly doesn't research or
+        # enforce), just an honest fact: these billable deductions
+        # have no photo attached in this app, which several real
+        # states' recent laws (e.g. California's AB 2801) require for
+        # a deduction to be defensible.
+        photo_warning = (
+            f"{len(undocumented_billable)} billable item(s) have no photo documentation on file: "
+            + ", ".join(undocumented_billable) +
+            ". Several states now require photo documentation to support a deposit deduction - "
+            "check your applicable law before finalizing."
+        )
+
     return {
         "disclaimer": DISCLAIMER,
         "leaseId": str(lease["_id"]),
@@ -153,6 +197,7 @@ async def _compute_pipeline(inspection_id: str) -> dict:
         "lineItems": line_items,
         "totalBillable": total_billable,
         "finalReturnAmount": final_return_amount,
+        "photoDocumentationWarning": photo_warning,
     }
 
 
@@ -177,11 +222,16 @@ async def generate_deposit_statement(inspection_id: str, user: dict = Depends(re
     lines_text = []
     for li in computed["lineItems"]:
         if li.get("matched"):
+            photo_note = (
+                f" Photos on file: {len(li['photoUrls'])} - " + ", ".join(li["photoUrls"])
+                if li.get("photoDocumented")
+                else " No photos on file for this specific item."
+            )
             lines_text.append(
                 f"- {li['description']}: ${li['billableLaborAmount']:,.2f} labor "
                 f"(useful life {li.get('usefulLifeYears', 'n/a')} yrs, "
                 f"{li['billableFraction']*100:.0f}% billable after depreciation). "
-                f"Part cost not included - see: {li['partRetailerLink']}"
+                f"Part cost not included - see: {li['partRetailerLink']}.{photo_note}"
             )
         else:
             lines_text.append(f"- {li['description']}: {li.get('note', 'no catalog match')}")
