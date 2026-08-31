@@ -709,6 +709,23 @@ class BankLineCreate(BaseModel):
     amount: float
     matchedChargeId: Optional[str] = None
     category: Optional[str] = None
+    fundType: Literal["trust", "operating"] = "operating"
+    # ^ Trust accounting (Phase 5): most states require security
+    # deposits and other resident/owner-held funds to be kept legally
+    # segregated from a property manager's own operating funds, in a
+    # real, separate trust/escrow bank account - NOT the same
+    # checking account rent and vendor payments flow through. This
+    # field is the real, honest scope of what this app can safely do:
+    # let staff CLASSIFY which real bank-line entries belong to which
+    # bucket, and flag apparent commingling for a human to review
+    # (see routers/trust_accounting.py). It does NOT itself create or
+    # enforce a real segregated bank account, verify actual bank-level
+    # segregation, or replace state-specific trust accounting
+    # compliance requirements (which vary by state and require a
+    # licensed accountant/attorney to get right) - defaults to
+    # "operating" rather than silently guessing "trust" for anything
+    # unclassified, since assuming trust status for a transaction that
+    # isn't would be the more dangerous default.
 
 
 class BankLineMatch(BaseModel):
