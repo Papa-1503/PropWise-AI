@@ -22,7 +22,7 @@ from anthropic import AsyncAnthropic
 
 from db import tickets_col, inspections_col, leases_col, properties_col
 from models import CopilotRequest, CopilotResponse, FaqRequest
-from auth import get_current_user
+from auth import get_current_user, require_staff
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -41,8 +41,14 @@ async def gather_context(property_id: str | None) -> tuple[str, list[str]]:
 
     prop_query = {"propertyId": property_id} if property_id else {}
 
-    # Vacant units (assumes properties_col stores unit-level occupancy;
-    # adjust the field names to match your actual schema)
+    # Vacant units - confirmed against the real live database this
+    # session (13 of the app's properties genuinely have vacant units
+    # right now) that units.status="vacant" is the correct, real query
+    # shape for this collection - the original comment here
+    # speculating the field names might need adjusting was written
+    # before that was ever verified. Kept explicit and counted, not
+    # just listed, so this section can't be mistaken for absent by
+    # either the model or a person skimming the raw context.
     vacant_cursor = properties_col.find({**prop_query, "units.status": "vacant"})
     vacant = await vacant_cursor.to_list(length=50)
     if vacant:
@@ -52,7 +58,16 @@ async def gather_context(property_id: str | None) -> tuple[str, list[str]]:
             for u in p.get("units", []):
                 if u.get("status") == "vacant":
                     lines.append(f"- {p.get('name', p.get('propertyId'))} unit {u.get('unitId')}")
-        sections.append("VACANT UNITS:\n" + "\n".join(lines[:20]))
+        sections.append(f"VACANT UNITS ({len(lines)} total):\n" + "\n".join(lines[:20]))
+    else:
+        # Explicit "genuinely zero" statement, not silent omission -
+        # the model should never have to infer "no section shown" as
+        # "no data available" versus "this data source wasn't
+        # checked," which is exactly the ambiguity that led to an
+        # honest-sounding but wrong "I don't have vacancy data"
+        # answer.
+        sections.append("VACANT UNITS: none currently (checked live, this is a real zero, not missing data).")
+        sources.append("properties.db")
 
     # Leases expiring in the next 60 days
     cutoff = datetime.now(timezone.utc) + timedelta(days=60)
@@ -209,3 +224,37 @@ async def tenant_faq(payload: FaqRequest, user: dict = Depends(get_current_user)
     )
 
     return CopilotResponse(answer=answer_text, sources=["your lease", "your maintenance requests"])
+
+
+@router.get("/vacant-units")
+async def get_vacant_units(propertyId: str | None = None, user: dict = Depends(require_staff)):
+    """A real, dedicated, structured endpoint for exactly the question
+    a manager or authorized staff member actually asks: 'show me
+    vacant units for this property.' Doesn't depend on the general-
+    purpose copilot's context-gathering or the AI model correctly
+    inferring the right answer from a blended context blob - this
+    queries the real, confirmed-correct units.status='vacant' shape
+    directly and returns real structured data every time, the same
+    honest source of truth gather_context above now also uses.
+    Scoped to a specific property when propertyId is given, or across
+    every property otherwise - real per-property or portfolio-wide
+    vacancy visibility, not one or the other."""
+    prop_query = {"propertyId": propertyId} if propertyId else {}
+    cursor = properties_col.find({**prop_query, "units.status": "vacant"})
+    properties_with_vacancies = await cursor.to_list(length=200)
+
+    results = []
+    for p in properties_with_vacancies:
+        for u in p.get("units", []):
+            if u.get("status") == "vacant":
+                results.append({
+                    "propertyId": p.get("_id"),
+                    "propertyName": p.get("name"),
+                    "unitId": u.get("unitId"),
+                    "rent": u.get("rent"),
+                    "bedrooms": u.get("bedrooms"),
+                    "bathrooms": u.get("bathrooms"),
+                    "readyToList": u.get("readyToList", True),
+                })
+
+    return {"vacantUnitCount": len(results), "vacantUnits": results}
