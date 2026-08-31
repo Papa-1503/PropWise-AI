@@ -114,6 +114,11 @@ FORM_CATALOG = [
                 "description": "Real trust-fund balance and commingling check, based on how staff classify bank lines.",
                 "realEndpoint": "GET /api/trust-accounting/balance",
             },
+            {
+                "name": "Fixed asset / capital project",
+                "description": "Track a real property asset's expected end-of-life, or plan a larger capital project.",
+                "realEndpoint": "POST /api/fixed-assets",
+            },
         ],
     },
     {

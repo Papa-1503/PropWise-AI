@@ -35,6 +35,7 @@ import FormLibrary from "./FormLibrary";
 import Packages from "./Packages";
 import RubsBilling from "./RubsBilling";
 import TrustAccounting from "./TrustAccounting";
+import CapitalPlanning from "./CapitalPlanning";
 import CommunicationsPanel from "./CommunicationsPanel";
 import LeasesList from "./LeasesList";
 import ScreeningList from "./ScreeningList";
@@ -90,7 +91,7 @@ function TabNotFound() {
  * their own unit's property.
  */
 
-const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "communications", "leases", "screening", "leads", "staff", "schedules", "on-call", "reconciliation", "properties", "documents", "gallery", "feed", "ai", "forms", "packages", "rubs", "trust-accounting"];
+const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "communications", "leases", "screening", "leads", "staff", "schedules", "on-call", "reconciliation", "properties", "documents", "gallery", "feed", "ai", "forms", "packages", "rubs", "trust-accounting", "capital-planning"];
 const TENANT_TABS = ["documents", "maintenance", "payments", "gallery", "ai"];
 const TAB_ICONS = {
   dashboard: LayoutDashboard,
@@ -116,6 +117,7 @@ const TAB_ICONS = {
   packages: Package,
   rubs: Droplets,
   "trust-accounting": Landmark,
+  "capital-planning": Wrench,
 };
 
 /** Auth gate + layout for everything under /app. Renders LoginScreen
@@ -343,6 +345,7 @@ export default function App() {
             <Route path="reconciliation" element={<ReconciliationWrapper />} />
             <Route path="rubs" element={<RubsBillingWrapper />} />
             <Route path="trust-accounting" element={<TrustAccountingWrapper />} />
+            <Route path="capital-planning" element={<CapitalPlanningWrapper />} />
             <Route path="properties" element={<PropertyManagement />} />
             <Route path="documents" element={<Documents />} />
             <Route path="gallery" element={<GalleryWrapper />} />
@@ -392,6 +395,10 @@ function RubsBillingWrapper() {
 function TrustAccountingWrapper() {
   const { effectivePropertyId } = useOutletContext();
   return <TrustAccounting propertyId={effectivePropertyId} />;
+}
+function CapitalPlanningWrapper() {
+  const { effectivePropertyId } = useOutletContext();
+  return <CapitalPlanning propertyId={effectivePropertyId} />;
 }
 function PaymentsPanelWrapper() {
   const { effectivePropertyId } = useOutletContext();
