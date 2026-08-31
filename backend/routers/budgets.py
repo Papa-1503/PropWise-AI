@@ -65,7 +65,7 @@ async def create_budget(payload: BudgetCreate, user: dict = Depends(require_staf
     doc["_id"] = result.inserted_id
 
     await log_action(
-        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""),
         action="budget_created", target_type="budget", target_id=str(result.inserted_id),
         details={"propertyId": payload.propertyId, "category": payload.category, "period": payload.period, "budgetedAmount": payload.budgetedAmount},
     )
@@ -100,7 +100,7 @@ async def update_budget(budget_id: str, payload: BudgetUpdate, user: dict = Depe
         raise HTTPException(status_code=404, detail="Budget not found")
 
     await log_action(
-        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""),
         action="budget_updated", target_type="budget", target_id=budget_id,
         details=updates,
     )

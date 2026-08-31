@@ -158,7 +158,7 @@ async def record_payment(charge_id: str, payload: PaymentRecord, user: dict = De
     )
 
     await log_action(
-        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""),
         action="payment_recorded", target_type="payment", target_id=charge_id,
         details={"amountPaid": payload.amountPaid, "method": payload.method},
     )
@@ -257,7 +257,7 @@ async def create_checkout_session(charge_id: str, payload: CheckoutSessionCreate
 
     try:
         customer_id = await get_or_create_customer_async(
-            str(user["_id"]), user["email"], user.get("name", "")
+            str(user["id"]), user["email"], user.get("name", "")
         )
         result = await create_ach_payment_intent_async(
             customer_id,
@@ -308,7 +308,7 @@ async def create_bank_setup_intent(user: dict = Depends(get_current_user)):
     to."""
     try:
         customer_id = await get_or_create_customer_async(
-            str(user["_id"]), user["email"], user.get("name", "")
+            str(user["id"]), user["email"], user.get("name", "")
         )
         result = await create_setup_intent_async(customer_id)
     except StripeNotConfigured as exc:
@@ -316,7 +316,7 @@ async def create_bank_setup_intent(user: dict = Depends(get_current_user)):
     except StripePayError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
-    await users_col.update_one({"_id": user["_id"]}, {"$set": {"stripeCustomerId": customer_id}})
+    await users_col.update_one({"_id": user["id"]}, {"$set": {"stripeCustomerId": customer_id}})
     return result
 
 
@@ -329,7 +329,7 @@ async def enroll_autopay(payload: AutopayEnroll, user: dict = Depends(get_curren
     as late fees and preventive maintenance) once this enrollment step
     is confirmed working end-to-end."""
     await users_col.update_one(
-        {"_id": user["_id"]},
+        {"_id": user["id"]},
         {"$set": {"autopayPaymentMethodId": payload.paymentMethodId, "autopayEnabled": True}},
     )
     return {"autopayEnabled": True}
@@ -338,7 +338,7 @@ async def enroll_autopay(payload: AutopayEnroll, user: dict = Depends(get_curren
 @router.post("/autopay/cancel")
 async def cancel_autopay(user: dict = Depends(get_current_user)):
     await users_col.update_one(
-        {"_id": user["_id"]},
+        {"_id": user["id"]},
         {"$set": {"autopayEnabled": False}},
     )
     return {"autopayEnabled": False}

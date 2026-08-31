@@ -34,7 +34,7 @@ def serialize(doc: dict) -> dict:
 @router.post("")
 async def create_custom_view(payload: CustomViewCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
-    doc["ownerId"] = str(user["_id"])
+    doc["ownerId"] = str(user["id"])
     doc["createdAt"] = datetime.now(timezone.utc)
     result = await custom_views_col.insert_one(doc)
     doc["_id"] = result.inserted_id
@@ -43,7 +43,7 @@ async def create_custom_view(payload: CustomViewCreate, user: dict = Depends(req
 
 @router.get("")
 async def list_custom_views(entityType: str | None = None, user: dict = Depends(require_staff)):
-    query = {"ownerId": str(user["_id"])}
+    query = {"ownerId": str(user["id"])}
     if entityType:
         query["entityType"] = entityType
     views = await custom_views_col.find(query).sort("name", 1).to_list(length=200)
@@ -58,7 +58,7 @@ async def update_custom_view(view_id: str, payload: CustomViewUpdate, user: dict
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     result = await custom_views_col.find_one_and_update(
-        {"_id": ObjectId(view_id), "ownerId": str(user["_id"])}, {"$set": updates}, return_document=True
+        {"_id": ObjectId(view_id), "ownerId": str(user["id"])}, {"$set": updates}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="View not found")
@@ -69,7 +69,7 @@ async def update_custom_view(view_id: str, payload: CustomViewUpdate, user: dict
 async def delete_custom_view(view_id: str, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(view_id):
         raise HTTPException(status_code=400, detail="Invalid view ID")
-    result = await custom_views_col.delete_one({"_id": ObjectId(view_id), "ownerId": str(user["_id"])})
+    result = await custom_views_col.delete_one({"_id": ObjectId(view_id), "ownerId": str(user["id"])})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="View not found")
     return {"deleted": True}

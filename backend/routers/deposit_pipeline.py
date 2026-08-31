@@ -210,7 +210,7 @@ async def generate_deposit_statement(inspection_id: str, user: dict = Depends(re
     result = await documents_col.insert_one(doc)
 
     await log_action(
-        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""),
         action="deposit_statement_generated", target_type="lease", target_id=computed["leaseId"],
         details={"finalReturnAmount": computed["finalReturnAmount"], "totalBillable": computed["totalBillable"]},
     )

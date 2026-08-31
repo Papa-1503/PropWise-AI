@@ -114,7 +114,7 @@ async def adjust_supply_quantity(supply_id: str, payload: SupplyQuantityAdjust, 
     )
 
     await log_action(
-        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""),
         action="supply_quantity_adjusted", target_type="supply", target_id=supply_id,
         details={"delta": payload.delta, "newQuantity": new_quantity, "note": payload.note},
     )
@@ -187,7 +187,7 @@ async def order_supply(supply_id: str, user: dict = Depends(require_staff)):
     order_doc["_id"] = result.inserted_id
 
     await log_action(
-        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""),
         action="supply_order_sent", target_type="supply", target_id=supply_id,
         details={"vendorId": supply["vendorId"], "quantity": order_doc["quantity"]},
     )

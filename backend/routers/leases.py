@@ -113,7 +113,7 @@ async def create_lease(payload: LeaseCreate, user: dict = Depends(require_staff)
     doc["_id"] = result.inserted_id
 
     await log_action(
-        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""),
         action="lease_created", target_type="lease", target_id=str(result.inserted_id),
         details={"propertyId": doc.get("propertyId"), "unitId": doc.get("unitId"), "residentName": doc.get("residentName")},
     )
@@ -148,7 +148,7 @@ async def update_lease(lease_id: str, payload: LeaseUpdate, user: dict = Depends
         raise HTTPException(status_code=404, detail="Lease not found")
 
     await log_action(
-        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""),
         action="lease_updated", target_type="lease", target_id=lease_id,
         details={"fields": list(updates.keys())},
     )
@@ -303,7 +303,7 @@ async def update_insurance_policy(lease_id: str, payload: InsurancePolicyUpdate,
         raise HTTPException(status_code=404, detail="Lease not found")
 
     await log_action(
-        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""),
         action="insurance_policy_updated", target_type="lease", target_id=lease_id,
         details={k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in updates.items()},
     )
@@ -343,7 +343,7 @@ async def upload_insurance_proof(
     )
 
     await log_action(
-        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""),
         action="insurance_proof_uploaded", target_type="lease", target_id=lease_id,
     )
 
@@ -423,7 +423,7 @@ async def offer_renewal_incentive(lease_id: str, payload: RenewalIncentiveOffer,
         )
 
     await log_action(
-        actor_id=str(user["_id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""),
         action="renewal_incentive_offered", target_type="lease", target_id=lease_id,
         details={"description": payload.description},
     )

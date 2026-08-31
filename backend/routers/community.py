@@ -66,7 +66,7 @@ async def list_posts(propertyId: str | None = None, user: dict = Depends(get_cur
         raise HTTPException(status_code=400, detail="No property to show a board for.")
     cursor = community_posts_col.find({"propertyId": property_id}).sort("createdAt", -1).limit(200)
     posts = await cursor.to_list(length=200)
-    return {"posts": [await serialize_post(p, str(user["_id"])) for p in posts]}
+    return {"posts": [await serialize_post(p, str(user["id"])) for p in posts]}
 
 
 @router.post("")
@@ -80,7 +80,7 @@ async def create_post(payload: CommunityPostCreate, propertyId: str | None = Non
 
     doc = {
         "propertyId": property_id,
-        "authorId": str(user["_id"]),
+        "authorId": str(user["id"]),
         "authorName": user.get("name", "Resident"),
         "content": payload.content,
         "category": payload.category,
@@ -90,7 +90,7 @@ async def create_post(payload: CommunityPostCreate, propertyId: str | None = Non
     }
     result = await community_posts_col.insert_one(doc)
     doc["_id"] = result.inserted_id
-    return await serialize_post(doc, str(user["_id"]))
+    return await serialize_post(doc, str(user["id"]))
 
 
 @router.post("/{post_id}/react")
@@ -101,7 +101,7 @@ async def toggle_reaction(post_id: str, user: dict = Depends(get_current_user)):
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    user_id = str(user["_id"])
+    user_id = str(user["id"])
     reactors = post.get("reactorIds", [])
     if user_id in reactors:
         await community_posts_col.update_one({"_id": ObjectId(post_id)}, {"$pull": {"reactorIds": user_id}})
@@ -135,7 +135,7 @@ async def add_comment(post_id: str, payload: CommunityCommentCreate, user: dict 
         raise HTTPException(status_code=404, detail="Post not found")
 
     comment = {
-        "authorId": str(user["_id"]),
+        "authorId": str(user["id"]),
         "authorName": user.get("name", "Resident"),
         "content": payload.content,
         "createdAt": datetime.now(timezone.utc),
@@ -145,7 +145,7 @@ async def add_comment(post_id: str, payload: CommunityCommentCreate, user: dict 
         {"$push": {"comments": comment}},
     )
 
-    if post["authorId"] != str(user["_id"]):
+    if post["authorId"] != str(user["id"]):
         await notifications_service.notify_user(
             post["authorId"],
             type="general",
