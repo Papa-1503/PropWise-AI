@@ -48,7 +48,14 @@ sandbox)
   test cases. ⚙️ Needs a real Twilio number purchased/configured in
   the Twilio console, pointed at this webhook, plus
   `TWILIO_AUTH_TOKEN` set on Render.
-- **❌ Call recording + transcription**: not built.
+- **✅ Call recording + transcription**: built and pushed this
+  session — real dual-channel recording on the existing after-hours
+  Dial verb, a real Twilio recordingStatusCallback webhook (correctly
+  signature-protected, same fail-closed design as /voice), real
+  transcription requested via Twilio's own built-in API, and a
+  manager-facing call-log view. Verified with functional tests of the
+  actual business logic (status filtering, transcription request,
+  transcript matching).
 - **✅ Caller-ID-to-tenant matching**: built and pushed this session —
   a real phone_utils.normalize_phone() helper solving the actual
   mismatch (Twilio's E.164 caller ID vs. staff-entered free-form
