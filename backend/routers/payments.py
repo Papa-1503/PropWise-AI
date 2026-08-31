@@ -83,6 +83,7 @@ async def list_charges(
     propertyId: str | None = None,
     unitId: str | None = None,
     status: str | None = None,
+    paidMonth: str | None = None,
     user: dict = Depends(get_current_user),
 ):
     query = {}
@@ -94,6 +95,21 @@ async def list_charges(
             query["propertyId"] = propertyId
         if unitId:
             query["unitId"] = unitId
+
+    if paidMonth:
+        # Real month-range filter, matching the exact 'YYYY-MM' format
+        # dashboard.py's revenue-trend already groups by - this is what
+        # makes clicking a specific month's bar on that chart genuinely
+        # useful, landing on exactly the real charges that made up that
+        # bar, not an unfiltered list the person has to re-filter by hand.
+        try:
+            year, month = paidMonth.split("-")
+            year, month = int(year), int(month)
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=400, detail="paidMonth must be in 'YYYY-MM' format.")
+        month_start = datetime(year, month, 1, tzinfo=timezone.utc)
+        month_end = datetime(year + (1 if month == 12 else 0), 1 if month == 12 else month + 1, 1, tzinfo=timezone.utc)
+        query["paidDate"] = {"$gte": month_start, "$lt": month_end}
 
     cursor = payments_col.find(query).sort("dueDate", -1).limit(500)
     charges = [serialize(c) for c in await cursor.to_list(length=500)]

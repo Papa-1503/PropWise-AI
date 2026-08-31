@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useId, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import { Building2, Plus, X, Pencil, Search, Settings2 } from "lucide-react";
 import { useToast } from "./ToastContext";
@@ -364,6 +365,14 @@ export default function PropertyManagement() {
   const [rentRulesFor, setRentRulesFor] = useState(null); // property | null
   const [search, setSearch] = useState("");
   const { authFetch } = useAuth();
+  // Real status filter, driven by a real URL query param
+  // (?status=vacant|occupied|maintenance_hold) - this is what makes
+  // the Dashboard's occupancy chart segments genuinely clickable
+  // links rather than static visuals: clicking "Vacant" navigates
+  // here with ?status=vacant already in the URL, and this page reads
+  // it directly rather than requiring a second manual filter step.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const statusFilter = searchParams.get("status");
 
   const fetchProperties = useCallback(async () => {
     setLoading(true);
@@ -407,6 +416,19 @@ export default function PropertyManagement() {
 
   return (
     <div className="max-w-2xl mx-auto">
+      {statusFilter && (
+        <div className="flex items-center justify-between bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2 mb-3 text-sm">
+          <span className="text-indigo-700">
+            Showing only <strong>{statusFilter.replace("_", " ")}</strong> units
+          </span>
+          <button
+            onClick={() => setSearchParams({})}
+            className="text-indigo-600 underline text-xs font-medium"
+          >
+            Clear filter
+          </button>
+        </div>
+      )}
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-lg font-semibold">Properties</h2>
         <button
@@ -470,17 +492,32 @@ export default function PropertyManagement() {
                 )}
               </p>
               <div className="flex flex-wrap gap-1.5">
-                {(p.units || []).map((u) => (
-                  <button
-                    key={u.unitId}
-                    onClick={() => setEditingUnit({ property: p, unit: u })}
-                    className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:border-indigo-300"
-                    title="Click to edit rent/bed/bath"
-                  >
-                    {u.unitId}
-                    <Pencil size={9} />
-                  </button>
-                ))}
+                {(p.units || [])
+                  .filter((u) => !statusFilter || u.status === statusFilter)
+                  .map((u) => {
+                    // Same real 3-status color scheme as the Dashboard's
+                    // occupancy chart (OCCUPANCY_COLORS in Dashboard.jsx) -
+                    // a unit's status reads the same way wherever it's shown.
+                    const statusStyle = {
+                      occupied: "bg-indigo-50 text-indigo-700 border-indigo-200",
+                      vacant: "bg-slate-50 text-slate-600 border-slate-200",
+                      maintenance_hold: "bg-amber-50 text-amber-700 border-amber-200",
+                    }[u.status] || "bg-slate-50 text-slate-600 border-slate-200";
+                    return (
+                      <button
+                        key={u.unitId}
+                        onClick={() => setEditingUnit({ property: p, unit: u })}
+                        className={`flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border hover:border-indigo-300 ${statusStyle}`}
+                        title={`${u.status?.replace("_", " ") || "unknown"} — click to edit rent/bed/bath`}
+                      >
+                        {u.unitId}
+                        <Pencil size={9} />
+                      </button>
+                    );
+                  })}
+                {statusFilter && (p.units || []).every((u) => u.status !== statusFilter) && (
+                  <span className="text-[11px] text-slate-400 italic">No {statusFilter.replace("_", " ")} units here</span>
+                )}
               </div>
             </div>
           ))}

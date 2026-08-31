@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import { API_BASE } from "./config";
 import EmptyState from "./EmptyState";
@@ -72,12 +73,20 @@ export default function PaymentsPanel({ propertyId }) {
   const [filter, setFilter] = useState("all");
   const { authFetch, user, getPropertyName } = useAuth();
   const isStaff = user?.role === "staff";
+  // Real month filter, driven by a real URL param (?paidMonth=YYYY-MM) -
+  // this is what makes the Dashboard's revenue-by-month bar chart
+  // genuinely clickable: clicking a specific month's bar navigates here
+  // with that exact month already applied, landing on the real charges
+  // that made up that bar rather than an unfiltered list.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const paidMonth = searchParams.get("paidMonth");
 
   const fetchCharges = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
       if (propertyId) params.set("propertyId", propertyId);
+      if (paidMonth) params.set("paidMonth", paidMonth);
       const res = await authFetch(`${API_BASE}/payments?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
@@ -86,7 +95,7 @@ export default function PaymentsPanel({ propertyId }) {
     } finally {
       setLoading(false);
     }
-  }, [propertyId, authFetch]);
+  }, [propertyId, paidMonth, authFetch]);
 
   useEffect(() => {
     fetchCharges();
@@ -105,6 +114,19 @@ export default function PaymentsPanel({ propertyId }) {
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5">
+      {paidMonth && (
+        <div className="flex items-center justify-between bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2 mb-3 text-sm">
+          <span className="text-indigo-700">
+            Showing charges paid in <strong>{paidMonth}</strong>
+          </span>
+          <button
+            onClick={() => setSearchParams((prev) => { const p = new URLSearchParams(prev); p.delete("paidMonth"); return p; })}
+            className="text-indigo-600 underline text-xs font-medium"
+          >
+            Clear filter
+          </button>
+        </div>
+      )}
       <div className="flex items-center justify-between mb-1">
         <h2 className="text-lg font-semibold">Payments</h2>
         <span className="text-xs text-slate-500">${totalOutstanding.toLocaleString()} outstanding</span>

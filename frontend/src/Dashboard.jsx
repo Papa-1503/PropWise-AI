@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import { API_BASE } from "./config";
 import AffirmationBanner from "./AffirmationBanner";
@@ -40,6 +41,7 @@ function StatCard({ label, value, hint, tone = "neutral" }) {
 const OCCUPANCY_COLORS = ["#6366f1", "#e2e8f0", "#f59e0b"]; // occupied, vacant, maintenance hold
 
 function OccupancyChart({ occupied, vacant, maintenanceHold }) {
+  const navigate = useNavigate();
   const total = occupied + vacant + maintenanceHold;
   if (total === 0) return null;
   // All three real statuses shown, not just occupied/vacant — a unit on
@@ -50,24 +52,52 @@ function OccupancyChart({ occupied, vacant, maintenanceHold }) {
     { name: "Vacant", value: vacant },
     { name: "Maintenance hold", value: maintenanceHold },
   ].filter((d) => d.value > 0);
+  // Real navigation targets per segment, not the same destination for
+  // all three: occupied/vacant land on Properties with the matching
+  // real status filter (?status=occupied|vacant, PropertyManagement.jsx),
+  // since that's the actual place per-unit status lives and is
+  // browsable; maintenance hold goes to Maintenance itself, since a
+  // unit on hold almost always means there's a real open ticket to
+  // look at, not just a status label to inspect.
+  const segmentTarget = (name) => {
+    if (name === "Occupied") return "/app/properties?status=occupied";
+    if (name === "Vacant") return "/app/properties?status=vacant";
+    return "/app/maintenance";
+  };
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-4">
       <h3 className="text-sm font-semibold text-slate-800 mb-2">Occupancy</h3>
       <ResponsiveContainer width="100%" height={200}>
         <PieChart>
-          <Pie data={data} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value">
+          <Pie
+            data={data}
+            cx="50%"
+            cy="50%"
+            innerRadius={50}
+            outerRadius={80}
+            paddingAngle={3}
+            dataKey="value"
+            onClick={(d) => navigate(segmentTarget(d.name))}
+            cursor="pointer"
+          >
             {data.map((d, i) => (
               <Cell key={i} fill={OCCUPANCY_COLORS[["Occupied", "Vacant", "Maintenance hold"].indexOf(d.name)]} />
             ))}
           </Pie>
-          <Tooltip formatter={(v) => `${v} units`} />
+          <Tooltip formatter={(v, name) => [`${v} units — click to view`, name]} />
         </PieChart>
       </ResponsiveContainer>
       <div className="flex justify-center flex-wrap gap-4 mt-1 text-xs">
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />Occupied ({occupied})</span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-slate-200" />Vacant ({vacant})</span>
+        <button onClick={() => navigate(segmentTarget("Occupied"))} className="flex items-center gap-1.5 hover:underline">
+          <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />Occupied ({occupied})
+        </button>
+        <button onClick={() => navigate(segmentTarget("Vacant"))} className="flex items-center gap-1.5 hover:underline">
+          <span className="w-2.5 h-2.5 rounded-full bg-slate-200" />Vacant ({vacant})
+        </button>
         {maintenanceHold > 0 && (
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" />Maintenance hold ({maintenanceHold})</span>
+          <button onClick={() => navigate(segmentTarget("Maintenance hold"))} className="flex items-center gap-1.5 hover:underline">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />Maintenance hold ({maintenanceHold})
+          </button>
         )}
       </div>
     </div>
@@ -78,6 +108,7 @@ function RevenueTrendChart({ propertyId }) {
   const [months, setMonths] = useState([]);
   const [loading, setLoading] = useState(true);
   const { authFetch } = useAuth();
+  const navigate = useNavigate();
 
   useEffect(() => {
     let cancelled = false;
@@ -100,7 +131,9 @@ function RevenueTrendChart({ propertyId }) {
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-4">
-      <h3 className="text-sm font-semibold text-slate-800 mb-2">Revenue Collected by Month</h3>
+      <h3 className="text-sm font-semibold text-slate-800 mb-2">
+        Revenue Collected by Month <span className="text-[10px] font-normal text-slate-400">(click a bar for details)</span>
+      </h3>
       {loading ? (
         <p className="text-xs text-slate-400">Loading…</p>
       ) : months.length === 0 ? (
@@ -112,7 +145,13 @@ function RevenueTrendChart({ propertyId }) {
             <XAxis dataKey="month" tick={{ fontSize: 11 }} />
             <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
             <Tooltip formatter={(v) => `$${v.toLocaleString()}`} />
-            <Bar dataKey="collected" fill="#6366f1" radius={[4, 4, 0, 0]} />
+            <Bar
+              dataKey="collected"
+              fill="#6366f1"
+              radius={[4, 4, 0, 0]}
+              onClick={(d) => navigate(`/app/payments?paidMonth=${d.month}`)}
+              cursor="pointer"
+            />
           </BarChart>
         </ResponsiveContainer>
       )}
