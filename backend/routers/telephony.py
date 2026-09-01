@@ -194,7 +194,14 @@ async def voice_webhook(request: Request):
                 f"Incoming after-hours call from {matched_lease.get('residentName', 'a resident')}, "
                 f"unit {matched_lease.get('unitId', 'unknown')}. Connecting now."
             )
-        response.dial(tech_phone, record="record-from-answer-dual", recording_status_callback="/api/telephony/recording-status")
+        # BUG FIX (found by reading Twilio's own docs on recordingStatusCallback):
+        # this must be an absolute URL - Twilio can't resolve a relative path
+        # like "/api/telephony/recording-status" against the call it's already
+        # on. Call routing itself worked fine either way (that's a direct
+        # webhook response, not a callback Twilio has to resolve on its own),
+        # which is why this went unnoticed during the first successful test
+        # call - only the recording/transcript capture was silently broken.
+        response.dial(tech_phone, record="record-from-answer-dual", recording_status_callback="https://rentflow-ai.onrender.com/api/telephony/recording-status")
     else:
         response.say(
             "Thanks for calling. Nobody is currently available to take "
@@ -264,7 +271,7 @@ async def recording_status_callback(request: Request):
                 # never block the recording itself from being stored -
                 # the recording is the more important real artifact.
                 twilio_client.recordings(recording_sid).transcriptions.create(
-                    transcribe_callback="/api/telephony/transcription-status"
+                    transcribe_callback="https://rentflow-ai.onrender.com/api/telephony/transcription-status"
                 )
             except Exception as exc:
                 print(f"Failed to request transcription for recording {recording_sid}: {exc}")
