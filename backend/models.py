@@ -1106,3 +1106,33 @@ class AdminKeyPayload(BaseModel):
     rather than a URL query parameter — query params can leak via browser
     history, server access logs, and proxy/CDN caching."""
     key: str
+
+
+# ---------- Market Rent Comps ----------
+#
+# Genuinely missing before this: nothing in the codebase pulled real
+# comparable rental listings or computed pricing statistics from them.
+# Grounded in RentCast's actual comp data (market_rent_service.py) —
+# the AI recommendation reasoning is a plain-language explanation of
+# the real numbers below it, not an independent guess.
+
+class MarketRentComp(BaseModel):
+    address: Optional[str] = None
+    rent: float
+    bedrooms: Optional[float] = None
+    bathrooms: Optional[float] = None
+    squareFootage: Optional[float] = None
+    distanceMiles: Optional[float] = None
+    correlation: Optional[float] = None  # RentCast's own similarity score, 0-1
+
+
+class MarketRentAnalysisResult(BaseModel):
+    compCount: int
+    meanRent: float
+    medianRent: float
+    minRent: float
+    maxRent: float
+    currentRent: Optional[float] = None
+    recommendedRent: float
+    recommendationReasoning: str
+    comps: list[MarketRentComp]
