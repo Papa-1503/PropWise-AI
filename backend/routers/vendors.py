@@ -1,20 +1,32 @@
 """
 Vendor endpoints.
 
-GET  /api/vendors?category=            -> list vendors, sortable by the client
-POST /api/vendors                      -> create a vendor record (staff)
+GET   /api/vendors?category=            -> list vendors, sortable by the client
+GET   /api/vendors/recommended?category= -> composite-scored ranking
+GET   /api/vendors/expiring-compliance   -> vendors with insurance/license
+                                             expiring within a window
+POST  /api/vendors                      -> create a vendor record (staff)
+PATCH /api/vendors/:id                   -> update a vendor (rating, insurance/
+                                             license, active status, etc.)
+POST  /api/vendors/bids                  -> record a quote gathered by phone/
+                                             email for a ticket (staff-entered,
+                                             not vendor self-service — vendors
+                                             have no login in this app)
+GET   /api/vendors/bids?ticketId=         -> compare recorded bids for a ticket,
+                                             cheapest first
 PATCH /api/maintenance/tickets/:id/assign-vendor -> assign a vendor to a ticket
 
 See the NOTE in models.py: distance/arrival numbers here are manually
 maintained on the vendor record, not computed from real addresses.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
 
-from db import vendors_col, tickets_col
-from models import VendorCreate, VendorAssign
+from db import vendors_col, tickets_col, vendor_bids_col
+from models import VendorCreate, VendorUpdate, VendorAssign, VendorBidCreate
+from date_utils import parse_date_utc
 from auth import require_staff
 import notifications_service
 
@@ -23,6 +35,9 @@ router = APIRouter(prefix="/api/vendors", tags=["vendors"])
 
 def serialize(v: dict) -> dict:
     v["id"] = str(v.pop("_id"))
+    for field in ("insuranceExpiresDate", "licenseExpiresDate", "createdAt"):
+        if isinstance(v.get(field), datetime):
+            v[field] = v[field].isoformat()
     return v
 
 
@@ -105,10 +120,72 @@ async def recommended_vendors(category: str, user: dict = Depends(require_staff)
 @router.post("")
 async def create_vendor(payload: VendorCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    for field in ("insuranceExpiresDate", "licenseExpiresDate"):
+        if doc.get(field):
+            doc[field] = parse_date_utc(doc[field])
     doc["createdAt"] = datetime.now(timezone.utc)
     result = await vendors_col.insert_one(doc)
     doc["_id"] = result.inserted_id
     return serialize(doc)
+
+
+@router.patch("/{vendor_id}")
+async def update_vendor(vendor_id: str, payload: VendorUpdate, user: dict = Depends(require_staff)):
+    if not ObjectId.is_valid(vendor_id):
+        raise HTTPException(status_code=400, detail="Invalid vendor ID")
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    for field in ("insuranceExpiresDate", "licenseExpiresDate"):
+        if field in updates:
+            updates[field] = parse_date_utc(updates[field])
+    result = await vendors_col.find_one_and_update(
+        {"_id": ObjectId(vendor_id)}, {"$set": updates}, return_document=True
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    return serialize(result)
+
+
+@router.get("/expiring-compliance")
+async def expiring_compliance(withinDays: int = 30, user: dict = Depends(require_staff)):
+    """Vendors whose insurance or license expires within the given window.
+    An already-expired vendor (expiresDate in the past) is deliberately
+    excluded from this list — that's a bigger, already-happened problem
+    a "coming up soon" reminder isn't the right way to surface."""
+    now = datetime.now(timezone.utc)
+    cutoff = now + timedelta(days=withinDays)
+    cursor = vendors_col.find({
+        "active": True,
+        "$or": [
+            {"insuranceExpiresDate": {"$lte": cutoff, "$gte": now}},
+            {"licenseExpiresDate": {"$lte": cutoff, "$gte": now}},
+        ],
+    })
+    vendors = await cursor.to_list(length=200)
+    return {"vendors": [serialize(v) for v in vendors], "withinDays": withinDays}
+
+
+@router.post("/bids")
+async def create_bid(payload: VendorBidCreate, user: dict = Depends(require_staff)):
+    if not ObjectId.is_valid(payload.vendorId):
+        raise HTTPException(status_code=400, detail="Invalid vendor ID")
+    vendor = await vendors_col.find_one({"_id": ObjectId(payload.vendorId)})
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    doc = payload.model_dump()
+    doc["vendorName"] = vendor["name"]
+    doc["createdAt"] = datetime.now(timezone.utc)
+    result = await vendor_bids_col.insert_one(doc)
+    doc["_id"] = result.inserted_id
+    return serialize(doc)
+
+
+@router.get("/bids")
+async def list_bids(ticketId: str, user: dict = Depends(require_staff)):
+    cursor = vendor_bids_col.find({"ticketId": ticketId}).sort("quotedCost", 1)
+    bids = await cursor.to_list(length=100)
+    return {"bids": [serialize(b) for b in bids]}
 
 
 # Mounted under /api/maintenance/tickets to keep the ticket update in one
