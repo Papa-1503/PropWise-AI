@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from db import ensure_indexes
 from routers import inspections, maintenance, ai_copilot, properties, leases, dashboard, auth, ai_actions, vendors, email_test, payments, notifications, social
 from routers import condition_reports
+from routers import market_rent
 from routers import admin
 from routers import leads
 from routers import search
@@ -112,6 +113,7 @@ app.include_router(ai_actions.router)
 app.include_router(vendors.router)
 app.include_router(vendors.ticket_assign_router)
 app.include_router(condition_reports.router)
+app.include_router(market_rent.router)
 app.include_router(email_test.router)
 app.include_router(payments.router)
 app.include_router(notifications.router)
