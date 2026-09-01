@@ -1136,3 +1136,32 @@ class MarketRentAnalysisResult(BaseModel):
     recommendedRent: float
     recommendationReasoning: str
     comps: list[MarketRentComp]
+
+
+# ---------- Tour Scheduling ----------
+#
+# Genuinely missing before this: leads.py only ever tracked THAT a tour
+# happened after the fact (a touredAt timestamp on status change) —
+# nothing let a prospect actually book one. This is self-service by
+# design (no auth required to view slots or book, matching
+# create_lead's existing public pattern) since a virtual/self-guided
+# tour is exactly the use case where a prospect shouldn't need an
+# account just to see a unit.
+
+class TourSlotCreate(BaseModel):
+    propertyId: str
+    unitId: Optional[str] = None  # None = a general property tour, not one specific unit
+    startTime: str  # ISO datetime string
+    endTime: str
+    capacity: int = Field(gt=0, default=1)  # self-guided tours can allow multiple simultaneous bookings
+    tourType: Literal["staff_led", "self_guided"] = "self_guided"
+
+
+class TourBookingCreate(BaseModel):
+    """Public — no staff auth. name/email/phone are the prospect's own
+    info, used to create or link a lead record so a booked tour feeds
+    directly into the existing leads pipeline rather than living in a
+    separate, disconnected booking system."""
+    name: str
+    email: str
+    phone: Optional[str] = None
