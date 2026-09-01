@@ -24,11 +24,19 @@ silent no-op.
 """
 from datetime import datetime, timezone
 import os
+from io import BytesIO
+from xml.sax.saxutils import escape as _xml_escape
 
 from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.responses import StreamingResponse
 from bson import ObjectId
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.units import inch
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-from db import payments_col, users_col, late_notices_col
+from db import payments_col, users_col, late_notices_col, properties_col, leases_col
 from date_utils import parse_date_utc
 from models import ChargeCreate, PaymentRecord, CheckoutSessionCreate, PaymentReturn, AutopayEnroll
 from auth import require_staff, get_current_user
@@ -43,6 +51,18 @@ from stripe_service import (
 )
 from audit_service import log_action
 import notifications_service
+
+
+def _pdf_text(value) -> str:
+    """Same escaping helper as inspections.py's _pdf_text, duplicated
+    here rather than imported across router files — ReportLab's
+    Paragraph() interprets input as a small HTML-like markup language,
+    so any user-controlled text (resident name, property name/address,
+    charge description) must be escaped before use, or a value
+    containing something like a stray '<' could crash PDF generation
+    entirely, exactly as inspections.py's own comment documents from a
+    real live-testing incident."""
+    return _xml_escape(str(value) if value is not None else "")
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
 
@@ -416,3 +436,112 @@ async def list_late_notices(propertyId: str | None = None, unitId: str | None = 
         if isinstance(n.get("createdAt"), datetime):
             n["createdAt"] = n["createdAt"].isoformat()
     return {"notices": notices}
+
+
+@router.get("/{charge_id}/invoice-pdf")
+async def generate_invoice_pdf(charge_id: str, user: dict = Depends(get_current_user)):
+    """
+    Downloadable invoice for one charge — the building/property name and
+    address appear as a real letterhead, and the resident's name is
+    resolved from their actual lease record, not left as a raw ID the
+    way inspections.py's PDF currently shows for propertyId (a real,
+    separate gap in that endpoint, left as-is here rather than expanded
+    into an unrelated fix).
+
+    Same tenant-ownership check as /checkout above — a tenant can only
+    ever download their own unit's invoice.
+    """
+    if not ObjectId.is_valid(charge_id):
+        raise HTTPException(status_code=400, detail="Invalid charge ID")
+    charge = await payments_col.find_one({"_id": ObjectId(charge_id)})
+    if not charge:
+        raise HTTPException(status_code=404, detail="Charge not found")
+
+    if user["role"] == "tenant" and (
+        charge.get("propertyId") != user.get("propertyId")
+        or charge.get("unitId") != user.get("unitId")
+    ):
+        raise HTTPException(status_code=403, detail="Not your invoice")
+
+    # Property IDs in this app are sometimes real ObjectIds and sometimes
+    # plain seeded strings (e.g. "sunset-apartments") - same defensive
+    # lookup pattern already used throughout routers/properties.py, so
+    # this works correctly for both real and demo/seeded data rather
+    # than crashing on ObjectId(property_id) for a non-ObjectId string.
+    property_id = charge.get("propertyId")
+    property_query_id = ObjectId(property_id) if property_id and ObjectId.is_valid(property_id) else property_id
+    property_doc = await properties_col.find_one({"_id": property_query_id}) if property_id else None
+
+    lease = None
+    lease_id = charge.get("leaseId")
+    if lease_id and ObjectId.is_valid(lease_id):
+        lease = await leases_col.find_one({"_id": ObjectId(lease_id)})
+    if not lease:
+        # No leaseId on the charge, or the lease was deleted since - fall
+        # back to matching by property+unit rather than showing nothing,
+        # since most charges DO have a real current resident even if the
+        # charge itself predates leaseId being recorded on it.
+        lease = await leases_col.find_one({"propertyId": property_id, "unitId": charge.get("unitId")})
+
+    resident_name = lease.get("residentName") if lease else None
+    building_name = property_doc.get("name") if property_doc else None
+    building_address = property_doc.get("address") if property_doc else None
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.75 * inch, bottomMargin=0.75 * inch)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("TitleCustom", parent=styles["Title"], fontSize=18, spaceAfter=2)
+    building_style = ParagraphStyle("Building", parent=styles["Normal"], fontSize=12, textColor=colors.HexColor("#1e293b"), spaceAfter=1)
+    address_style = ParagraphStyle("Address", parent=styles["Normal"], fontSize=9, textColor=colors.HexColor("#64748b"), spaceAfter=10)
+    meta_style = ParagraphStyle("Meta", parent=styles["Normal"], textColor=colors.HexColor("#64748b"), fontSize=9)
+
+    due_date = charge.get("dueDate")
+    due_str = due_date.strftime("%B %d, %Y") if isinstance(due_date, datetime) else "Unknown"
+    amount_due = charge.get("amountDue", 0)
+    amount_paid = charge.get("amountPaid", 0)
+    balance = amount_due - amount_paid
+
+    story = [Paragraph("Invoice", title_style)]
+
+    # Real letterhead: the building issuing the invoice, not just a raw
+    # ID - this was the actual gap being fixed here.
+    if building_name:
+        story.append(Paragraph(_pdf_text(building_name), building_style))
+    if building_address:
+        story.append(Paragraph(_pdf_text(building_address), address_style))
+    else:
+        story.append(Spacer(1, 0.15 * inch))
+
+    story.append(Paragraph(
+        f"Unit: {_pdf_text(charge.get('unitId'))} &nbsp;|&nbsp; "
+        f"Resident: {_pdf_text(resident_name or 'Unknown')} &nbsp;|&nbsp; "
+        f"Due: {_pdf_text(due_str)}",
+        meta_style,
+    ))
+    story.append(Spacer(1, 0.3 * inch))
+
+    table_data = [
+        ["Description", "Amount"],
+        [_pdf_text(charge.get("description", "Charge")), f"${amount_due:,.2f}"],
+        ["Amount paid", f"${amount_paid:,.2f}"],
+        ["Balance", f"${balance:,.2f}"],
+    ]
+    table = Table(table_data, colWidths=[4.5 * inch, 1.7 * inch])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#14213d")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+    ]))
+    story.append(table)
+
+    doc.build(story)
+    buffer.seek(0)
+    safe_building = (building_name or "invoice").replace(" ", "_")
+    filename = f"invoice_{safe_building}_{charge.get('unitId', 'unit')}_{charge_id[-6:]}.pdf"
+    return StreamingResponse(
+        buffer, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
