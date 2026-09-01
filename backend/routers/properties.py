@@ -18,8 +18,8 @@ from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
 
 from db import properties_col, payments_col
-from datetime import datetime, timezone, timedelta
 from services.events import emit_event
+from datetime import datetime, timezone, timedelta
 from audit_service import log_action
 from auth import require_staff
 from models import PropertyCreate, PropertyUpdate, UnitStatusUpdate, UnitDetailsUpdate, UnitIn, OwnerAssign, RentRulesUpdate, TelephonyConfigUpdate
@@ -223,6 +223,20 @@ async def add_unit(property_id: str, payload: UnitIn, user: dict = Depends(requi
     )
     if not result:
         raise HTTPException(status_code=404, detail="Property not found")
+
+    # unit_created is defined as a real WorkflowTrigger event but had no
+    # actual call site anywhere — every other trigger event fires from a
+    # real router action already; this was the one gap.
+    try:
+        await emit_event("unit_created", {
+            "propertyId": property_id,
+            "unitId": payload.unitId,
+            "rent": payload.rent,
+            "bedrooms": payload.bedrooms,
+        })
+    except Exception as e:
+        print(f"Workflow dispatch failed: {e}")
+
     return serialize(result)
 
 
