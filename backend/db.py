@@ -16,12 +16,15 @@ db = client[DB_NAME]
 # Collections used across routers
 inspections_col = db["inspections"]
 photos_col = db["inspection_photos"]
+unit_baseline_photos_col = db["unit_baseline_photos"]
+condition_reports_col = db["condition_reports"]
 tickets_col = db["maintenance_tickets"]
 properties_col = db["properties"]
 leases_col = db["leases"]
 users_col = db["users"]
 ai_actions_col = db["ai_actions"]
 vendors_col = db["vendors"]
+vendor_bids_col = db["vendor_bids"]
 payments_col = db["payments"]
 notifications_col = db["notifications"]
 push_subscriptions_col = db["push_subscriptions"]
@@ -67,6 +70,11 @@ async def ensure_indexes():
     await users_col.create_index("email", unique=True)
     await ai_actions_col.create_index([("propertyId", 1), ("status", 1)])
     await vendors_col.create_index("category")
+    await vendors_col.create_index("insuranceExpiresDate", sparse=True)
+    await vendors_col.create_index("licenseExpiresDate", sparse=True)
+    await vendor_bids_col.create_index("ticketId")
+    await unit_baseline_photos_col.create_index([("propertyId", 1), ("unitId", 1), ("room", 1)])
+    await condition_reports_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])
     await payments_col.create_index([("propertyId", 1), ("unitId", 1), ("dueDate", 1)])
     await payments_col.create_index("status")
     await notifications_col.create_index([("userId", 1), ("read", 1), ("createdAt", -1)])
