@@ -390,12 +390,52 @@ class VendorCreate(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     active: bool = True
+    insuranceExpiresDate: Optional[str] = None  # ISO date string — feeds
+                                                  # GET /expiring-compliance
+    licenseNumber: Optional[str] = None
+    licenseExpiresDate: Optional[str] = None
+
+
+class VendorUpdate(BaseModel):
+    rating: Optional[float] = Field(default=None, ge=0, le=5)
+    distanceMiles: Optional[float] = None
+    avgArrivalHours: Optional[float] = None
+    baseCost: Optional[float] = Field(default=None, ge=0)
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    active: Optional[bool] = None
+    insuranceExpiresDate: Optional[str] = None
+    licenseNumber: Optional[str] = None
+    licenseExpiresDate: Optional[str] = None
+
+
+class VendorBidCreate(BaseModel):
+    """Staff-recorded quote gathered from a vendor by phone/email — NOT a
+    self-service vendor portal submission (vendors have no login in this
+    app). Lets staff compare multiple quotes on the same ticket before
+    assigning, rather than committing to the first vendor called."""
+    ticketId: str
+    vendorId: str
+    quotedCost: float = Field(ge=0)
+    quotedArrivalHours: Optional[float] = None
+    note: Optional[str] = None
 
 
 class VendorAssign(BaseModel):
     vendorId: str
     estimatedCost: Optional[float] = None
     estimatedArrivalHours: Optional[float] = None
+
+
+class ConditionReportResult(BaseModel):
+    """Distinct from this app's existing photo-issue-detection during
+    staff inspections (routers/inspections.py's analyze-photo) — that's
+    single-photo, staff-only, issue-list output. This is tenant-
+    submitted, compared against a move-in baseline, and produces a
+    numeric score."""
+    conditionScore: int = Field(ge=0, le=100)
+    summary: str
+    changes: list[dict] = Field(default_factory=list)
     note: Optional[str] = None
 
 
