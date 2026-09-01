@@ -68,11 +68,25 @@ def _validate_twilio_signature(request: Request, form_dict: dict, signature: str
         # every call, not silently accept unsigned ones.
         raise HTTPException(status_code=503, detail="Telephony not configured on this server.")
     validator = RequestValidator(token)
-    # Twilio signs the exact URL it POSTed to, including query string -
-    # str(request.url) reconstructs that from the live request rather
-    # than hardcoding it, so this stays correct if the deployed domain
-    # or path ever changes.
-    if not validator.validate(str(request.url), form_dict, signature):
+    # BUG FIX (found by checking the real audit log after two live test
+    # calls showed ZERO after_hours_call_routed entries - proof the
+    # webhook logic never got past this line): str(request.url) reflects
+    # the scheme our server actually SEES the request arrive on, not the
+    # scheme Twilio actually signed. Render terminates HTTPS and forwards
+    # internally over plain HTTP, and no proxy-header trust is configured
+    # (no --proxy-headers on the uvicorn start command, no
+    # ProxyHeadersMiddleware) - so request.url reports "http://...", while
+    # Twilio always signs the real public "https://..." URL it called.
+    # Validating against the wrong scheme fails EVERY signature check,
+    # rejecting every real call with a 403 before any routing logic runs.
+    # Rebuilding the URL from the known public domain (same approach
+    # already used for the recording/transcription callback URLs) sidesteps
+    # the scheme-detection problem entirely rather than depending on
+    # infrastructure-level proxy header configuration.
+    public_url = f"https://rentflow-ai.onrender.com{request.url.path}"
+    if request.url.query:
+        public_url += f"?{request.url.query}"
+    if not validator.validate(public_url, form_dict, signature):
         raise HTTPException(status_code=403, detail="Invalid Twilio signature.")
 
 
