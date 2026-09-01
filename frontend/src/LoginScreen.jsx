@@ -29,6 +29,15 @@ import { useAuth } from "./AuthContext";
  * for 5.02:1; the inactive tab text measured 4.34:1 (exact match to the
  * audit), now slate-600 for 6.92:1. Both clear the 4.5:1 AA threshold
  * with real margin.
+ *
+ * CHANGED Sept 1, 2026: background swapped to an animated Minneapolis
+ * night skyline (login-skyline-bg, see index.css) — a deliberate,
+ * site-specific "arriving at the door" moment rather than the plain
+ * dot-grid app-bg used everywhere else. Form card itself untouched
+ * apart from a deeper shadow (shadow-sm -> shadow-lg) to lift it off
+ * the busier background — none of the accessibility fixes above were
+ * touched, since the card remains solid white regardless of what's
+ * behind it.
  */
 export default function LoginScreen() {
   const { login, register } = useAuth();
@@ -59,10 +68,10 @@ export default function LoginScreen() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center app-bg px-4">
+    <div className="min-h-screen flex items-center justify-center login-skyline-bg px-4">
       <form
         onSubmit={handleSubmit}
-        className="bg-white border border-slate-200 rounded-xl p-9 w-full max-w-[340px] text-center shadow-sm"
+        className="bg-white border border-slate-200 rounded-xl p-9 w-full max-w-[340px] text-center shadow-lg"
       >
         <h1 className="text-2xl font-serif font-bold mb-1">PropWise AI</h1>
         <p className="text-xs text-slate-500 mb-5">Property operations &amp; resident tools</p>
