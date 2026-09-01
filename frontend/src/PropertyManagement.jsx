@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useId, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "./AuthContext";
-import { Building2, Plus, X, Pencil, Search, Settings2 } from "lucide-react";
+import { Building2, Plus, X, Pencil, Search, Settings2, Phone } from "lucide-react";
 import { useToast } from "./ToastContext";
 import { API_BASE } from "./config";
 
@@ -355,6 +355,116 @@ function RentRulesModal({ property, onClose, onSaved }) {
   );
 }
 
+function TelephonyModal({ property, onClose, onSaved }) {
+  const [twilioNumber, setTwilioNumber] = useState(property.twilioNumber ?? "");
+  const [afterHoursStart, setAfterHoursStart] = useState(property.afterHoursStart ?? "");
+  const [afterHoursEnd, setAfterHoursEnd] = useState(property.afterHoursEnd ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const { authFetch } = useAuth();
+  const { show: showToast } = useToast();
+  const idPrefix = useId();
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await authFetch(`${API_BASE}/properties/${property.id}/telephony`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          twilioNumber: twilioNumber.trim() === "" ? null : twilioNumber.trim(),
+          afterHoursStart: afterHoursStart === "" ? null : afterHoursStart,
+          afterHoursEnd: afterHoursEnd === "" ? null : afterHoursEnd,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "Couldn't save telephony settings.");
+      showToast(`Telephony settings saved for ${property.name}`, "success");
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err.message);
+      showToast(err.message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30 p-4">
+      <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-5">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-semibold">Telephony — {property.name}</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+            <X size={18} />
+          </button>
+        </div>
+        <p className="text-xs text-slate-500 mb-4">
+          Set the Twilio number that routes after-hours maintenance calls for this
+          building. Buy and configure the number itself in your Twilio console first
+          (Voice webhook → <code className="bg-slate-100 px-1 rounded">https://rentflow-ai.onrender.com/api/telephony/voice</code>,
+          method POST) — this just tells PropWise AI which number belongs to which
+          property once that's done.
+        </p>
+        <div className="space-y-3">
+          <div>
+            <label htmlFor={`${idPrefix}-number`} className="text-xs text-slate-500">
+              Twilio phone number
+            </label>
+            <input
+              id={`${idPrefix}-number`}
+              type="tel"
+              value={twilioNumber}
+              onChange={(e) => setTwilioNumber(e.target.value)}
+              placeholder="+17372324091"
+              className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label htmlFor={`${idPrefix}-start`} className="text-xs text-slate-500">
+                After-hours start
+              </label>
+              <input
+                id={`${idPrefix}-start`}
+                type="time"
+                value={afterHoursStart}
+                onChange={(e) => setAfterHoursStart(e.target.value)}
+                className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
+              />
+            </div>
+            <div>
+              <label htmlFor={`${idPrefix}-end`} className="text-xs text-slate-500">
+                After-hours end
+              </label>
+              <input
+                id={`${idPrefix}-end`}
+                type="time"
+                value={afterHoursEnd}
+                onChange={(e) => setAfterHoursEnd(e.target.value)}
+                className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
+              />
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-400">
+            Leave both times blank to treat every hour as after-hours (routes calls to
+            on-call staff around the clock).
+          </p>
+        </div>
+        {error && <p role="alert" className="text-xs text-rose-600 mt-3 bg-rose-50 border border-rose-200 rounded px-3 py-2">{error}</p>}
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="mt-4 w-full bg-slate-900 disabled:bg-slate-300 text-white text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-800"
+        >
+          {saving ? "Saving…" : "Save telephony settings"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function PropertyManagement() {
   const [properties, setProperties] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -363,6 +473,7 @@ export default function PropertyManagement() {
   const [addUnitTo, setAddUnitTo] = useState(null); // property | null
   const [editingUnit, setEditingUnit] = useState(null); // { property, unit } | null
   const [rentRulesFor, setRentRulesFor] = useState(null); // property | null
+  const [telephonyFor, setTelephonyFor] = useState(null); // property | null
   const [search, setSearch] = useState("");
   const { authFetch } = useAuth();
   // Real status filter, driven by a real URL query param
@@ -476,6 +587,13 @@ export default function PropertyManagement() {
                     Rent rules
                   </button>
                   <button
+                    onClick={() => setTelephonyFor(p)}
+                    className="flex items-center gap-1 text-[11px] text-indigo-700 hover:underline"
+                  >
+                    <Phone size={12} />
+                    Telephony
+                  </button>
+                  <button
                     onClick={() => setAddUnitTo(p)}
                     className="flex items-center gap-1 text-[11px] text-indigo-700 hover:underline"
                   >
@@ -542,6 +660,13 @@ export default function PropertyManagement() {
         <RentRulesModal
           property={rentRulesFor}
           onClose={() => setRentRulesFor(null)}
+          onSaved={fetchProperties}
+        />
+      )}
+      {telephonyFor && (
+        <TelephonyModal
+          property={telephonyFor}
+          onClose={() => setTelephonyFor(null)}
           onSaved={fetchProperties}
         />
       )}
