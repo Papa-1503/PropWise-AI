@@ -119,3 +119,11 @@ a, [role="button"] {
   background-clip: text;
   color: transparent;
 }
+
+.login-skyline-bg {
+  background-color: #0B1026;
+  background-image: url("/minneapolis-skyline-night.svg");
+  background-size: cover;
+  background-position: bottom center;
+  background-repeat: no-repeat;
+}
