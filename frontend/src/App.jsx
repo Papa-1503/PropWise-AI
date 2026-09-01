@@ -245,12 +245,12 @@ function AppGate() {
   );
 
   return (
-    <div className="min-h-screen app-bg lg:flex">
+    <div className="min-h-screen app-bg lg:flex lg:p-3">
       <CommandPalette propertyId={effectivePropertyId} open={paletteOpen} onOpenChange={setPaletteOpen} />
       <OnboardingTour active={user.role === "staff"} />
       {user.role === "tenant" && <WelcomeScreen userName={user.name} />}
       <PushSetup />
-      <a
+      
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-white focus:text-slate-900 focus:px-3 focus:py-2 focus:rounded-md focus:shadow-lg"
       >
@@ -265,39 +265,50 @@ function AppGate() {
         </div>
       )}
 
-      {/* Desktop sidebar */}
-      <aside className="hidden lg:flex lg:flex-col lg:w-60 lg:shrink-0 bg-white border-r border-slate-200 lg:sticky lg:top-0 lg:h-screen">
-        {sidebarContent}
-      </aside>
+      {/* Everything below sits inside a rounded panel on large screens, so
+          the dramatic navy skyline (app-bg, now covering the whole app,
+          not just login — see index.css) shows through as a visible frame
+          on every page rather than being invisible under the header/
+          sidebar/main, which together cover ~100% of the viewport on their
+          own. main itself stays on its normal light background, keeping
+          every existing text color exactly as legible as it always was —
+          the skyline is real chrome around the work, not painted behind
+          the text you're actually reading. */}
+      <div className="w-full flex-1 min-w-0 lg:flex lg:rounded-2xl lg:overflow-hidden lg:shadow-2xl lg:h-[calc(100vh-1.5rem)]">
+        {/* Desktop sidebar */}
+        <aside className="hidden lg:flex lg:flex-col lg:w-60 lg:shrink-0 bg-white border-r border-slate-200 lg:h-full lg:overflow-y-auto">
+          {sidebarContent}
+        </aside>
 
-      <div className="w-full flex-1 min-w-0">
-        <header className="bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 text-white px-4 lg:px-6 py-3 flex items-center justify-between gap-2 flex-wrap shadow-md">
-          <div className="flex items-center gap-3 min-w-0">
-            <button onClick={() => setMobileNavOpen(true)} className="lg:hidden p-1.5 -ml-1.5 rounded hover:bg-white/10 shrink-0">
-              <Menu size={20} />
-            </button>
-            <span className="font-serif font-bold text-lg lg:hidden truncate">PropWise AI</span>
-          </div>
-          <div className="flex items-center gap-2 text-sm shrink-0">
-            {user.role === "staff" && <BuildingSelector />}
-            {user.role === "staff" && (
-              <button
-                data-onboarding-target="search-button"
-                onClick={() => setPaletteOpen(true)}
-                className="flex items-center gap-1.5 text-xs bg-white/10 hover:bg-white/20 text-white border border-white/25 rounded-full px-3 py-1.5 shrink-0"
-              >
-                <Search size={13} />
-                <span className="hidden md:inline">Search</span>
-                <kbd className="hidden md:inline border border-white/30 rounded px-1 py-0.5 text-[10px]">Ctrl K</kbd>
+        <div className="w-full flex-1 min-w-0 lg:h-full lg:overflow-y-auto">
+          <header className="bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 text-white px-4 lg:px-6 py-3 flex items-center justify-between gap-2 flex-wrap shadow-md">
+            <div className="flex items-center gap-3 min-w-0">
+              <button onClick={() => setMobileNavOpen(true)} className="lg:hidden p-1.5 -ml-1.5 rounded hover:bg-white/10 shrink-0">
+                <Menu size={20} />
               </button>
-            )}
-            <NotificationBell />
-          </div>
-        </header>
+              <span className="font-serif font-bold text-lg lg:hidden truncate">PropWise AI</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm shrink-0">
+              {user.role === "staff" && <BuildingSelector />}
+              {user.role === "staff" && (
+                <button
+                  data-onboarding-target="search-button"
+                  onClick={() => setPaletteOpen(true)}
+                  className="flex items-center gap-1.5 text-xs bg-white/10 hover:bg-white/20 text-white border border-white/25 rounded-full px-3 py-1.5 shrink-0"
+                >
+                  <Search size={13} />
+                  <span className="hidden md:inline">Search</span>
+                  <kbd className="hidden md:inline border border-white/30 rounded px-1 py-0.5 text-[10px]">Ctrl K</kbd>
+                </button>
+              )}
+              <NotificationBell />
+            </div>
+          </header>
 
-        <main id="main-content" tabIndex={-1} className="px-4 lg:px-6 pb-10 pt-3">
-          <Outlet context={{ effectivePropertyId, userName: user.name }} />
-        </main>
+          <main id="main-content" tabIndex={-1} className="px-4 lg:px-6 pb-10 pt-3 bg-[#f6f3ec] min-h-screen lg:min-h-0">
+            <Outlet context={{ effectivePropertyId, userName: user.name }} />
+          </main>
+        </div>
       </div>
     </div>
   );
