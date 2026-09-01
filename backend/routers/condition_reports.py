@@ -1,9 +1,11 @@
 """
 Tenant photo-based condition monitoring.
 
-    POST /api/condition-reports/baseline           -> staff sets a move-in baseline photo for a unit/room
-    POST /api/condition-reports                     -> tenant submits a current photo for their own unit/room
-    GET  /api/condition-reports?propertyId=&unitId=  -> staff reviews all reports
+    POST /api/condition-reports/baseline               -> staff sets a move-in baseline photo for a unit/room
+    POST /api/condition-reports                         -> tenant submits a current photo for their own unit/room
+    GET  /api/condition-reports?propertyId=&unitId=      -> staff reviews all reports
+    GET  /api/condition-reports/health-score?propertyId=&unitId=  -> one unit's rolling condition health score
+    GET  /api/condition-reports/health-score/property?propertyId=  -> property-wide health score rollup
 
 Distinct from routers/inspections.py's analyze_photo — that's staff-only,
 single-photo issue detection during a scheduled inspection. This is
@@ -218,3 +220,102 @@ async def list_condition_reports(propertyId: str | None = None, unitId: str | No
         if isinstance(r.get("createdAt"), datetime):
             r["createdAt"] = r["createdAt"].isoformat()
     return {"reports": reports}
+
+
+def compute_health_score(reports: list[dict]) -> dict:
+    """
+    reports: any set of condition reports for one unit, ALREADY filtered
+    to conditionScore is not None (unscored reports — no baseline set
+    yet, or the AI comparison failed — contribute nothing real to a
+    health score and must never be silently treated as 0 or ignored-as-
+    100; they're excluded before this function ever sees them).
+
+    Only the most recent scored report PER ROOM counts toward the
+    current score — an old score from 4 months ago shouldn't out-vote a
+    room's real current condition. The second-most-recent report per
+    room (when one exists) becomes the trend comparison, so the score
+    can genuinely go up as well as down, not just decay over time.
+
+    Returns overallScore: None (not 0) when there's no data at all —
+    a health score with zero real inputs isn't "perfect," it's unknown.
+    """
+    latest_by_room: dict = {}
+    previous_by_room: dict = {}
+    for r in reports:  # reports must already be sorted newest-first
+        room = r["room"]
+        if room not in latest_by_room:
+            latest_by_room[room] = r
+        elif room not in previous_by_room:
+            previous_by_room[room] = r
+
+    if not latest_by_room:
+        return {"overallScore": None, "roomScores": {}, "trend": None, "roomsWithData": 0}
+
+    overall = round(sum(r["conditionScore"] for r in latest_by_room.values()) / len(latest_by_room), 1)
+
+    trend = None
+    comparable_rooms = set(latest_by_room) & set(previous_by_room)
+    if comparable_rooms:
+        prev_avg = sum(previous_by_room[room]["conditionScore"] for room in comparable_rooms) / len(comparable_rooms)
+        curr_avg = sum(latest_by_room[room]["conditionScore"] for room in comparable_rooms) / len(comparable_rooms)
+        trend = round(curr_avg - prev_avg, 1)
+
+    room_scores = {}
+    for room, r in latest_by_room.items():
+        reported_at = r["createdAt"]
+        room_scores[room] = {
+            "score": r["conditionScore"],
+            "reportedAt": reported_at.isoformat() if isinstance(reported_at, datetime) else reported_at,
+        }
+
+    return {"overallScore": overall, "roomScores": room_scores, "trend": trend, "roomsWithData": len(latest_by_room)}
+
+
+@router.get("/health-score")
+async def unit_health_score(propertyId: str, unitId: str, user: dict = Depends(require_staff)):
+    """One unit's rolling condition health score — the retention/
+    stickiness feature: this changes over time as new tenant photos come
+    in, giving staff a reason to check back beyond a one-time move-in
+    setup, unlike the market rent tool which is naturally an occasional-
+    use lookup."""
+    cursor = condition_reports_col.find(
+        {"propertyId": propertyId, "unitId": unitId, "conditionScore": {"$ne": None}}
+    ).sort("createdAt", -1).limit(500)
+    reports = await cursor.to_list(length=500)
+    result = compute_health_score(reports)
+    result["propertyId"] = propertyId
+    result["unitId"] = unitId
+    if result["overallScore"] is None:
+        result["note"] = (
+            "No scored condition reports yet for this unit — a health score needs at least "
+            "one room with a baseline photo and a compared tenant submission."
+        )
+    return result
+
+
+@router.get("/health-score/property")
+async def property_health_score(propertyId: str, user: dict = Depends(require_staff)):
+    """Property-wide rollup: averages each unit's own health score,
+    never averages raw per-room scores directly across units — a
+    5-room unit shouldn't get 5x the influence of a 1-room unit on the
+    property number."""
+    cursor = condition_reports_col.find(
+        {"propertyId": propertyId, "conditionScore": {"$ne": None}}
+    ).sort("createdAt", -1).limit(5000)
+    reports = await cursor.to_list(length=5000)
+
+    by_unit: dict = {}
+    for r in reports:
+        by_unit.setdefault(r["unitId"], []).append(r)
+
+    unit_scores = {unit_id: compute_health_score(unit_reports) for unit_id, unit_reports in by_unit.items()}
+    scored = [v["overallScore"] for v in unit_scores.values() if v["overallScore"] is not None]
+    property_score = round(sum(scored) / len(scored), 1) if scored else None
+
+    return {
+        "propertyId": propertyId,
+        "propertyHealthScore": property_score,
+        "unitsWithData": len(scored),
+        "units": unit_scores,
+        "note": None if property_score is not None else "No units at this property have scored condition reports yet.",
+    }
