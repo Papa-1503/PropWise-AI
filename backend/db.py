@@ -28,6 +28,7 @@ vendor_bids_col = db["vendor_bids"]
 payments_col = db["payments"]
 notifications_col = db["notifications"]
 push_subscriptions_col = db["push_subscriptions"]
+market_rent_analyses_col = db["market_rent_analyses"]
 posts_col = db["posts"]
 leads_col = db["leads"]
 documents_col = db["documents"]
@@ -118,3 +119,4 @@ async def ensure_indexes():
     await late_notices_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])
     await custom_views_col.create_index([("ownerId", 1), ("entityType", 1)])
     await packages_col.create_index([("propertyId", 1), ("pickedUp", 1), ("loggedAt", -1)])
+    await market_rent_analyses_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])
