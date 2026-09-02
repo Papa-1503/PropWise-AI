@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "./AuthContext";
 import EmptyState from "./EmptyState";
 import { Zap, Plus, X, Sparkles } from "lucide-react";
-
+import WorkflowRunFlow from "./WorkflowRunFlow";
 import { API_BASE } from "./config";
 import { parseWorkflowSentence } from "./workflowParser";
 
@@ -91,6 +91,7 @@ function ActionConfigFields({ action, onChange }) {
 function WorkflowRow({ workflow, onPublish, onPause, onDelete }) {
   const [busy, setBusy] = useState(false);
   const [health, setHealth] = useState(null);
+  const [runs, setRuns] = useState(null);
   const [showHealth, setShowHealth] = useState(false);
   const { authFetch } = useAuth();
 
@@ -112,6 +113,17 @@ function WorkflowRow({ workflow, onPublish, onPause, onDelete }) {
         if (res.ok) setHealth(await res.json());
       } catch {
         // leave health null — the UI below handles that as "couldn't load"
+      }
+    }
+    if (!runs) {
+      try {
+        const res = await authFetch(`${API_BASE}/workflows/${workflow.id}/runs`);
+        if (res.ok) {
+          const data = await res.json();
+          setRuns(data.runs || []);
+        }
+      } catch {
+        setRuns([]);
       }
     }
   }
@@ -138,17 +150,32 @@ function WorkflowRow({ workflow, onPublish, onPause, onDelete }) {
             {showHealth ? "Hide run history" : "View run history"}
           </button>
           {showHealth && (
-            <div className="mt-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs">
-              {!health ? (
-                <span className="text-slate-400">Loading…</span>
-              ) : health.runCount === 0 ? (
-                <span className="text-slate-400">This workflow hasn't run yet.</span>
-              ) : (
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                  <span className="text-slate-500">Total runs: <strong className="text-slate-700">{health.runCount}</strong></span>
-                  <span className="text-slate-500">Completion rate: <strong className="text-emerald-600">{health.completionRate}%</strong></span>
-                  <span className="text-slate-500">Exception rate: <strong className={health.exceptionRate > 0 ? "text-amber-600" : "text-slate-700"}>{health.exceptionRate}%</strong></span>
-                  <span className="text-slate-500">Avg duration: <strong className="text-slate-700">{health.avgDurationMs}ms</strong></span>
+            <div className="mt-2 space-y-3">
+              <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs">
+                {!health ? (
+                  <span className="text-slate-400">Loading…</span>
+                ) : health.runCount === 0 ? (
+                  <span className="text-slate-400">This workflow hasn't run yet.</span>
+                ) : (
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                    <span className="text-slate-500">Total runs: <strong className="text-slate-700">{health.runCount}</strong></span>
+                    <span className="text-slate-500">Completion rate: <strong className="text-emerald-600">{health.completionRate}%</strong></span>
+                    <span className="text-slate-500">Exception rate: <strong className={health.exceptionRate > 0 ? "text-amber-600" : "text-slate-700"}>{health.exceptionRate}%</strong></span>
+                    <span className="text-slate-500">Avg duration: <strong className="text-slate-700">{health.avgDurationMs}ms</strong></span>
+                  </div>
+                )}
+              </div>
+              {runs && runs.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[11px] text-slate-500 font-medium">Recent runs</p>
+                  {runs.slice(0, 5).map((r) => (
+                    <div key={r.id}>
+                      <p className="text-[10px] text-slate-400 mb-1">
+                        {r.startedAt ? new Date(r.startedAt).toLocaleString() : ""}
+                      </p>
+                      <WorkflowRunFlow run={r} />
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
