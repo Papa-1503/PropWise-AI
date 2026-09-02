@@ -22,7 +22,7 @@ from services.events import emit_event
 from datetime import datetime, timezone, timedelta
 from audit_service import log_action
 from auth import require_staff
-from models import PropertyCreate, PropertyUpdate, UnitStatusUpdate, UnitDetailsUpdate, UnitIn, OwnerAssign, RentRulesUpdate, TelephonyConfigUpdate
+from models import PropertyCreate, PropertyUpdate, UnitStatusUpdate, UnitDetailsUpdate, UnitIn, OwnerAssign, RentRulesUpdate, TelephonyConfigUpdate, PreferredVendorsUpdate
 
 router = APIRouter(prefix="/api/properties", tags=["properties"])
 
@@ -135,6 +135,24 @@ async def update_telephony_config(property_id: str, payload: TelephonyConfigUpda
         raise HTTPException(status_code=400, detail="No fields to update")
     result = await properties_col.find_one_and_update(
         {"_id": query_id}, {"$set": updates}, return_document=True
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Property not found")
+    return serialize(result)
+
+
+@router.patch("/{property_id}/preferred-vendors")
+async def update_preferred_vendors(property_id: str, payload: PreferredVendorsUpdate, user: dict = Depends(require_staff)):
+    """Sets which vendor auto-dispatches for each maintenance category
+    at this property — opt-in per category (see PreferredVendorsUpdate's
+    own docstring). Replaces the whole preferredVendors dict rather than
+    merging, so removing a category's preferred vendor is as simple as
+    omitting it from the payload — a merge-based PATCH would have no
+    honest way to express "unset this one," only "don't mention it,"
+    which silently leaves stale entries behind forever."""
+    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+    result = await properties_col.find_one_and_update(
+        {"_id": query_id}, {"$set": {"preferredVendors": payload.preferredVendors}}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Property not found")
