@@ -18,6 +18,8 @@ from routers import inspections, maintenance, ai_copilot, properties, leases, da
 from routers import condition_reports
 from routers import market_rent
 from routers import tours
+from routers import smart_locks
+from routers import accounting
 from routers import admin
 from routers import leads
 from routers import search
@@ -116,6 +118,8 @@ app.include_router(vendors.ticket_assign_router)
 app.include_router(condition_reports.router)
 app.include_router(market_rent.router)
 app.include_router(tours.router)
+app.include_router(smart_locks.router)
+app.include_router(accounting.router)
 app.include_router(email_test.router)
 app.include_router(payments.router)
 app.include_router(notifications.router)
