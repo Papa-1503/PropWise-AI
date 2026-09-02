@@ -160,6 +160,14 @@ class UnitIn(BaseModel):
     # without this field. Optional, not required, since it's a real
     # gap in existing unit records this doesn't retroactively force
     # staff to fill in before using the rest of the app.
+    seamDeviceId: Optional[str] = None
+    # ^ Links this unit to its real Seam-connected lock device (see
+    # seam_service.py) - staff finds the real device_id via GET
+    # /api/smart-locks/devices (once SEAM_API_KEY is configured and a
+    # lock is physically installed/connected) and sets it here.
+    # Optional and defaulting to None - most units won't have a smart
+    # lock connected, and every smart-lock feature already fails
+    # honest (a clear 400, not a silent no-op) when this is unset.
 
 
 class PropertyCreate(BaseModel):
@@ -227,6 +235,7 @@ class UnitDetailsUpdate(BaseModel):
     bedrooms: Optional[int] = None
     bathrooms: Optional[float] = None
     squareFootage: Optional[float] = None
+    seamDeviceId: Optional[str] = None
 
 
 # ---------- Leases ----------
@@ -1178,3 +1187,29 @@ class TourBookingCreate(BaseModel):
     name: str
     email: str
     phone: Optional[str] = None
+
+
+# ---------- Smart Lock Access (Seam) ----------
+#
+# Genuinely missing before this: no way to remotely lock/unlock a unit
+# or issue a real, time-bounded access code to a vendor or tour
+# prospect - every access handoff required a physical key or someone
+# physically present to let people in. Built via Seam (see
+# seam_service.py's own docstring for why a unified multi-brand API,
+# not one lock vendor's proprietary API) - real infrastructure, ready
+# the moment SEAM_API_KEY is configured and a real lock is connected,
+# not a placeholder.
+
+class AccessCodeCreate(BaseModel):
+    """Staff-issued temporary access code for a specific unit's smart
+    lock. name should identify who/why (e.g. "Plumbing - Ticket #4821"),
+    not a bare code - see seam_service.py's create_access_code for how
+    this shows up inside the lock manufacturer's own app too.
+    startsAt/endsAt are optional ISO datetime strings - omitting both
+    creates an always-on code (staff should almost always set at least
+    endsAt for a vendor/tour code, but this doesn't force it, since a
+    genuine ongoing-access use case exists too, e.g. a live-in super)."""
+    name: str
+    code: Optional[str] = None  # omit to let Seam generate a random one
+    startsAt: Optional[str] = None
+    endsAt: Optional[str] = None
