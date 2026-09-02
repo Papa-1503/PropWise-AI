@@ -93,7 +93,15 @@ async def seed_scale_test(payload: AdminKeyPayload):
 @router.post("/run-maintenance-check")
 async def run_maintenance_check(payload: AdminKeyPayload):
     check_key(payload.key)
+    return await _do_maintenance_check()
 
+
+async def _do_maintenance_check():
+    """Split out from the HTTP handler above, same pattern as
+    _do_late_fee_check/_do_escalation_check, so the real background
+    scheduler (main.py) can call this directly without an admin key —
+    the key exists to gate the external HTTP trigger, not to gate the
+    check itself from running automatically."""
     now = datetime.now(timezone.utc)
     cursor = maintenance_schedules_col.find({"active": True, "nextDueDate": {"$lte": now}})
     due_schedules = await cursor.to_list(length=500)
@@ -154,7 +162,15 @@ async def run_maintenance_check(payload: AdminKeyPayload):
 @router.post("/run-lease-renewal-check")
 async def run_lease_renewal_check(payload: AdminKeyPayload, windowDays: int = 60):
     check_key(payload.key)
+    return await _do_lease_renewal_check(windowDays)
 
+
+async def _do_lease_renewal_check(windowDays: int = 60):
+    """Split out from the HTTP handler above, same pattern as
+    _do_late_fee_check, so the background scheduler can call this
+    directly. Defaults to the same 60-day window the endpoint already
+    used, so scheduled runs behave identically to how this was already
+    being triggered manually."""
     now = datetime.now(timezone.utc)
     cutoff = now + timedelta(days=windowDays)
     cursor = leases_col.find({
@@ -212,7 +228,13 @@ async def run_lease_renewal_check(payload: AdminKeyPayload, windowDays: int = 60
 @router.post("/run-payment-reminder-check")
 async def run_payment_reminder_check(payload: AdminKeyPayload, windowDays: int = 5):
     check_key(payload.key)
+    return await _do_payment_reminder_check(windowDays)
 
+
+async def _do_payment_reminder_check(windowDays: int = 5):
+    """Split out from the HTTP handler above, same pattern as
+    _do_late_fee_check, so the background scheduler can call this
+    directly. Defaults to the same 5-day window the endpoint already used."""
     now = datetime.now(timezone.utc)
     cutoff = now + timedelta(days=windowDays)
     cursor = payments_col.find({
@@ -276,7 +298,16 @@ async def run_autopay_check(payload: AdminKeyPayload):
     automatic retry that could hit an already-known-bad bank account
     repeatedly)."""
     check_key(payload.key)
+    return await _do_autopay_check()
 
+
+async def _do_autopay_check():
+    """Split out from the HTTP handler above, same pattern as
+    _do_late_fee_check, so the background scheduler can call this
+    directly. This is the one check in this file that moves real
+    money — kept deliberately conservative (see the handler's own
+    docstring above): a failed attempt is surfaced to staff and the
+    resident, never silently retried."""
     now = datetime.now(timezone.utc)
     cursor = payments_col.find({
         "dueDate": {"$lte": now},
