@@ -300,7 +300,7 @@ function AppGate() {
             </div>
           </header>
 
-          <main id="main-content" tabIndex={-1} className="px-4 lg:px-6 pb-10 pt-3 bg-[#f6f3ec] min-h-screen lg:min-h-0">
+                 <main id="main-content" tabIndex={-1} className="px-4 lg:px-6 pb-10 pt-3 bg-[#f6f3ec] min-h-0">
             <Outlet context={{ effectivePropertyId, userName: user.name }} />
           </main>
         </div>
