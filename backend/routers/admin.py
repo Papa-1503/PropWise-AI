@@ -595,3 +595,16 @@ async def _do_escalation_check():
         "escalated": len(escalated),
         "chargeIds": escalated,
     }
+
+
+@router.post("/run-auto-approve-check")
+async def run_auto_approve_check(payload: AdminKeyPayload):
+    """External-trigger endpoint for the bounded AI Actions auto-approval
+    check — see routers/ai_actions.py's _do_auto_approve_check and its
+    own docstring for the actual (deliberately narrow) eligibility rules.
+    Same pattern as every other check in this file: this HTTP endpoint
+    exists for manual/external-cron triggering; the real background
+    scheduler in main.py calls the underlying function directly."""
+    check_key(payload.key)
+    from routers.ai_actions import _do_auto_approve_check
+    return await _do_auto_approve_check()
