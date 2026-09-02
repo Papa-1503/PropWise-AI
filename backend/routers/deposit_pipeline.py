@@ -206,14 +206,21 @@ async def preview_deposit_pipeline(inspection_id: str, user: dict = Depends(requ
     return await _compute_pipeline(inspection_id)
 
 
-@router.post("/{inspection_id}/generate")
-async def generate_deposit_statement(inspection_id: str, user: dict = Depends(require_staff)):
-    """Generates the real tenant-facing itemized statement, reusing the
-    existing Documents system (documents_col) rather than a separate
-    document store - matching P15's own spec. The disclaimer appears
-    directly in the generated document's own text, not just this
-    endpoint's JSON response, since the document is what a resident
-    actually reads."""
+async def _do_generate_deposit_statement(inspection_id: str, actor_id: str, actor_email: str, status: str) -> dict:
+    """The actual generation logic, split out so it can be called two
+    ways: the existing manual endpoint below (status="sent", staff
+    explicitly generating AND sending in one deliberate action, exactly
+    as it already worked), and the new automatic trigger in
+    inspections.py (status="draft", the moment a move-out inspection's
+    last item is resolved).
+
+    Deliberately NOT auto-SENDING — a draft still needs a real staff
+    action (POST /{document_id}/finalize below) before a resident ever
+    sees it. Deposit deductions carry genuine financial and legal
+    stakes (most states have strict security-deposit itemization/timing
+    requirements); removing the human checkpoint entirely, not just the
+    manual data-entry work, would trade a real safeguard for convenience
+    this feature was never asked to give up."""
     computed = await _compute_pipeline(inspection_id)
     lease = await leases_col.find_one({"_id": ObjectId(computed["leaseId"])})
     if not lease.get("residentEmail"):
@@ -245,14 +252,20 @@ async def generate_deposit_statement(inspection_id: str, user: dict = Depends(re
         f"Total billable (labor only, depreciation-adjusted): ${computed['totalBillable']:,.2f}\n"
         f"Final return amount: ${computed['finalReturnAmount']:,.2f}\n"
     )
+    if status == "draft":
+        content = (
+            "*** DRAFT — auto-generated, not yet reviewed or sent to the resident. "
+            "A staff member must finalize this before it goes out. ***\n\n" + content
+        )
 
     doc = {
         "tenantEmail": lease["residentEmail"],
         "leaseId": computed["leaseId"],
+        "inspectionId": inspection_id,
         "title": f"Deposit Return Statement - Unit {computed['unitId']}",
         "content": content,
         "documentType": "deposit_statement",
-        "status": "sent",
+        "status": status,
         "signedByName": None,
         "signedAt": None,
         "createdAt": datetime.now(timezone.utc),
@@ -260,9 +273,104 @@ async def generate_deposit_statement(inspection_id: str, user: dict = Depends(re
     result = await documents_col.insert_one(doc)
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
-        action="deposit_statement_generated", target_type="lease", target_id=computed["leaseId"],
-        details={"finalReturnAmount": computed["finalReturnAmount"], "totalBillable": computed["totalBillable"]},
+        actor_id=actor_id, actor_email=actor_email,
+        action="deposit_statement_generated" if status == "sent" else "deposit_statement_draft_auto_generated",
+        target_type="lease", target_id=computed["leaseId"],
+        details={"finalReturnAmount": computed["finalReturnAmount"], "totalBillable": computed["totalBillable"], "status": status},
     )
 
     return {"documentId": str(result.inserted_id), **computed}
+
+
+async def has_existing_deposit_statement(inspection_id: str) -> bool:
+    """Guards the auto-generation trigger against creating a duplicate
+    draft if an inspection's items get edited again after every item
+    was already resolved once."""
+    existing = await documents_col.find_one({"inspectionId": inspection_id, "documentType": "deposit_statement"})
+    return existing is not None
+
+
+async def maybe_auto_generate_deposit_draft(inspection_id: str) -> None:
+    """Called from inspections.py after any item status update. Checks
+    whether THIS update was the one that resolved the last pending item
+    on a move-out inspection, and if so, auto-generates a draft deposit
+    statement — genuinely reducing the manual work (a staff member no
+    longer has to remember to go run this), while keeping a real human
+    checkpoint (see _do_generate_deposit_statement's own docstring)
+    before anything reaches a resident. Fails silently on any error
+    (e.g. no lease found, no resident email on file) rather than
+    blocking the item-status update itself — the inspection update is
+    the real action being performed here; a failed auto-draft attempt
+    is a missed convenience, not a reason to break the actual request."""
+    if not ObjectId.is_valid(inspection_id):
+        return
+    inspection = await inspections_col.find_one({"_id": ObjectId(inspection_id)})
+    if not inspection or inspection.get("type") != "move-out":
+        return
+    items = inspection.get("items", [])
+    if not items or any(i.get("status") == "pending" for i in items):
+        return  # not every item resolved yet
+    if await has_existing_deposit_statement(inspection_id):
+        return  # already generated once, don't duplicate
+
+    try:
+        await _do_generate_deposit_statement(
+            inspection_id, actor_id="system_auto_generate", actor_email="", status="draft",
+        )
+    except Exception as e:
+        print(f"Auto deposit-statement draft generation failed for inspection {inspection_id}: {e}")
+
+
+@router.post("/{inspection_id}/generate")
+async def generate_deposit_statement(inspection_id: str, user: dict = Depends(require_staff)):
+    """Generates the real tenant-facing itemized statement, reusing the
+    existing Documents system (documents_col) rather than a separate
+    document store - matching P15's own spec. The disclaimer appears
+    directly in the generated document's own text, not just this
+    endpoint's JSON response, since the document is what a resident
+    actually reads. Unchanged behavior — an explicit staff-triggered
+    call still generates AND marks it sent in one deliberate action,
+    exactly as before; the new draft/finalize flow only applies to the
+    automatic trigger in inspections.py."""
+    return await _do_generate_deposit_statement(
+        inspection_id, actor_id=str(user["id"]), actor_email=user.get("email", ""), status="sent",
+    )
+
+
+@router.post("/statements/{document_id}/finalize")
+async def finalize_deposit_statement(document_id: str, user: dict = Depends(require_staff)):
+    """The real human checkpoint for an auto-generated draft — a staff
+    member reviews the computed amounts (via the draft document's own
+    content, or GET /{inspection_id}/preview for the same numbers) and
+    explicitly finalizes it before it's considered sent. Only valid on
+    a document that's actually still a draft — finalizing an
+    already-sent statement, or a document that was never a deposit
+    statement at all, is rejected rather than silently accepted."""
+    if not ObjectId.is_valid(document_id):
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+    doc = await documents_col.find_one({"_id": ObjectId(document_id)})
+    if not doc or doc.get("documentType") != "deposit_statement":
+        raise HTTPException(status_code=404, detail="Deposit statement not found")
+    if doc.get("status") != "draft":
+        raise HTTPException(status_code=400, detail=f"This statement is already '{doc.get('status')}', not a draft.")
+
+    # Strip the draft banner this specific document was created with,
+    # so the finalized version reads exactly like one generated
+    # directly via the manual endpoint — no leftover "not yet reviewed"
+    # language on something a staff member just explicitly reviewed.
+    cleaned_content = doc["content"].split("***\n\n", 1)[-1] if doc["content"].startswith("*** DRAFT") else doc["content"]
+
+    result = await documents_col.find_one_and_update(
+        {"_id": ObjectId(document_id)},
+        {"$set": {"status": "sent", "content": cleaned_content, "finalizedAt": datetime.now(timezone.utc), "finalizedBy": user.get("email")}},
+        return_document=True,
+    )
+
+    await log_action(
+        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        action="deposit_statement_finalized", target_type="lease", target_id=doc.get("leaseId"),
+        details={},
+    )
+
+    result["id"] = str(result.pop("_id"))
+    return result
