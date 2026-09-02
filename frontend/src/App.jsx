@@ -245,7 +245,7 @@ function AppGate() {
   );
 
   return (
-    <div className="min-h-screen app-bg lg:flex lg:p-3">
+        <div className="min-h-screen app-bg lg:flex p-2 sm:p-3">
       <CommandPalette propertyId={effectivePropertyId} open={paletteOpen} onOpenChange={setPaletteOpen} />
       <OnboardingTour active={user.role === "staff"} />
       {user.role === "tenant" && <WelcomeScreen userName={user.name} />}
