@@ -133,6 +133,17 @@ async def generate_inspection_pdf(inspection_id: str, user: dict = Depends(requi
     for p in photos:
         photos_by_room.setdefault(p.get("room", ""), []).append(p)
 
+    # BUG FIX: this used to show the raw propertyId in the report header
+    # instead of the actual building name - the exact same gap already
+    # found and fixed in the invoice PDF (routers/payments.py) earlier
+    # this session, just never circled back to here. Same defensive
+    # lookup - property _id may be a real ObjectId or a plain seeded
+    # string (e.g. "sunset-apartments").
+    property_id = inspection.get("propertyId")
+    property_query_id = ObjectId(property_id) if property_id and ObjectId.is_valid(property_id) else property_id
+    property_doc = await properties_col.find_one({"_id": property_query_id}) if property_id else None
+    property_display_name = property_doc.get("name") if property_doc else (property_id or "Unknown property")
+
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.6 * inch, bottomMargin=0.6 * inch)
     styles = getSampleStyleSheet()
@@ -144,7 +155,7 @@ async def generate_inspection_pdf(inspection_id: str, user: dict = Depends(requi
     story = []
     story.append(Paragraph(f"Inspection Report — Unit {_pdf_text(inspection.get('unitId'))}", title_style))
     story.append(Paragraph(
-        f"Property: {_pdf_text(inspection.get('propertyId'))} &nbsp;|&nbsp; "
+        f"Property: {_pdf_text(property_display_name)} &nbsp;|&nbsp; "
         f"Type: {_pdf_text(inspection.get('type', '').title())} &nbsp;|&nbsp; "
         f"Inspector: {_pdf_text(inspection.get('inspectorName') or 'Unspecified')} &nbsp;|&nbsp; "
         f"Date: {_pdf_text(inspection.get('createdAt').strftime('%B %d, %Y') if inspection.get('createdAt') else 'Unknown')}",
