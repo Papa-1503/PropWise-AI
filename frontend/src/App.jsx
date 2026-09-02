@@ -245,13 +245,18 @@ function AppGate() {
   );
 
   return (
-        <div className="min-h-screen app-bg lg:flex p-2 sm:p-3">
+    <div className="min-h-screen app-bg lg:flex p-2 sm:p-3">
       <CommandPalette propertyId={effectivePropertyId} open={paletteOpen} onOpenChange={setPaletteOpen} />
       <OnboardingTour active={user.role === "staff"} />
       {user.role === "tenant" && <WelcomeScreen userName={user.name} />}
-           <PushSetup />
+      <PushSetup />
       
-       
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-white focus:text-slate-900 focus:px-3 focus:py-2 focus:rounded-md focus:shadow-lg"
+      >
+        Skip to main content
+      </a>
+
       {/* Mobile sidebar overlay */}
       {mobileNavOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
@@ -269,7 +274,7 @@ function AppGate() {
           every existing text color exactly as legible as it always was —
           the skyline is real chrome around the work, not painted behind
           the text you're actually reading. */}
-         <div className="w-full flex-1 min-w-0 lg:flex rounded-2xl overflow-hidden shadow-2xl lg:h-[calc(100vh-1.5rem)]">
+      <div className="w-full flex-1 min-w-0 lg:flex rounded-2xl overflow-hidden shadow-2xl lg:h-[calc(100vh-1.5rem)]">
         {/* Desktop sidebar */}
         <aside className="hidden lg:flex lg:flex-col lg:w-60 lg:shrink-0 bg-white border-r border-slate-200 lg:h-full lg:overflow-y-auto">
           {sidebarContent}
@@ -300,7 +305,7 @@ function AppGate() {
             </div>
           </header>
 
-                 <main id="main-content" tabIndex={-1} className="px-4 lg:px-6 pb-10 pt-3 bg-[#f6f3ec] min-h-0">
+          <main id="main-content" tabIndex={-1} className="px-4 lg:px-6 pb-10 pt-3 bg-[#f6f3ec] min-h-0">
             <Outlet context={{ effectivePropertyId, userName: user.name }} />
           </main>
         </div>
