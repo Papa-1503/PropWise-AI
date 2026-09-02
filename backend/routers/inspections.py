@@ -33,6 +33,7 @@ from db import inspections_col, photos_col, properties_col, tickets_col, users_c
 import notifications_service
 from models import InspectionCreate, PhotoAnalysisResult, ItemStatusUpdate
 from auth import require_staff
+from routers.deposit_pipeline import maybe_auto_generate_deposit_draft
 
 router = APIRouter(prefix="/api/inspections", tags=["inspections"])
 
@@ -501,6 +502,17 @@ async def update_inspection_item(inspection_id: str, item_id: str, payload: Item
             {"$set": {"units.$.readyToList": all_done}},
         )
 
+    # Real automation, not just a data-entry shortcut: the moment a
+    # move-out inspection's LAST pending item gets resolved, this
+    # auto-generates a draft deposit statement — a staff member no
+    # longer has to remember to go trigger it separately. Deliberately
+    # a draft, not sent — see maybe_auto_generate_deposit_draft's own
+    # docstring for why a real human checkpoint stays before anything
+    # reaches a resident. Fails silently (never blocks this endpoint's
+    # own real response) if anything about the auto-draft attempt goes
+    # wrong.
+    if updated.get("type") == "move-out":
+        await maybe_auto_generate_deposit_draft(inspection_id)
+
     updated["_id"] = str(updated["_id"])
     return updated
-
