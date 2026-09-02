@@ -211,16 +211,28 @@ class TelephonyConfigUpdate(BaseModel):
 
 
 class PreferredVendorsUpdate(BaseModel):
-    """Opt-in, per-category preferred vendor for this property — e.g.
-    {"plumbing": "<vendorId>"}. Setting one here is what enables
-    automatic vendor dispatch for that category (see create_ticket in
+    """Opt-in, per-category preferred vendor LIST for this property —
+    e.g. {"plumbing": ["<vendorId1>", "<vendorId2>"]}, ordered by
+    preference. Setting one here enables automatic vendor dispatch for
+    that category (see create_ticket / find_preferred_vendor in
     routers/maintenance.py) — a category with no entry here is left
     completely unassigned, exactly as it already worked before this
     feature existed. Deliberately opt-in per category rather than a
     single blanket "auto-assign everything" toggle, so staff decide
     category by category which ones are routine enough to trust to
-    automatic dispatch."""
-    preferredVendors: dict[str, str] = Field(default_factory=dict)  # category -> vendorId
+    automatic dispatch.
+
+    CHANGED (Sept 2, 2026): a list, not a single vendorId — the real,
+    missing piece needed for genuine SLA escalation (see
+    vendor_sla_service.py): if the first-choice vendor doesn't accept
+    a dispatch within the SLA window, the SECOND vendor in this list
+    is tried automatically before falling back to a plain staff
+    escalation. find_preferred_vendor reads this defensively (a plain
+    string from data written under the old single-vendor format still
+    works, normalized to a one-item list) — no migration needed for
+    whatever was already set via the earlier version of this
+    endpoint."""
+    preferredVendors: dict[str, list[str]] = Field(default_factory=dict)  # category -> ordered [vendorId, ...]
 
 
 class UnitStatusUpdate(BaseModel):
