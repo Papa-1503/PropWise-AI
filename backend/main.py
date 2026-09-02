@@ -176,16 +176,29 @@ logger = logging.getLogger("rentflow.scheduler")
 
 
 async def rent_automation_scheduler():
-    """The real, missing piece that makes the late-fee and escalation
-    checks genuinely automated rather than merely automatable — no cron
-    job or external scheduler existed anywhere in this project before
-    this; both checks only ever ran when someone manually called them
-    (including during testing today). Runs as a background task inside
-    this same process, no external infrastructure needed. Each run is
-    wrapped in its own try/except so one check's failure doesn't kill
-    the loop or block the other check from running — and a genuinely
-    unexpected exception here would otherwise silently stop all future
-    automated runs forever, which is worse than one run failing loudly."""
+    """The real, missing piece that makes these checks genuinely
+    automated rather than merely automatable — no cron job or external
+    scheduler existed anywhere in this project before this; every one
+    of these checks only ever ran when someone manually called them.
+    Runs as a background task inside this same process, no external
+    infrastructure needed. Each run is wrapped in its own try/except so
+    one check's failure doesn't kill the loop or block the others from
+    running — and a genuinely unexpected exception here would otherwise
+    silently stop all future automated runs forever, which is worse
+    than one run failing loudly.
+
+    Extended (Sept 2, 2026) from 2 checks to all 6 that existed as
+    real, working admin.py endpoints — confirmed directly by reading
+    the code that lease renewal reminders, payment reminders,
+    maintenance scheduling, and autopay were all fully built already
+    and simply never wired into this loop, meaning they required a
+    human (or an external cron service) to trigger every single time.
+    Turning on automation that already existed, not building anything
+    new. The admin key that gates admin.py's HTTP endpoints is
+    deliberately bypassed here — this calls the internal _do_* helpers
+    directly, same as late fee/escalation already did, since the key's
+    purpose is authenticating an *external* trigger, not gating
+    whether the check is allowed to run at all."""
     from routers import admin as admin_router
     interval_seconds = 6 * 60 * 60  # every 6 hours
     while True:
@@ -199,6 +212,26 @@ async def rent_automation_scheduler():
             logger.info(f"[scheduler] escalation check: {result}")
         except Exception:
             logger.exception("[scheduler] escalation check failed")
+        try:
+            result = await admin_router._do_maintenance_check()
+            logger.info(f"[scheduler] maintenance check: {result}")
+        except Exception:
+            logger.exception("[scheduler] maintenance check failed")
+        try:
+            result = await admin_router._do_lease_renewal_check()
+            logger.info(f"[scheduler] lease renewal check: {result}")
+        except Exception:
+            logger.exception("[scheduler] lease renewal check failed")
+        try:
+            result = await admin_router._do_payment_reminder_check()
+            logger.info(f"[scheduler] payment reminder check: {result}")
+        except Exception:
+            logger.exception("[scheduler] payment reminder check failed")
+        try:
+            result = await admin_router._do_autopay_check()
+            logger.info(f"[scheduler] autopay check: {result}")
+        except Exception:
+            logger.exception("[scheduler] autopay check failed")
         await asyncio.sleep(interval_seconds)
 
 
