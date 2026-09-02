@@ -1,12 +1,16 @@
 import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import { API_BASE } from "./config";
 
 
-function StatLine({ label, value }) {
-  return (
-    <div className="flex justify-between text-xs py-1">
-      <span className="text-slate-500">{label}</span>
+function StatLine({ label, value, to }) {
+  const navigate = useNavigate();
+  const isClickable = Boolean(to) && value !== null && value !== undefined;
+
+  const content = (
+    <>
+      <span className={isClickable ? "text-indigo-700 group-hover:underline" : "text-slate-500"}>{label}</span>
       <span className="font-semibold">
         {value === null || value === undefined ? (
           <span className="text-slate-300 font-normal italic">not tracked</span>
@@ -16,8 +20,20 @@ function StatLine({ label, value }) {
           value
         )}
       </span>
-    </div>
+    </>
   );
+
+  if (isClickable) {
+    return (
+      <button
+        onClick={() => navigate(to)}
+        className="w-full flex justify-between text-xs py-1 group hover:bg-indigo-50/60 -mx-1 px-1 rounded"
+      >
+        {content}
+      </button>
+    );
+  }
+  return <div className="flex justify-between text-xs py-1">{content}</div>;
 }
 
 function AgentCard({ name, displayName, tracked, note, children }) {
@@ -76,32 +92,35 @@ export default function AIWorkforcePanel({ propertyId }) {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <AgentCard name="LeasingAI" displayName={data.leasingAI.displayName} tracked={data.leasingAI.tracked} note={data.leasingAI.note}>
-          <StatLine label="Leads Processed" value={data.leasingAI.leadsProcessed} />
-          <StatLine label="Tours Scheduled" value={data.leasingAI.toursScheduled} />
-          <StatLine label="Applications" value={data.leasingAI.applications} />
-          <StatLine label="Leases Signed" value={data.leasingAI.leasesSigned} />
+          <StatLine label="Leads Processed" value={data.leasingAI.leadsProcessed} to="/app/leads" />
+          {/* No dedicated Tours page exists in the frontend yet (tours.py backend
+              only) — routes to Leads as the closest real destination, since every
+              booked tour already creates/links a lead record there. */}
+          <StatLine label="Tours Scheduled" value={data.leasingAI.toursScheduled} to="/app/leads" />
+          <StatLine label="Applications" value={data.leasingAI.applications} to="/app/screening" />
+          <StatLine label="Leases Signed" value={data.leasingAI.leasesSigned} to="/app/leases" />
         </AgentCard>
 
         <AgentCard name="OperationsAI" displayName={data.operationsAI.displayName} tracked={data.operationsAI.tracked}>
-          <StatLine label="Actions Suggested" value={data.operationsAI.actionsSuggested} />
-          <StatLine label="Actions Approved" value={data.operationsAI.actionsApproved} />
-          <StatLine label="Est. Revenue Protected" value={data.operationsAI.revenueProtected} />
+          <StatLine label="Actions Suggested" value={data.operationsAI.actionsSuggested} to="/app/actions" />
+          <StatLine label="Actions Approved" value={data.operationsAI.actionsApproved} to="/app/actions" />
+          <StatLine label="Est. Revenue Protected" value={data.operationsAI.revenueProtected} to="/app/actions" />
           <p className="text-[10px] text-slate-400 italic mt-1">
             AI-estimated impact of completed actions — not an independently verified figure.
           </p>
         </AgentCard>
 
         <AgentCard name="CollectionsAI" displayName={data.collectionsAI.displayName} tracked={data.collectionsAI.tracked} note={data.collectionsAI.note}>
-          <StatLine label="Residents Contacted" value={data.collectionsAI.residentsContacted} />
-          <StatLine label="Recovered Revenue" value={data.collectionsAI.recoveredRevenue} />
+          <StatLine label="Residents Contacted" value={data.collectionsAI.residentsContacted} to="/app/communications" />
+          <StatLine label="Recovered Revenue" value={data.collectionsAI.recoveredRevenue} to="/app/payments" />
           <p className="text-[10px] text-slate-400 italic mt-1">
             Real, verified — sum of actual payments received after their due date.
           </p>
         </AgentCard>
 
         <AgentCard name="MaintenanceAI" displayName={data.maintenanceAI.displayName} tracked={data.maintenanceAI.tracked}>
-          <StatLine label="Tickets Created" value={data.maintenanceAI.ticketsCreated} />
-          <StatLine label="Auto-created from Inspections" value={data.maintenanceAI.autoCreatedFromInspections} />
+          <StatLine label="Tickets Created" value={data.maintenanceAI.ticketsCreated} to="/app/maintenance" />
+          <StatLine label="Auto-created from Inspections" value={data.maintenanceAI.autoCreatedFromInspections} to="/app/inspections" />
           <StatLine label="Failures Prevented" value={data.maintenanceAI.failuresPrevented} />
         </AgentCard>
       </div>
