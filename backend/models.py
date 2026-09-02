@@ -202,6 +202,19 @@ class TelephonyConfigUpdate(BaseModel):
     afterHoursEnd: Optional[str] = Field(default=None, description="24h HH:MM, e.g. '08:00'")
 
 
+class PreferredVendorsUpdate(BaseModel):
+    """Opt-in, per-category preferred vendor for this property — e.g.
+    {"plumbing": "<vendorId>"}. Setting one here is what enables
+    automatic vendor dispatch for that category (see create_ticket in
+    routers/maintenance.py) — a category with no entry here is left
+    completely unassigned, exactly as it already worked before this
+    feature existed. Deliberately opt-in per category rather than a
+    single blanket "auto-assign everything" toggle, so staff decide
+    category by category which ones are routine enough to trust to
+    automatic dispatch."""
+    preferredVendors: dict[str, str] = Field(default_factory=dict)  # category -> vendorId
+
+
 class UnitStatusUpdate(BaseModel):
     status: Literal["occupied", "vacant", "maintenance_hold"]
 
