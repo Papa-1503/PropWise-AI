@@ -269,7 +269,7 @@ function AppGate() {
           every existing text color exactly as legible as it always was —
           the skyline is real chrome around the work, not painted behind
           the text you're actually reading. */}
-      <div className="w-full flex-1 min-w-0 lg:flex lg:rounded-2xl lg:overflow-hidden lg:shadow-2xl lg:h-[calc(100vh-1.5rem)]">
+         <div className="w-full flex-1 min-w-0 lg:flex rounded-2xl overflow-hidden shadow-2xl lg:h-[calc(100vh-1.5rem)]">
         {/* Desktop sidebar */}
         <aside className="hidden lg:flex lg:flex-col lg:w-60 lg:shrink-0 bg-white border-r border-slate-200 lg:h-full lg:overflow-y-auto">
           {sidebarContent}
