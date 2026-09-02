@@ -250,8 +250,8 @@ function AppGate() {
       <OnboardingTour active={user.role === "staff"} />
       {user.role === "tenant" && <WelcomeScreen userName={user.name} />}
       <PushSetup />
-      
-        href="#main-content"
+      <a
+      href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-white focus:text-slate-900 focus:px-3 focus:py-2 focus:rounded-md focus:shadow-lg"
       >
         Skip to main content
