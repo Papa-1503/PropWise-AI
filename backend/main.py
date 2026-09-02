@@ -187,18 +187,19 @@ async def rent_automation_scheduler():
     silently stop all future automated runs forever, which is worse
     than one run failing loudly.
 
-    Extended (Sept 2, 2026) from 2 checks to all 6 that existed as
-    real, working admin.py endpoints — confirmed directly by reading
-    the code that lease renewal reminders, payment reminders,
-    maintenance scheduling, and autopay were all fully built already
-    and simply never wired into this loop, meaning they required a
-    human (or an external cron service) to trigger every single time.
-    Turning on automation that already existed, not building anything
-    new. The admin key that gates admin.py's HTTP endpoints is
-    deliberately bypassed here — this calls the internal _do_* helpers
-    directly, same as late fee/escalation already did, since the key's
-    purpose is authenticating an *external* trigger, not gating
-    whether the check is allowed to run at all."""
+    Extended (Sept 2, 2026) from 2 checks to 6, then 7: confirmed
+    directly by reading the code that lease renewal reminders, payment
+    reminders, maintenance scheduling, and autopay were all fully built
+    already and simply never wired into this loop, meaning they
+    required a human (or an external cron service) to trigger every
+    single time. The 7th (AI Actions auto-approve) is new logic, not
+    a dormant existing check — deliberately narrow, see
+    routers/ai_actions.py's _do_auto_approve_check for the actual
+    eligibility rules. The admin key that gates admin.py's HTTP
+    endpoints is deliberately bypassed here — this calls the internal
+    _do_* helpers directly, same as late fee/escalation already did,
+    since the key's purpose is authenticating an *external* trigger,
+    not gating whether the check is allowed to run at all."""
     from routers import admin as admin_router
     interval_seconds = 6 * 60 * 60  # every 6 hours
     while True:
@@ -232,6 +233,12 @@ async def rent_automation_scheduler():
             logger.info(f"[scheduler] autopay check: {result}")
         except Exception:
             logger.exception("[scheduler] autopay check failed")
+        try:
+            from routers.ai_actions import _do_auto_approve_check
+            result = await _do_auto_approve_check()
+            logger.info(f"[scheduler] AI Actions auto-approve check: {result}")
+        except Exception:
+            logger.exception("[scheduler] AI Actions auto-approve check failed")
         await asyncio.sleep(interval_seconds)
 
 
