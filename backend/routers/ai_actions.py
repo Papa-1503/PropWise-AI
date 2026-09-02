@@ -411,6 +411,83 @@ async def occupancy_insight(propertyId: str | None = None, user: dict = Depends(
         "averageDaysVacant": None,  # not tracked — see docstring
         "recommendedActions": recommendations,
     }
+async def _do_approve_action(action_id: str, decided_by_email: str, decided_by_user_id: str | None) -> dict:
+    """The actual approve+execute logic, split out from decide_action's
+    HTTP handler so it can be reused by the auto-approval scheduled
+    check below (see _do_auto_approve_check) without duplicating the
+    executor-dispatch logic. decided_by_email is attributed honestly —
+    a real staff email for a human decision, or "system_auto_approval"
+    for the automated path — so the audit trail never implies a human
+    approved something they didn't."""
+    updates = {
+        "status": "executing",
+        "approvedBy": decided_by_email,
+        "approvedAt": datetime.now(timezone.utc),
+        "updatedAt": datetime.now(timezone.utc),
+        "lastDecisionBy": decided_by_email,
+        "lastDecisionByUserId": decided_by_user_id,
+    }
+    action = await ai_actions_col.find_one_and_update(
+        {"_id": ObjectId(action_id)}, {"$set": updates}, return_document=True
+    )
+    if not action:
+        return None
+
+    executor = EXECUTORS.get(action["type"])
+    result = await executor(action) if executor else {"note": "No executor registered for this type."}
+
+    final_updates = {
+        "status": "completed",
+        "executionResult": result,
+        "updatedAt": datetime.now(timezone.utc),
+    }
+    return await ai_actions_col.find_one_and_update(
+        {"_id": ObjectId(action_id)}, {"$set": final_updates}, return_document=True
+    )
+
+
+# ---------- Bounded auto-approval ----------
+#
+# Deliberately narrow, not a general "trust the AI" switch. Only
+# collections_reminder actions qualify — a gentle payment reminder
+# email carries real but low, reversible-in-practice risk even when
+# sent slightly early or unnecessarily. Every other action type
+# (rent_adjustment, renewal_campaign, maintenance_followup) always
+# stays human-reviewed: those touch an actual rent amount, a lease
+# term, or a vendor dispatch decision — real financial/legal exposure
+# that shouldn't be automated away just because it's inconvenient to
+# click a button. confidence >= 90 matches the same threshold already
+# used elsewhere in this codebase for a "genuinely high confidence" AI
+# assessment (see the escalation action in admin.py).
+AUTO_APPROVE_ELIGIBLE_TYPES = ("collections_reminder",)
+AUTO_APPROVE_MIN_CONFIDENCE = 90
+
+
+async def _do_auto_approve_check():
+    """Finds suggested actions that meet the narrow auto-approval bar
+    and approves+executes them via the exact same code path a human
+    approval uses (_do_approve_action above) — never a separate,
+    parallel implementation that could drift from what manual approval
+    actually does."""
+    query = {
+        "status": "suggested",
+        "type": {"$in": list(AUTO_APPROVE_ELIGIBLE_TYPES)},
+        "riskLevel": "low",
+        "confidence": {"$gte": AUTO_APPROVE_MIN_CONFIDENCE},
+    }
+    candidates = await ai_actions_col.find(query).to_list(length=200)
+
+    approved = []
+    for action in candidates:
+        result = await _do_approve_action(
+            str(action["_id"]), decided_by_email="system_auto_approval", decided_by_user_id=None,
+        )
+        if result:
+            approved.append(str(action["_id"]))
+
+    return {"status": "done", "candidatesChecked": len(candidates), "autoApproved": len(approved), "actionIds": approved}
+
+
 @router.patch("/{action_id}/decision")
 async def decide_action(action_id: str, payload: ActionDecision, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(action_id):
@@ -441,22 +518,7 @@ async def decide_action(action_id: str, payload: ActionDecision, user: dict = De
         # stays in "suggested" state for a follow-up approve/reject
 
     elif payload.decision == "approve":
-        updates["status"] = "executing"
-        updates["approvedBy"] = user.get("email")
-        updates["approvedAt"] = datetime.now(timezone.utc)
-        await ai_actions_col.update_one({"_id": ObjectId(action_id)}, {"$set": updates})
-
-        executor = EXECUTORS.get(action["type"])
-        result = await executor(action) if executor else {"note": "No executor registered for this type."}
-
-        final_updates = {
-            "status": "completed",
-            "executionResult": result,
-            "updatedAt": datetime.now(timezone.utc),
-        }
-        result_doc = await ai_actions_col.find_one_and_update(
-            {"_id": ObjectId(action_id)}, {"$set": final_updates}, return_document=True
-        )
+        result_doc = await _do_approve_action(action_id, decided_by_email=user.get("email"), decided_by_user_id=user.get("id"))
         return serialize(result_doc)
 
     result_doc = await ai_actions_col.find_one_and_update(
