@@ -50,17 +50,33 @@ a, [role="button"] {
 .rounded-xl.border:hover, .rounded-lg.border:hover {
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
 }
-/* Textured app background — dot grid + skyline illustration */
+/* App-wide background — real photo of the Minneapolis skyline at night
+   (Third Avenue Bridge, IDS Center, Capella Tower visible, shot from
+   across the Mississippi River), replacing the earlier hand-illustrated
+   SVG version entirely per direct request for genuine photography, not
+   a flat vector illustration. A slow, subtle zoom ("Ken Burns" style —
+   an established technique for real photographic backgrounds, not a
+   custom animation invented here) gives it the "live" quality that
+   would otherwise need per-element animation, which doesn't make sense
+   for a real photo the way it did for hand-drawn shapes. Respects
+   prefers-reduced-motion (freezes at a fixed zoom level rather than
+   disabling the background entirely). background-attachment: fixed so
+   the photo stays anchored as a backdrop while page content scrolls. */
 .app-bg {
-  background-color: #f6f3ec;
-  background-image:
-    radial-gradient(circle at 1px 1px, rgba(20, 33, 61, 0.06) 1px, transparent 0),
-    url("/skyline-bg.svg");
-  
-  background-position: 0 0, bottom left;
-  background-repeat: repeat, repeat-x;
-  background-size: 22px 22px, 480px 220px;
-  background-attachment: fixed, scroll;
+  background-color: #0B1026;
+  background-image: url("/KFnz8A.webp");
+  background-size: 112% auto;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  animation: skylineSlowZoom 45s ease-in-out infinite alternate;
+}
+@keyframes skylineSlowZoom {
+  from { background-size: 112% auto; }
+  to { background-size: 128% auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-bg, .login-skyline-bg { animation: none !important; background-size: 118% auto; }
 }
 
 /* Dark mode — modeled on a design shared for evaluation (Aug 26, 2026),
@@ -80,8 +96,13 @@ a, [role="button"] {
   color: #e2e8f0;
 }
 .dark .app-bg {
-  background-color: #0f172a;
-  background-image: radial-gradient(circle at 1px 1px, rgba(226, 232, 240, 0.06) 1px, transparent 0);
+  background-color: #0B1026;
+  background-image: url("/KFnz8A.webp");
+  background-size: 112% auto;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  animation: skylineSlowZoom 45s ease-in-out infinite alternate;
 }
 .dark .rounded-xl.border, .dark .rounded-lg.border {
   background-color: #1e293b !important;
@@ -122,8 +143,9 @@ a, [role="button"] {
 
 .login-skyline-bg {
   background-color: #0B1026;
-  background-image: url("/minneapolis-skyline-night.svg");
-  background-size: cover;
-  background-position: bottom center;
+  background-image: url("/KFnz8A.webp");
+  background-size: 112% auto;
+  background-position: center;
   background-repeat: no-repeat;
+  animation: skylineSlowZoom 45s ease-in-out infinite alternate;
 }
