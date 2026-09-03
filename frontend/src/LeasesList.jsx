@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback, useId, useMemo } from "react";
 import { useAuth } from "./AuthContext";
 import { useToast } from "./ToastContext";
 import EmptyState from "./EmptyState";
-import { FileSignature, Plus, X, FileText, Search } from "lucide-react";
+import { FileSignature, Plus, X, FileText, Search, AlertTriangle } from "lucide-react";
 import { API_BASE } from "./config";
 import Resident360Modal from "./Resident360Modal";
 import UnitHistoryModal from "./UnitHistoryModal";
+import RenewalRiskPanel from "./RenewalRiskPanel";
 
 /**
  * LeasesList
@@ -264,6 +265,7 @@ export default function LeasesList({ propertyId }) {
   const [leases, setLeases] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
+  const [showRisk, setShowRisk] = useState(false);
   const [error, setError] = useState(null);
   // { email, name } for a resident-scoped lookup, or { propertyId, unitId }
   // for a unit-scoped fallback when no resident email is on file — set by
@@ -416,16 +418,31 @@ export default function LeasesList({ propertyId }) {
     <div className="max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-lg font-semibold">Leases</h2>
-        <button
-          onClick={() => setShowNew(true)}
-          disabled={!propertyId}
-          title={!propertyId ? "Pick a specific building first" : undefined}
-          className="flex items-center gap-1.5 text-sm font-semibold bg-slate-900 text-white px-3 py-1.5 rounded-lg hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <Plus size={14} />
-          New lease
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowRisk((v) => !v)}
+            className="flex items-center gap-1.5 text-sm font-semibold border border-slate-200 text-slate-700 px-3 py-1.5 rounded-lg hover:bg-slate-50"
+          >
+            <AlertTriangle size={14} className="text-amber-500" />
+            {showRisk ? "Hide" : "View"} renewal risk
+          </button>
+          <button
+            onClick={() => setShowNew(true)}
+            disabled={!propertyId}
+            title={!propertyId ? "Pick a specific building first" : undefined}
+            className="flex items-center gap-1.5 text-sm font-semibold bg-slate-900 text-white px-3 py-1.5 rounded-lg hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Plus size={14} />
+            New lease
+          </button>
+        </div>
       </div>
+
+      {showRisk && (
+        <div className="mb-4">
+          <RenewalRiskPanel propertyId={propertyId} />
+        </div>
+      )}
 
       {!propertyId && (
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
