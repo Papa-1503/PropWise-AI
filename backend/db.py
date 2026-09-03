@@ -33,6 +33,7 @@ tour_slots_col = db["tour_slots"]
 tour_bookings_col = db["tour_bookings"]
 smart_lock_access_log_col = db["smart_lock_access_log"]
 accounting_connections_col = db["accounting_connections"]
+scheduler_health_col = db["scheduler_health"]
 posts_col = db["posts"]
 leads_col = db["leads"]
 documents_col = db["documents"]
@@ -135,3 +136,4 @@ async def ensure_indexes():
     await smart_lock_access_log_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])
     await accounting_connections_col.create_index("provider", unique=True)
     await tour_bookings_col.create_index("slotId")
+    await scheduler_health_col.create_index("scheduler", unique=True)
