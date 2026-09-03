@@ -355,6 +355,116 @@ function RentRulesModal({ property, onClose, onSaved }) {
   );
 }
 
+function LeasingInfoModal({ property, onClose, onSaved }) {
+  const [petPolicy, setPetPolicy] = useState(property.petPolicy ?? "");
+  const [parkingInfo, setParkingInfo] = useState(property.parkingInfo ?? "");
+  const [utilitiesIncluded, setUtilitiesIncluded] = useState(property.utilitiesIncluded ?? "");
+  const [address, setAddress] = useState(property.address ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const { authFetch } = useAuth();
+  const { show: showToast } = useToast();
+  const idPrefix = useId();
+
+  // Sends the raw current field values, including empty strings when
+  // a field's been deliberately cleared - the backend's PATCH filters
+  // out only None, not "", so an empty string here genuinely clears a
+  // previously-set value (and the prospect-chat context gathering
+  // already treats an empty string the same as "not set" via its own
+  // falsy check) - sending null instead would have silently left the
+  // old value in place, since this endpoint's PATCH semantics treat
+  // omitted/null fields as "leave unchanged," not "clear."
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await authFetch(`${API_BASE}/properties/${property.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address, petPolicy, parkingInfo, utilitiesIncluded }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "Couldn't save leasing info.");
+      showToast(`Leasing info saved for ${property.name}`, "success");
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err.message);
+      showToast(err.message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30 p-4">
+      <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-5">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-semibold">Leasing info — {property.name}</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+            <X size={18} />
+          </button>
+        </div>
+        <p className="text-xs text-slate-500 mb-4">
+          Answers the questions prospects actually ask on the public /apply chat — leave any field blank and the assistant will honestly say it doesn't know, rather than guess.
+        </p>
+        <div className="space-y-3">
+          <div>
+            <label htmlFor={`${idPrefix}-address`} className="text-xs text-slate-500">Address</label>
+            <input
+              id={`${idPrefix}-address`}
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
+            />
+          </div>
+          <div>
+            <label htmlFor={`${idPrefix}-pets`} className="text-xs text-slate-500">Pet policy</label>
+            <textarea
+              id={`${idPrefix}-pets`}
+              value={petPolicy}
+              onChange={(e) => setPetPolicy(e.target.value)}
+              rows={2}
+              placeholder="e.g. Cats and dogs under 40lbs welcome, $300 deposit"
+              className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
+            />
+          </div>
+          <div>
+            <label htmlFor={`${idPrefix}-parking`} className="text-xs text-slate-500">Parking</label>
+            <textarea
+              id={`${idPrefix}-parking`}
+              value={parkingInfo}
+              onChange={(e) => setParkingInfo(e.target.value)}
+              rows={2}
+              placeholder="e.g. 1 assigned spot per unit, street parking also available"
+              className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
+            />
+          </div>
+          <div>
+            <label htmlFor={`${idPrefix}-utilities`} className="text-xs text-slate-500">Utilities included</label>
+            <textarea
+              id={`${idPrefix}-utilities`}
+              value={utilitiesIncluded}
+              onChange={(e) => setUtilitiesIncluded(e.target.value)}
+              rows={2}
+              placeholder="e.g. Water and trash included, tenant pays electric/gas"
+              className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
+            />
+          </div>
+        </div>
+        {error && <p role="alert" className="text-xs text-rose-600 mt-3 bg-rose-50 border border-rose-200 rounded px-3 py-2">{error}</p>}
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="mt-4 w-full bg-slate-900 disabled:bg-slate-300 text-white text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-800"
+        >
+          {saving ? "Saving…" : "Save leasing info"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TelephonyModal({ property, onClose, onSaved }) {
   const [twilioNumber, setTwilioNumber] = useState(property.twilioNumber ?? "");
   const [afterHoursStart, setAfterHoursStart] = useState(property.afterHoursStart ?? "");
@@ -473,6 +583,7 @@ export default function PropertyManagement() {
   const [addUnitTo, setAddUnitTo] = useState(null); // property | null
   const [editingUnit, setEditingUnit] = useState(null); // { property, unit } | null
   const [rentRulesFor, setRentRulesFor] = useState(null); // property | null
+  const [leasingInfoFor, setLeasingInfoFor] = useState(null); // property | null
   const [telephonyFor, setTelephonyFor] = useState(null); // property | null
   const [search, setSearch] = useState("");
   const { authFetch } = useAuth();
@@ -587,6 +698,13 @@ export default function PropertyManagement() {
                     Rent rules
                   </button>
                   <button
+                    onClick={() => setLeasingInfoFor(p)}
+                    className="flex items-center gap-1 text-[11px] text-indigo-700 hover:underline"
+                  >
+                    <Pencil size={12} />
+                    Leasing info
+                  </button>
+                  <button
                     onClick={() => setTelephonyFor(p)}
                     className="flex items-center gap-1 text-[11px] text-indigo-700 hover:underline"
                   >
@@ -660,6 +778,13 @@ export default function PropertyManagement() {
         <RentRulesModal
           property={rentRulesFor}
           onClose={() => setRentRulesFor(null)}
+          onSaved={fetchProperties}
+        />
+      )}
+      {leasingInfoFor && (
+        <LeasingInfoModal
+          property={leasingInfoFor}
+          onClose={() => setLeasingInfoFor(null)}
           onSaved={fetchProperties}
         />
       )}
