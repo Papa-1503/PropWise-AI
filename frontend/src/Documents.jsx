@@ -9,6 +9,15 @@ import EmptyState from "./EmptyState";
  * the tenant can view, e-sign (typed name, timestamped), and download a
  * PDF. See routers/documents.py for the legal-content caveat: this app
  * does not generate lease language, only the workflow around it.
+ *
+ * CHANGED (Sept 3, 2026): added the real lease picker this form never
+ * had — confirmed the previous version never collected leaseId at all,
+ * so a document had nothing to resolve a building name from even after
+ * the backend was fixed to display one. Picking a lease also auto-fills
+ * tenantEmail from that lease's own residentEmail, real by-product
+ * value beyond just fixing the missing building name (removes a real
+ * source of typos: a hand-typed email that doesn't match the actual
+ * resident on file).
  */
 export default function Documents() {
   const { user, authFetch } = useAuth();
@@ -17,8 +26,11 @@ export default function Documents() {
   const [error, setError] = useState(null);
 
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({ tenantEmail: "", title: "", content: "" });
+  const [form, setForm] = useState({ tenantEmail: "", title: "", content: "", leaseId: "" });
   const [creating, setCreating] = useState(false);
+
+  const [leaseOptions, setLeaseOptions] = useState([]);
+  const [leasesLoaded, setLeasesLoaded] = useState(false);
 
   const [signingId, setSigningId] = useState(null);
   const [signName, setSignName] = useState("");
@@ -43,17 +55,68 @@ export default function Documents() {
     fetchDocuments();
   }, [fetchDocuments]);
 
+  // Loaded once, lazily, the first time staff actually opens the create
+  // form — no need to pay for two extra requests (leases + properties)
+  // on every visit to this page when most visits are just reviewing
+  // existing documents, not creating a new one.
+  const loadLeaseOptions = useCallback(async () => {
+    if (leasesLoaded) return;
+    try {
+      const [leasesRes, propertiesRes] = await Promise.all([
+        authFetch(`${API_BASE}/leases`),
+        authFetch(`${API_BASE}/properties`),
+      ]);
+      const leasesData = leasesRes.ok ? await leasesRes.json() : { leases: [] };
+      const propertiesData = propertiesRes.ok ? await propertiesRes.json() : { properties: [] };
+      const propertyNameById = {};
+      for (const p of propertiesData.properties || []) propertyNameById[p.id] = p.name;
+      const options = (leasesData.leases || []).map((l) => ({
+        id: l.id,
+        residentEmail: l.residentEmail || "",
+        label: `${propertyNameById[l.propertyId] || "Unknown building"} — Unit ${l.unitId}${l.residentName ? ` (${l.residentName})` : ""}`,
+      }));
+      setLeaseOptions(options);
+      setLeasesLoaded(true);
+    } catch {
+      setLeaseOptions([]);
+    }
+  }, [authFetch, leasesLoaded]);
+
+  function toggleCreateForm() {
+    setShowCreate((v) => {
+      const next = !v;
+      if (next) loadLeaseOptions();
+      return next;
+    });
+  }
+
+  function handleLeaseChange(leaseId) {
+    const selected = leaseOptions.find((l) => l.id === leaseId);
+    setForm((f) => ({
+      ...f,
+      leaseId,
+      // Only auto-fill if the field's still empty or matches the
+      // previously-selected lease's email — never clobber an email
+      // staff already deliberately typed by hand.
+      tenantEmail: selected?.residentEmail && (!f.tenantEmail || leaseOptions.some((l) => l.residentEmail === f.tenantEmail))
+        ? selected.residentEmail
+        : f.tenantEmail,
+    }));
+  }
+
   async function handleCreate(e) {
     e.preventDefault();
     setCreating(true);
     try {
+      const payload = { ...form };
+      if (!payload.leaseId) delete payload.leaseId; // omit entirely rather than send an empty string the backend would reject as an invalid ObjectId
       const res = await authFetch(`${API_BASE}/documents`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error("Couldn't create document.");
-      setForm({ tenantEmail: "", title: "", content: "" });
+      setForm({ tenantEmail: "", title: "", content: "", leaseId: "" });
       setShowCreate(false);
       fetchDocuments();
     } catch (err) {
@@ -101,7 +164,7 @@ export default function Documents() {
         <h1 className="text-2xl font-semibold">Documents</h1>
         {user.role === "staff" && (
           <button
-            onClick={() => setShowCreate((v) => !v)}
+            onClick={toggleCreateForm}
             className="text-sm bg-amber-500 hover:bg-amber-600 text-white font-semibold px-4 py-2 rounded-lg"
           >
             + New Document
@@ -114,6 +177,16 @@ export default function Documents() {
 
       {showCreate && (
         <form onSubmit={handleCreate} className="bg-white border border-slate-200 rounded-xl p-5 mb-5 space-y-2">
+          <select
+            value={form.leaseId}
+            onChange={(e) => handleLeaseChange(e.target.value)}
+            className="w-full text-sm border border-slate-200 rounded-md px-3 py-2 bg-white"
+          >
+            <option value="">No lease selected — building name won't show on this document</option>
+            {leaseOptions.map((l) => (
+              <option key={l.id} value={l.id}>{l.label}</option>
+            ))}
+          </select>
           <input
             type="email" required placeholder="Tenant email" value={form.tenantEmail}
             onChange={(e) => setForm((f) => ({ ...f, tenantEmail: e.target.value }))}
@@ -150,6 +223,9 @@ export default function Documents() {
             <div key={doc._id} className="bg-white border border-slate-200 rounded-xl p-4">
               <div className="flex items-center justify-between">
                 <div>
+                  {doc.buildingName && (
+                    <p className="text-xs font-medium text-slate-500 mb-0.5">{doc.buildingName}</p>
+                  )}
                   <p className="font-semibold text-sm">{doc.title}</p>
                   <p className="text-xs text-slate-400">
                     {doc.status === "signed"
@@ -198,7 +274,3 @@ export default function Documents() {
     </div>
   );
 }
-
-
- 
-  
