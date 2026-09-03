@@ -29,6 +29,7 @@ from models import VendorCreate, VendorUpdate, VendorAssign, VendorBidCreate
 from date_utils import parse_date_utc
 from auth import require_staff
 import notifications_service
+import vendor_sla_service
 
 router = APIRouter(prefix="/api/vendors", tags=["vendors"])
 
@@ -195,28 +196,42 @@ ticket_assign_router = APIRouter(prefix="/api/maintenance/tickets", tags=["maint
 
 @ticket_assign_router.patch("/{ticket_id}/assign-vendor")
 async def assign_vendor_to_ticket(ticket_id: str, payload: VendorAssign, user: dict = Depends(require_staff)):
+    """CHANGED (Sept 2, 2026): now goes through the same real SLA-
+    tracking dispatch (vendor_sla_service.dispatch_with_sla) the
+    auto-assignment path uses — one shared implementation, so a
+    manually-assigned vendor gets the exact same real acceptance
+    confirmation SMS and escalation-on-no-response a staff member
+    would expect, not a second behavior that quietly works
+    differently. Staff-provided estimatedCost/estimatedArrivalHours
+    overrides are still respected — applied as a small follow-up
+    update after the shared dispatch, rather than duplicating its
+    whole logic just to thread two optional overrides through it."""
     if not ObjectId.is_valid(ticket_id) or not ObjectId.is_valid(payload.vendorId):
         raise HTTPException(status_code=400, detail="Invalid ticket or vendor ID")
+
+    ticket = await tickets_col.find_one({"_id": ObjectId(ticket_id)})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
 
     vendor = await vendors_col.find_one({"_id": ObjectId(payload.vendorId)})
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
 
-    updates = {
-        "assignedVendorId": payload.vendorId,
-        "assignedVendorName": vendor["name"],
-        "estimatedCost": payload.estimatedCost if payload.estimatedCost is not None else vendor.get("baseCost"),
-        "estimatedArrivalHours": payload.estimatedArrivalHours if payload.estimatedArrivalHours is not None else vendor.get("avgArrivalHours"),
-        "status": "in_progress",
-        "updatedAt": datetime.now(timezone.utc),
-    }
+    await vendor_sla_service.dispatch_with_sla(ticket_id, ticket, vendor)
+
+    overrides = {}
+    if payload.estimatedCost is not None:
+        overrides["estimatedCost"] = payload.estimatedCost
+    if payload.estimatedArrivalHours is not None:
+        overrides["estimatedArrivalHours"] = payload.estimatedArrivalHours
+
     result = await tickets_col.find_one_and_update(
-        {"_id": ObjectId(ticket_id)}, {"$set": updates}, return_document=True
+        {"_id": ObjectId(ticket_id)}, {"$set": overrides} if overrides else {"$set": {}}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Ticket not found")
 
-    eta = updates.get("estimatedArrivalHours")
+    eta = result.get("estimatedArrivalHours")
     await notifications_service.notify_unit_resident(
         result.get("propertyId"), result.get("unitId"),
         type="vendor_assigned",
