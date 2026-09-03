@@ -43,6 +43,7 @@ import WriteAssist from "./WriteAssist";
 import BillScan from "./BillScan";
 import CommunicationsPanel from "./CommunicationsPanel";
 import LeasesList from "./LeasesList";
+import RenewalCheckIn from "./RenewalCheckIn";
 import ScreeningList from "./ScreeningList";
 import LeadsList from "./LeadsList";
 import StaffAssignments from "./StaffAssignments";
@@ -458,6 +459,7 @@ export default function App() {
             <Route path="settings" element={<Settings />} />
             <Route path="feed" element={<SocialFeed />} />
             <Route path="ai" element={<AICopilotWrapper />} />
+            <Route path="renewal-checkin/:leaseId" element={<RenewalCheckIn />} />
             <Route path="*" element={<TabNotFound />} />
           </Route>
 
