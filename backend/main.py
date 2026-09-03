@@ -34,6 +34,7 @@ from routers import owners
 from routers import screening
 from routers import reconciliation
 from routers import public_listings
+from routers import prospect_assistant
 from routers import workflows
 from routers import staff
 from routers import maintenance_schedules
@@ -150,6 +151,7 @@ app.include_router(owners.router)
 app.include_router(screening.router)
 app.include_router(reconciliation.router)
 app.include_router(public_listings.router)
+app.include_router(prospect_assistant.router)
 app.include_router(workflows.router)
 app.include_router(staff.router)
 app.include_router(maintenance_schedules.router)
