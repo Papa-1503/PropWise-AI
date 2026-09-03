@@ -60,6 +60,7 @@ from stripe_service import (
 )
 import notifications_service
 import vendor_sla_service
+import renewal_risk_service
 from auth import require_staff
 
 DEFAULT_LATE_FEE_AMOUNT = 50.0
@@ -719,3 +720,108 @@ async def scheduler_health_status(user: dict = Depends(require_staff)):
         })
 
     return {"schedulers": schedulers}
+
+
+@router.post("/run-renewal-risk-check")
+async def run_renewal_risk_check(payload: AdminKeyPayload):
+    """External-trigger endpoint for the staged renewal-risk outreach
+    check — see renewal_risk_service.py's own module docstring for the
+    real scoring reasoning. Same pattern as every other check in this
+    file: this HTTP endpoint exists for manual/external-cron
+    triggering; the real background scheduler in main.py calls the
+    underlying function directly."""
+    check_key(payload.key)
+    return await _do_renewal_risk_check()
+
+
+# Range-based, not exact-day matching - (min_days_exclusive, max_days_inclusive].
+# Robust to the scheduler ever missing a cycle (see main.py's own
+# scheduler-health module): the FIRST time this check runs after a
+# lease crosses below a stage's upper bound, it fires that stage,
+# whatever the exact day count happens to be - never silently skipped
+# just because the exact target day was missed.
+RENEWAL_RISK_STAGES = [
+    (60, 90),  # ~90 days out: first, earliest touchpoint
+    (30, 60),  # ~60 days out
+    (0, 30),   # ~30 days out: last call before expiry
+]
+
+
+async def _do_renewal_risk_check():
+    """Finds leases newly inside one of the three real outreach stages
+    above (90/60/30 days out) that haven't had that stage's check
+    already sent, computes each one's real risk score, and for
+    medium/high-risk leases specifically: creates a real, reviewable
+    AI Action for staff (same schema/status flow as every other action
+    in the Actions tab) AND sends the resident a real notification
+    prompting them for the actual 'why' behind their real
+    hesitation — not just a generic 'your lease is expiring' reminder,
+    which the existing 60-day _do_lease_renewal_check already covers
+    on its own, separate schedule. Low-risk leases at any stage are
+    marked as checked but get no extra outreach - the existing generic
+    reminder is already the right amount of attention for those."""
+    now = datetime.now(timezone.utc)
+    cursor = leases_col.find({
+        "endDate": {"$gte": now, "$lte": now + timedelta(days=91)},
+        "renewalStatus": {"$ne": "signed"},
+    })
+    candidates = await cursor.to_list(length=1000)
+
+    checked = []
+    flagged = []
+    for lease in candidates:
+        days_left = renewal_risk_service.days_until(lease.get("endDate"), now)
+        if days_left is None:
+            continue
+
+        already_sent = lease.get("renewalRiskStagesSent", [])
+        stage = None
+        for lower, upper in RENEWAL_RISK_STAGES:
+            if lower < days_left <= upper and upper not in already_sent:
+                stage = upper
+                break
+        if stage is None:
+            continue
+
+        risk = await renewal_risk_service.compute_renewal_risk(lease)
+        await leases_col.update_one({"_id": lease["_id"]}, {"$addToSet": {"renewalRiskStagesSent": stage}})
+        checked.append(str(lease["_id"]))
+
+        if risk["riskLevel"] in ("medium", "high"):
+            unit_id = lease.get("unitId")
+            property_id = lease.get("propertyId")
+            factor_summary = "; ".join(f"{f['name']}: {f['detail']}" for f in risk["factors"])
+
+            await ai_actions_col.insert_one({
+                "propertyId": property_id,
+                "type": "renewal_campaign",
+                "title": f"Renewal risk ({risk['riskLevel']}): Unit {unit_id}, {stage} days out",
+                "priority": "high" if risk["riskLevel"] == "high" else "medium",
+                "rationale": f"Renewal risk score {risk['score']}/100 ({risk['riskLevel']}). {factor_summary}",
+                "projectedOutcome": "Direct renewal outreach before this resident's lease decision is made",
+                "estimatedValue": lease.get("rent", 0) * 12,
+                "affectedUnitIds": [unit_id] if unit_id else [],
+                "confidence": 70,  # a real heuristic, not a validated model - see module docstring
+                "riskLevel": risk["riskLevel"],
+                "plannedSteps": ["Review the real factors behind this score", "Reach out directly, not just an automated reminder", "Consider a real renewal incentive if warranted"],
+                "status": "suggested",
+                "createdAt": now,
+            })
+
+            if property_id and unit_id:
+                await notifications_service.notify_unit_resident(
+                    property_id, unit_id,
+                    type="general",
+                    title="How are you feeling about renewing?",
+                    body="Your lease is coming up for renewal. We'd genuinely like to know if there's anything we could do better — reply in the app to let us know.",
+                    link=f"/app/renewal-checkin/{lease['_id']}",
+                )
+
+            flagged.append(str(lease["_id"]))
+
+    return {
+        "status": "done",
+        "leasesChecked": len(checked),
+        "flaggedForOutreach": len(flagged),
+        "leaseIds": checked,
+    }
