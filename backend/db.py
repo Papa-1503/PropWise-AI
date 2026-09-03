@@ -70,6 +70,13 @@ async def ensure_indexes():
     await inspections_col.create_index([("propertyId", 1), ("unitId", 1)])
     await tickets_col.create_index([("propertyId", 1), ("status", 1)])
     await tickets_col.create_index([("sourceInspectionId", 1)])
+    # Vendor SLA escalation's hot-path query (find tickets whose SLA
+    # window has passed and haven't been confirmed yet), plus a
+    # unique, sparse index on the acceptance token itself - unique so
+    # two tickets can never accidentally collide on the same token,
+    # sparse since most tickets never have this field set at all.
+    await tickets_col.create_index([("vendorAcceptanceStatus", 1), ("vendorAcceptanceDeadline", 1)])
+    await tickets_col.create_index("vendorAcceptanceToken", unique=True, sparse=True)
     await leases_col.create_index([("propertyId", 1), ("endDate", 1)])
     await push_subscriptions_col.create_index([("userId", 1), ("endpoint", 1)], unique=True)
     await users_col.create_index("email", unique=True)
