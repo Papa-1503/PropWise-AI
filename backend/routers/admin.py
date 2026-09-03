@@ -59,6 +59,7 @@ from stripe_service import (
     create_ach_payment_intent_async,
 )
 import notifications_service
+import vendor_sla_service
 
 DEFAULT_LATE_FEE_AMOUNT = 50.0
 DEFAULT_LATE_FEE_GRACE_DAYS = 5
@@ -608,3 +609,75 @@ async def run_auto_approve_check(payload: AdminKeyPayload):
     check_key(payload.key)
     from routers.ai_actions import _do_auto_approve_check
     return await _do_auto_approve_check()
+
+
+@router.post("/run-vendor-sla-check")
+async def run_vendor_sla_check(payload: AdminKeyPayload):
+    """External-trigger endpoint for the vendor SLA acceptance +
+    escalation check — see vendor_sla_service.py's own module
+    docstring for the real market gap this addresses. Same pattern as
+    every other check in this file: this HTTP endpoint exists for
+    manual/external-cron triggering; the real background scheduler in
+    main.py calls the underlying function directly."""
+    check_key(payload.key)
+    return await _do_vendor_sla_check()
+
+
+async def _do_vendor_sla_check():
+    """Finds every ticket whose dispatched vendor hasn't confirmed
+    within the SLA window and either (a) tries the NEXT vendor in that
+    property's preferredVendors list for the ticket's category,
+    excluding every vendor that's already been tried and didn't
+    respond, or (b) if no further vendor is configured, escalates
+    directly to staff with an honest, specific notification — never a
+    ticket silently left assigned to a vendor who may never show up."""
+    now = datetime.now(timezone.utc)
+    cursor = tickets_col.find({
+        "vendorAcceptanceStatus": "pending",
+        "vendorAcceptanceDeadline": {"$lte": now},
+    })
+    expired_tickets = await cursor.to_list(length=500)
+
+    reassigned = []
+    escalated = []
+    for ticket in expired_tickets:
+        declined_ids = list(ticket.get("vendorDeclinedIds", []))
+        if ticket.get("assignedVendorId"):
+            declined_ids.append(ticket["assignedVendorId"])
+
+        next_vendor = await vendor_sla_service.find_next_eligible_vendor(
+            ticket.get("propertyId"), ticket.get("category"), exclude_vendor_ids=declined_ids,
+        )
+
+        if next_vendor:
+            ticket["vendorDeclinedIds"] = declined_ids  # carried through to dispatch_with_sla's own update
+            await vendor_sla_service.dispatch_with_sla(str(ticket["_id"]), ticket, next_vendor)
+            await notifications_service.notify_all_staff(
+                type="general",
+                title=f"Reassigned after no response: {ticket.get('title', 'ticket')}",
+                body=f"Unit {ticket.get('unitId')} — {ticket.get('assignedVendorName', 'the prior vendor')} "
+                     f"didn't confirm in time. Now trying {next_vendor['name']}.",
+                link=f"/maintenance/{str(ticket['_id'])}",
+            )
+            reassigned.append(str(ticket["_id"]))
+        else:
+            await tickets_col.update_one(
+                {"_id": ticket["_id"]},
+                {"$set": {"vendorAcceptanceStatus": "expired_escalated", "vendorDeclinedIds": declined_ids}},
+            )
+            await notifications_service.notify_all_staff(
+                type="general",
+                title=f"No vendor confirmed: {ticket.get('title', 'ticket')}",
+                body=f"Unit {ticket.get('unitId')} — {ticket.get('assignedVendorName', 'the assigned vendor')} "
+                     f"did not confirm within the SLA window, and no further preferred vendor is configured "
+                     f"for this category. Please reassign manually.",
+                link=f"/maintenance/{str(ticket['_id'])}",
+            )
+            escalated.append(str(ticket["_id"]))
+
+    return {
+        "status": "done",
+        "checked": len(expired_tickets),
+        "reassigned": len(reassigned),
+        "escalated": len(escalated),
+    }
