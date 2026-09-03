@@ -9,17 +9,21 @@ load_dotenv()
 import asyncio
 import logging
 from fastapi import FastAPI
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 import os
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from db import ensure_indexes
 from routers import inspections, maintenance, ai_copilot, properties, leases, dashboard, auth, ai_actions, vendors, email_test, payments, notifications, social
+from rate_limiter import limiter
 from routers import condition_reports
 from routers import market_rent
 from routers import tours
 from routers import smart_locks
 from routers import accounting
+from routers import vendor_acceptance
 from routers import admin
 from routers import leads
 from routers import search
@@ -62,6 +66,17 @@ from routers import package_tracking
 from routers import predictive_analytics
 from routers import forms
 app = FastAPI(title="PropWise AI API")
+
+# Real rate limiting (slowapi) — genuinely missing before this,
+# confirmed absent via a direct search of every existing endpoint.
+# app.state.limiter is where slowapi's own decorator (@limiter.limit,
+# applied directly on the specific endpoints that need it — see
+# routers/auth.py's login/register and routers/payments.py's
+# checkout/setup-intent) looks up its configuration at request time;
+# the exception handler is what turns a triggered limit into a real,
+# clean 429 response instead of an unhandled exception.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 @app.middleware("http")
@@ -120,6 +135,7 @@ app.include_router(market_rent.router)
 app.include_router(tours.router)
 app.include_router(smart_locks.router)
 app.include_router(accounting.router)
+app.include_router(vendor_acceptance.router)
 app.include_router(email_test.router)
 app.include_router(payments.router)
 app.include_router(notifications.router)
@@ -246,10 +262,33 @@ async def rent_automation_scheduler():
         await asyncio.sleep(interval_seconds)
 
 
+async def vendor_sla_scheduler():
+    """A genuinely separate, faster loop from rent_automation_scheduler
+    above — deliberately NOT folded into that 6-hour cycle. The vendor
+    SLA window itself defaults to 2 hours (see vendor_sla_service.py);
+    checking on the same 6-hour cadence as late fees/lease renewals
+    would silently let a vendor go unconfirmed for up to 8 hours
+    before anything happened, undermining the entire premise of a
+    "2-hour SLA." Runs every 15 minutes instead — frequent enough that
+    the real escalation delay stays close to the actual configured
+    SLA window, not bounded by an unrelated schedule chosen for
+    entirely different, far less time-sensitive checks."""
+    from routers import admin as admin_router
+    interval_seconds = 15 * 60  # every 15 minutes
+    while True:
+        try:
+            result = await admin_router._do_vendor_sla_check()
+            logger.info(f"[scheduler] vendor SLA check: {result}")
+        except Exception:
+            logger.exception("[scheduler] vendor SLA check failed")
+        await asyncio.sleep(interval_seconds)
+
+
 @app.on_event("startup")
 async def on_startup():
     await ensure_indexes()
     asyncio.create_task(rent_automation_scheduler())
+    asyncio.create_task(vendor_sla_scheduler())
 
 
 @app.get("/api/health")
