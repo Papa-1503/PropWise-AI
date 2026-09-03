@@ -23,13 +23,14 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
 
-from db import tickets_col, users_col, properties_col, vendors_col
+from db import tickets_col, users_col
 from models import TicketCreate, TicketUpdate, TimeEntryCreate, TicketSatisfactionSubmit
 import notifications_service
 from auth import require_staff, get_current_user
 from services.events import emit_event
 from services.ticket_dedup import find_existing_open_duplicate, record_duplicate_occurrence
 from services.ticket_severity import compute_severity
+import vendor_sla_service
 
 router = APIRouter(prefix="/api/maintenance/tickets", tags=["maintenance"])
 
@@ -44,40 +45,6 @@ async def find_tech_for_property(property_id: str) -> dict | None:
     return await users_col.find_one({"role": "staff", "assignedProperties": property_id})
 
 
-async def find_preferred_vendor(property_id: str, category: str) -> dict | None:
-    """Returns the property's configured preferred vendor for this
-    category (see PreferredVendorsUpdate, routers/properties.py), or
-    None if no preference is set, the vendor doesn't exist, is
-    inactive, or its insurance/license has actually expired —
-    auto-dispatching an uninsured or unlicensed vendor is a real
-    liability risk, not a data-quality nitpick, so this is a hard
-    gate, not a warning. Failing any of these checks silently falls
-    back to the existing unassigned flow, exactly as if no preference
-    had been configured at all — never a crash, never a ticket left
-    half-assigned."""
-    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
-    property_doc = await properties_col.find_one({"_id": query_id})
-    if not property_doc:
-        return None
-
-    preferred_vendor_id = property_doc.get("preferredVendors", {}).get(category)
-    if not preferred_vendor_id or not ObjectId.is_valid(preferred_vendor_id):
-        return None
-
-    vendor = await vendors_col.find_one({"_id": ObjectId(preferred_vendor_id)})
-    if not vendor or not vendor.get("active", True):
-        return None
-
-    now = datetime.now(timezone.utc)
-    for field in ("insuranceExpiresDate", "licenseExpiresDate"):
-        expires = vendor.get(field)
-        if expires:
-            if isinstance(expires, datetime) and expires.tzinfo is None:
-                expires = expires.replace(tzinfo=timezone.utc)
-            if isinstance(expires, datetime) and expires <= now:
-                return None  # expired — never auto-assign, fall back to manual
-
-    return vendor
 
 
 @router.get("")
@@ -134,19 +101,28 @@ async def create_ticket(payload: TicketCreate, user: dict = Depends(get_current_
     # reason ticket_severity.py exists). "urgent"/"emergency" tickets
     # always stay unassigned here regardless of what preferredVendors
     # says, so a human makes that call every time the stakes are real.
-    auto_assigned_vendor = None
+    #
+    # CHANGED (Sept 2, 2026): the actual assignment + real SLA
+    # tracking (acceptance token, deadline, confirmation SMS) now
+    # happens via vendor_sla_service.dispatch_with_sla AFTER insert,
+    # since that needs a real ticket _id to track against — the
+    # candidate vendor is still found before insert so a ticket that
+    # has no eligible vendor at all doesn't pay for a second DB round
+    # trip it doesn't need.
+    auto_assign_candidate = None
     if severity["tier"] in ("low", "routine") and doc.get("propertyId") and doc.get("category"):
-        auto_assigned_vendor = await find_preferred_vendor(doc["propertyId"], doc["category"])
-        if auto_assigned_vendor:
-            doc["assignedVendorId"] = str(auto_assigned_vendor["_id"])
-            doc["assignedVendorName"] = auto_assigned_vendor["name"]
-            doc["estimatedCost"] = auto_assigned_vendor.get("baseCost")
-            doc["estimatedArrivalHours"] = auto_assigned_vendor.get("avgArrivalHours")
-            doc["status"] = "in_progress"
-            doc["vendorAutoAssigned"] = True  # real transparency marker — staff can tell this wasn't a human decision
+        auto_assign_candidate = await vendor_sla_service.find_next_eligible_vendor(doc["propertyId"], doc["category"])
 
     result = await tickets_col.insert_one(doc)
     doc["_id"] = result.inserted_id
+
+    auto_assigned_vendor = None
+    if auto_assign_candidate:
+        await vendor_sla_service.dispatch_with_sla(str(result.inserted_id), doc, auto_assign_candidate)
+        doc["status"] = "in_progress"
+        doc["estimatedArrivalHours"] = auto_assign_candidate.get("avgArrivalHours")
+        await tickets_col.update_one({"_id": result.inserted_id}, {"$set": {"vendorAutoAssigned": True}})
+        auto_assigned_vendor = auto_assign_candidate
 
     if doc.get("source") == "resident":
         if assigned_tech:
