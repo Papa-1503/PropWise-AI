@@ -219,9 +219,22 @@ async def rent_automation_scheduler():
     endpoints is deliberately bypassed here — this calls the internal
     _do_* helpers directly, same as late fee/escalation already did,
     since the key's purpose is authenticating an *external* trigger,
-    not gating whether the check is allowed to run at all."""
+    not gating whether the check is allowed to run at all.
+
+    Extended (Sept 3, 2026) with a lightweight heartbeat check (see
+    scheduler_health.py) — a real, low-cost resilience improvement
+    deliberately chosen over a full Celery + Redis migration for now:
+    this app is still pre-launch, every check here is already safe to
+    skip a cycle and catch up next run (idempotent, re-checks real
+    current state), and a full task-queue migration needs a paid
+    Background Worker + Redis instance this app doesn't need to carry
+    yet. This just makes a missed cycle (from a Render restart/deploy)
+    show up clearly in the logs instead of disappearing silently —
+    real signal for if/when the bigger migration becomes worth it."""
     from routers import admin as admin_router
+    import scheduler_health
     interval_seconds = 6 * 60 * 60  # every 6 hours
+    await scheduler_health.check_for_missed_cycle("rent_automation_scheduler", interval_seconds, logger)
     while True:
         try:
             result = await admin_router._do_late_fee_check()
@@ -259,6 +272,7 @@ async def rent_automation_scheduler():
             logger.info(f"[scheduler] AI Actions auto-approve check: {result}")
         except Exception:
             logger.exception("[scheduler] AI Actions auto-approve check failed")
+        await scheduler_health.record_heartbeat("rent_automation_scheduler")
         await asyncio.sleep(interval_seconds)
 
 
@@ -274,13 +288,16 @@ async def vendor_sla_scheduler():
     SLA window, not bounded by an unrelated schedule chosen for
     entirely different, far less time-sensitive checks."""
     from routers import admin as admin_router
+    import scheduler_health
     interval_seconds = 15 * 60  # every 15 minutes
+    await scheduler_health.check_for_missed_cycle("vendor_sla_scheduler", interval_seconds, logger)
     while True:
         try:
             result = await admin_router._do_vendor_sla_check()
             logger.info(f"[scheduler] vendor SLA check: {result}")
         except Exception:
             logger.exception("[scheduler] vendor SLA check failed")
+        await scheduler_health.record_heartbeat("vendor_sla_scheduler")
         await asyncio.sleep(interval_seconds)
 
 
