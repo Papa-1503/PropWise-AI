@@ -96,8 +96,68 @@ function TabNotFound() {
  * their own unit's property.
  */
 
-const STAFF_TABS = ["dashboard", "actions", "inspections", "maintenance", "payments", "workflows", "communications", "leases", "screening", "leads", "staff", "schedules", "on-call", "reconciliation", "properties", "documents", "gallery", "feed", "ai", "forms", "packages", "rubs", "trust-accounting", "capital-planning", "predictive-analytics", "custom-roles", "custom-fields", "write-assist", "bill-scan"];
+// CHANGED (Sept 3, 2026): staff navigation was a single flat list of
+// 29 tabs — real, confirmed problem (not a stylistic nitpick): a
+// property manager's actual mental model is closer to "Leasing /
+// Maintenance / Rent / Communications / Reports / Admin" than one
+// undifferentiated wall of buttons. STAFF_TAB_GROUPS is the new,
+// grouped structure the sidebar actually renders from; STAFF_TABS
+// below is deliberately kept as a flat, derived array (flatMap over
+// the groups) — every existing piece of routing logic in this file
+// (activeTab lookup, the wrong-role redirect guard, IndexRedirect's
+// tabs[0]) already depends on STAFF_TABS being a plain flat array
+// with a stable order, and none of that needed to change, or should
+// change, just because the sidebar's visual presentation did.
+// Tenant nav is untouched — only 5 tabs, no grouping needed.
+const STAFF_TAB_GROUPS = [
+  { label: "Overview", tabs: ["dashboard", "actions", "ai"] },
+  { label: "Leasing", tabs: ["leads", "screening", "leases", "forms"] },
+  { label: "Maintenance", tabs: ["maintenance", "inspections", "schedules", "on-call"] },
+  { label: "Rent & Accounting", tabs: ["payments", "rubs", "reconciliation", "trust-accounting", "capital-planning", "bill-scan"] },
+  { label: "Communications", tabs: ["communications", "feed", "packages", "write-assist"] },
+  { label: "Documents & Reports", tabs: ["documents", "gallery", "predictive-analytics"] },
+  { label: "Admin", tabs: ["properties", "staff", "workflows", "custom-roles", "custom-fields"] },
+];
+const STAFF_TABS = STAFF_TAB_GROUPS.flatMap((g) => g.tabs);
 const TENANT_TABS = ["documents", "maintenance", "payments", "gallery", "ai"];
+// Real, readable labels — the sidebar previously rendered raw tab
+// keys through a CSS `capitalize` class, which is exactly why
+// "on-call" showed as "On-call" (hyphen intact), "custom-roles" as
+// "Custom-roles", "ai" as "Ai" instead of "AI Copilot", and so on.
+// Falls back to the raw key (still capitalize-styled) for any tab
+// that doesn't have an explicit entry, so this never silently hides
+// a tab that's missing a label.
+const TAB_LABELS = {
+  dashboard: "Dashboard",
+  actions: "AI Actions",
+  ai: "AI Copilot",
+  inspections: "Inspections",
+  maintenance: "Maintenance",
+  payments: "Payments",
+  workflows: "Workflows",
+  communications: "Communications",
+  leases: "Leases",
+  screening: "Screening",
+  leads: "Leads",
+  staff: "Staff",
+  schedules: "PM Schedules",
+  "on-call": "On-Call",
+  reconciliation: "Reconciliation",
+  properties: "Properties",
+  documents: "Documents",
+  gallery: "Gallery",
+  feed: "Team Feed",
+  forms: "Forms",
+  packages: "Packages",
+  rubs: "RUBS Billing",
+  "trust-accounting": "Trust Accounting",
+  "capital-planning": "Capital Planning",
+  "predictive-analytics": "Predictive Analytics",
+  "custom-roles": "Custom Roles",
+  "custom-fields": "Custom Fields",
+  "write-assist": "Write Assist",
+  "bill-scan": "Bill Scan",
+};
 const TAB_ICONS = {
   dashboard: LayoutDashboard,
   actions: Zap,
@@ -199,21 +259,46 @@ function AppGate() {
         <span className="font-serif font-bold text-slate-900 truncate">PropWise AI</span>
       </div>
       <nav data-onboarding-target="sidebar-nav" className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-        {tabs.map((t) => {
-          const Icon = TAB_ICONS[t];
-          return (
-            <button
-              key={t}
-              onClick={() => goTo(t)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium capitalize transition-colors ${
-                activeTab === t ? "bg-indigo-50 text-indigo-700" : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              {Icon && <Icon size={17} />}
-              {t}
-            </button>
-          );
-        })}
+        {user.role === "staff" ? (
+          STAFF_TAB_GROUPS.map((group) => (
+            <div key={group.label} className="mb-3 last:mb-0">
+              <p className="px-3 pt-1 pb-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                {group.label}
+              </p>
+              {group.tabs.map((t) => {
+                const Icon = TAB_ICONS[t];
+                return (
+                  <button
+                    key={t}
+                    onClick={() => goTo(t)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                      activeTab === t ? "bg-indigo-50 text-indigo-700" : "text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    {Icon && <Icon size={17} />}
+                    {TAB_LABELS[t] || t}
+                  </button>
+                );
+              })}
+            </div>
+          ))
+        ) : (
+          tabs.map((t) => {
+            const Icon = TAB_ICONS[t];
+            return (
+              <button
+                key={t}
+                onClick={() => goTo(t)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  activeTab === t ? "bg-indigo-50 text-indigo-700" : "text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {Icon && <Icon size={17} />}
+                {TAB_LABELS[t] || t}
+              </button>
+            );
+          })
+        )}
       </nav>
       <div className="p-3 border-t border-slate-200">
         <button
