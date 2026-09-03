@@ -49,7 +49,7 @@ in an earlier session, the third is today's further hardening):
 """
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Depends, Response
+from fastapi import APIRouter, HTTPException, Depends, Response, Request
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 
@@ -57,6 +57,7 @@ from db import users_col, leases_col
 from models import StaffOwnerRegister, TenantActivate, UserLogin, TokenResponse, UserOut, ProfileUpdate, PasswordChange
 from email_service import send_email_async, EmailNotConfigured, EmailSendError
 from auth import hash_password, verify_password, create_access_token, get_current_user, require_staff, set_session_cookie, COOKIE_NAME
+from rate_limiter import limiter
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -91,7 +92,8 @@ async def _create_staff_or_owner(payload: StaffOwnerRegister, forced_role: str, 
 
 
 @router.post("/register", response_model=TokenResponse)
-async def register(payload: TenantActivate, response: Response):
+@limiter.limit("5/minute")
+async def register(request: Request, payload: TenantActivate, response: Response):
     """Public resident activation. The invite code is the sole source of
     truth for which unit this account binds to — nothing client-submitted
     is trusted for that purpose."""
@@ -164,7 +166,8 @@ async def register_owner(payload: StaffOwnerRegister, response: Response, curren
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(payload: UserLogin, response: Response):
+@limiter.limit("5/minute")
+async def login(request: Request, payload: UserLogin, response: Response):
     user = await users_col.find_one({"email": payload.email})
     if not user or not verify_password(payload.password, user["password"]):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
