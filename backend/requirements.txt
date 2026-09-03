@@ -1,16 +1,34 @@
-fastapi
-uvicorn[standard]
-motor
-pydantic
-python-multipart
-bcrypt
-python-jose
-anthropic
-python-dotenv
-reportlab
-Pillow
-cloudinary
-httpx
-pywebpush
-twilio
-stripe
+# Pinned to the exact versions confirmed working in the real Render
+# build log (Sept 3, 2026) for every package already installed there,
+# plus PyJWT and slowapi at their current stable releases as of the
+# same date. Previously fully unpinned - a real, separate gap flagged
+# during a security audit and fixed here alongside the more urgent
+# issue this file was actually touched to fix.
+#
+# URGENT FIX (Sept 3, 2026): python-jose was never actually removed
+# from this file when auth.py was swapped to PyJWT - the code changed,
+# this file didn't. Both packages install a top-level module literally
+# named `jwt`, and python-jose's version has no PyJWTError class at
+# all, so auth.py's `from jwt import PyJWTError` crashed at import time
+# on every deploy since - confirmed directly by reading the actual
+# Render build log, which showed requirements.txt still installing
+# python-jose. slowapi was similarly never added when rate_limiter.py
+# started importing it. Both are real, first-class dependencies now,
+# not transitively hoped-for ones.
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+motor==3.7.1
+pydantic==2.13.5
+python-multipart==0.0.32
+bcrypt==5.0.0
+PyJWT==2.13.0
+anthropic==1.3.0
+python-dotenv==1.2.3
+reportlab==5.0.1
+Pillow==12.3.0
+cloudinary==1.46.2
+httpx==0.28.1
+pywebpush==2.5.0
+twilio==9.11.0
+stripe==15.6.1
+slowapi==0.1.10
