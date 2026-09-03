@@ -232,7 +232,13 @@ async def rent_automation_scheduler():
     Background Worker + Redis instance this app doesn't need to carry
     yet. This just makes a missed cycle (from a Render restart/deploy)
     show up clearly in the logs instead of disappearing silently —
-    real signal for if/when the bigger migration becomes worth it."""
+    real signal for if/when the bigger migration becomes worth it.
+
+    Extended (Sept 3, 2026) again with the 8th check: staged renewal-
+    risk outreach (90/60/30 days before lease expiry) — see
+    renewal_risk_service.py and _do_renewal_risk_check's own
+    docstrings for the real scoring reasoning and why this stays
+    separate from the existing generic _do_lease_renewal_check."""
     from routers import admin as admin_router
     import scheduler_health
     interval_seconds = 6 * 60 * 60  # every 6 hours
@@ -274,6 +280,11 @@ async def rent_automation_scheduler():
             logger.info(f"[scheduler] AI Actions auto-approve check: {result}")
         except Exception:
             logger.exception("[scheduler] AI Actions auto-approve check failed")
+        try:
+            result = await admin_router._do_renewal_risk_check()
+            logger.info(f"[scheduler] renewal risk check: {result}")
+        except Exception:
+            logger.exception("[scheduler] renewal risk check failed")
         await scheduler_health.record_heartbeat("rent_automation_scheduler")
         await asyncio.sleep(interval_seconds)
 
