@@ -48,10 +48,10 @@ or reconfigure any external cron service accordingly.
 import os
 from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
 
-from db import maintenance_schedules_col, tickets_col, users_col, leases_col, payments_col, properties_col, ai_actions_col, late_notices_col
+from db import maintenance_schedules_col, tickets_col, users_col, leases_col, payments_col, properties_col, ai_actions_col, late_notices_col, scheduler_health_col
 from models import AdminKeyPayload
 from stripe_service import (
     StripeNotConfigured,
@@ -60,6 +60,7 @@ from stripe_service import (
 )
 import notifications_service
 import vendor_sla_service
+from auth import require_staff
 
 DEFAULT_LATE_FEE_AMOUNT = 50.0
 DEFAULT_LATE_FEE_GRACE_DAYS = 5
@@ -681,3 +682,40 @@ async def _do_vendor_sla_check():
         "reassigned": len(reassigned),
         "escalated": len(escalated),
     }
+
+
+@router.get("/scheduler-health")
+async def scheduler_health_status(user: dict = Depends(require_staff)):
+    """Real, current status of both background schedulers — see
+    scheduler_health.py's own module docstring for the full reasoning.
+    Staff-authenticated (not the shared admin key, which exists for
+    external cron triggers) since this is just read-only status info
+    a logged-in staff member should be able to check directly, not a
+    state-changing action."""
+    now = datetime.now(timezone.utc)
+    cursor = scheduler_health_col.find({})
+    docs = await cursor.to_list(length=10)
+
+    EXPECTED_INTERVALS = {
+        "rent_automation_scheduler": 6 * 60 * 60,
+        "vendor_sla_scheduler": 15 * 60,
+    }
+
+    schedulers = []
+    for doc in docs:
+        last_heartbeat = doc.get("lastHeartbeatAt")
+        gap_seconds = None
+        healthy = None
+        if isinstance(last_heartbeat, datetime):
+            last_heartbeat_aware = last_heartbeat.replace(tzinfo=timezone.utc) if last_heartbeat.tzinfo is None else last_heartbeat
+            gap_seconds = (now - last_heartbeat_aware).total_seconds()
+            expected = EXPECTED_INTERVALS.get(doc["scheduler"])
+            healthy = gap_seconds <= expected * 1.5 if expected else None
+        schedulers.append({
+            "scheduler": doc["scheduler"],
+            "lastHeartbeatAt": last_heartbeat.isoformat() if isinstance(last_heartbeat, datetime) else None,
+            "secondsSinceLastHeartbeat": round(gap_seconds) if gap_seconds is not None else None,
+            "healthy": healthy,
+        })
+
+    return {"schedulers": schedulers}
