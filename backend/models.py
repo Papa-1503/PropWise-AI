@@ -144,6 +144,23 @@ class FaqRequest(BaseModel):
     history: list[ChatTurn] = Field(default_factory=list)
 
 
+class ProspectChatRequest(BaseModel):
+    """PUBLIC — no auth, no account required. A prospect chatting from
+    the public /apply page about vacant units, before they're any kind
+    of PropWise AI user at all. propertyId is optional — a prospect
+    browsing generally (not yet knowing which building they want) gets
+    answers grounded in every currently-vacant unit across the whole
+    portfolio; one already on a specific building's page gets answers
+    scoped to just that property. Deliberately public and stateless
+    (no lead/session ID required to just ask a question) — the actual
+    lead capture already has its own real, separate flow
+    (POST /api/leads); this endpoint answering questions is not itself
+    what creates a lead record."""
+    message: str
+    propertyId: Optional[str] = None
+    history: list[ChatTurn] = Field(default_factory=list)
+
+
 # ---------- Properties / Units ----------
 
 class UnitIn(BaseModel):
@@ -180,6 +197,20 @@ class OwnerAssign(BaseModel):
 class PropertyUpdate(BaseModel):
     name: Optional[str] = None
     address: Optional[str] = None
+    petPolicy: Optional[str] = None
+    parkingInfo: Optional[str] = None
+    utilitiesIncluded: Optional[str] = None
+    # ^ Genuinely missing before the prospect-facing leasing assistant
+    # needed real data to answer the questions prospects actually ask
+    # (pet policy, parking, utilities) — confirmed absent from the
+    # property model entirely before this. Free text, not a fixed enum
+    # — real pet/parking/utility policies vary too much across
+    # buildings (breed/weight limits, deposit amounts, assigned vs.
+    # unassigned parking, which specific utilities) to force into a
+    # small fixed set of choices without losing real information a
+    # prospect would actually want. Optional and property-wide, not
+    # per-unit — these are almost always building-level policies, not
+    # something that varies unit to unit.
 
 
 class RentRulesUpdate(BaseModel):
