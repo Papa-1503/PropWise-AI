@@ -320,6 +320,18 @@ class RenewalIncentiveResponse(BaseModel):
     status: Literal["accepted", "declined"]
 
 
+class RenewalCheckInSubmit(BaseModel):
+    """The real 'capture why, not just predict that' piece of renewal
+    risk scoring — a resident's own, genuine free-text answer to a
+    real check-in prompt (see renewal_risk_service.py's own module
+    docstring for the broader reasoning). Deliberately just one open
+    field, not a multiple-choice satisfaction survey — a resident
+    explaining in their own words why they're hesitant is exactly the
+    real signal staff can't get from a numeric score alone, and
+    forcing it into fixed categories would lose the actual reason."""
+    response: str = Field(min_length=1, max_length=2000)
+
+
 class InsurancePolicyUpdate(BaseModel):
     """Staff-entered policy details, separate from the actual proof-of-
     insurance document upload (POST /{lease_id}/insurance-proof) - a
