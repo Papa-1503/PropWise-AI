@@ -16,13 +16,14 @@ from bson import ObjectId
 import cloudinary
 import cloudinary.uploader
 
-from db import leases_col, documents_col, properties_col
-from models import LeaseCreate, LeaseUpdate, InsurancePolicyUpdate, RenewalIncentiveOffer, RenewalIncentiveResponse
+from db import leases_col, documents_col, properties_col, renewal_checkins_col
+from models import LeaseCreate, LeaseUpdate, InsurancePolicyUpdate, RenewalIncentiveOffer, RenewalIncentiveResponse, RenewalCheckInSubmit
 from date_utils import parse_date_utc
 from auth import require_staff, require_staff_or_owner, get_current_user
 from services.events import emit_event
 from audit_service import log_action
 import notifications_service
+import renewal_risk_service
 
 cloudinary.config(
     cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
@@ -469,4 +470,110 @@ async def respond_to_renewal_incentive(lease_id: str, payload: RenewalIncentiveR
     )
 
     return serialize(result)
- 
+
+
+@router.get("/{lease_id}/renewal-risk")
+async def get_lease_renewal_risk(lease_id: str, user: dict = Depends(require_staff)):
+    """Real, live risk score for one lease — see
+    renewal_risk_service.py's own module docstring for the full
+    reasoning and honesty caveats. Computed fresh on every call, not
+    cached, so it always reflects this unit's current real payment/
+    maintenance state."""
+    if not ObjectId.is_valid(lease_id):
+        raise HTTPException(status_code=400, detail="Invalid lease ID")
+    lease = await leases_col.find_one({"_id": ObjectId(lease_id)})
+    if not lease:
+        raise HTTPException(status_code=404, detail="Lease not found")
+    risk = await renewal_risk_service.compute_renewal_risk(lease)
+    return {"leaseId": lease_id, **risk}
+
+
+@router.get("/renewal-risk")
+async def list_renewal_risk(propertyId: str | None = None, windowDays: int = 90, user: dict = Depends(require_staff)):
+    """Real risk scores across every lease expiring within the given
+    window, sorted highest-risk first — the actual 'who should I focus
+    renewal outreach on' view. Deliberately excludes already-signed
+    renewals (renewalStatus == 'signed') - a lease that's already
+    renewed isn't a real renewal-risk candidate anymore, regardless of
+    what its historical payment/maintenance record looks like."""
+    now = datetime.now(timezone.utc)
+    cutoff = now + timedelta(days=windowDays)
+    query: dict = {
+        "endDate": {"$gte": now, "$lte": cutoff},
+        "renewalStatus": {"$ne": "signed"},
+    }
+    if propertyId:
+        query["propertyId"] = propertyId
+    leases = await leases_col.find(query).to_list(length=500)
+
+    results = []
+    for lease in leases:
+        risk = await renewal_risk_service.compute_renewal_risk(lease)
+        days_left = renewal_risk_service.days_until(lease.get("endDate"), now)
+        results.append({
+            "leaseId": str(lease["_id"]),
+            "propertyId": lease.get("propertyId"),
+            "unitId": lease.get("unitId"),
+            "residentName": lease.get("residentName"),
+            "daysUntilExpiry": days_left,
+            **risk,
+        })
+
+    results.sort(key=lambda r: r["score"], reverse=True)
+    return {"leases": results}
+
+
+@router.post("/{lease_id}/renewal-checkin")
+async def submit_renewal_checkin(lease_id: str, payload: RenewalCheckInSubmit, user: dict = Depends(get_current_user)):
+    """The real 'capture why' half of renewal risk scoring - a
+    resident's own genuine response to a check-in prompt (sent by
+    _do_renewal_risk_check in routers/admin.py). Same never-trust-
+    client-submitted-scope pattern used throughout this app: the lease
+    is verified to actually belong to THIS tenant's own propertyId/
+    unitId before accepting a response for it, exactly like /mine
+    above - a tenant can't submit a check-in response for a lease
+    that isn't theirs, even by guessing a valid lease_id."""
+    if user["role"] != "tenant":
+        raise HTTPException(status_code=403, detail="Only tenants can submit a renewal check-in.")
+    if not ObjectId.is_valid(lease_id):
+        raise HTTPException(status_code=400, detail="Invalid lease ID")
+    lease = await leases_col.find_one({"_id": ObjectId(lease_id)})
+    if not lease:
+        raise HTTPException(status_code=404, detail="Lease not found")
+    if lease.get("propertyId") != user.get("propertyId") or lease.get("unitId") != user.get("unitId"):
+        raise HTTPException(status_code=403, detail="Not your lease")
+
+    doc = {
+        "leaseId": lease_id,
+        "propertyId": lease.get("propertyId"),
+        "unitId": lease.get("unitId"),
+        "response": payload.response,
+        "respondedAt": datetime.now(timezone.utc),
+    }
+    result = await renewal_checkins_col.insert_one(doc)
+
+    await notifications_service.notify_all_staff(
+        type="general",
+        title=f"Renewal check-in response: Unit {lease.get('unitId')}",
+        body=payload.response[:200] + ("..." if len(payload.response) > 200 else ""),
+        link="/leases",
+    )
+
+    doc["id"] = str(result.inserted_id)
+    doc["_id"] = str(result.inserted_id)
+    doc["respondedAt"] = doc["respondedAt"].isoformat()
+    return doc
+
+
+@router.get("/{lease_id}/renewal-checkins")
+async def list_renewal_checkins(lease_id: str, user: dict = Depends(require_staff)):
+    """Staff-facing view of a lease's real check-in responses, newest
+    first - the actual place staff read what a resident said in their
+    own words, not just the numeric risk score."""
+    cursor = renewal_checkins_col.find({"leaseId": lease_id}).sort("respondedAt", -1)
+    checkins = await cursor.to_list(length=50)
+    for c in checkins:
+        c["id"] = str(c.pop("_id"))
+        if isinstance(c.get("respondedAt"), datetime):
+            c["respondedAt"] = c["respondedAt"].isoformat()
+    return {"checkins": checkins}
