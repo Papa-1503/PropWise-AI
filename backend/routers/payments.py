@@ -40,6 +40,7 @@ from db import payments_col, users_col, late_notices_col, properties_col, leases
 from date_utils import parse_date_utc
 from models import ChargeCreate, PaymentRecord, CheckoutSessionCreate, PaymentReturn, AutopayEnroll
 from auth import require_staff, get_current_user
+from rate_limiter import limiter
 from services.events import emit_event
 from stripe_service import (
     StripeNotConfigured,
@@ -251,7 +252,8 @@ async def return_payment(charge_id: str, payload: PaymentReturn, user: dict = De
 
 
 @router.post("/{charge_id}/checkout")
-async def create_checkout_session(charge_id: str, payload: CheckoutSessionCreate, user: dict = Depends(get_current_user)):
+@limiter.limit("10/minute")
+async def create_checkout_session(request: Request, charge_id: str, payload: CheckoutSessionCreate, user: dict = Depends(get_current_user)):
     if not ObjectId.is_valid(charge_id):
         raise HTTPException(status_code=400, detail="Invalid charge ID")
     charge = await payments_col.find_one({"_id": ObjectId(charge_id)})
@@ -320,7 +322,8 @@ async def get_stripe_config(user: dict = Depends(get_current_user)):
 
 
 @router.post("/setup-intent")
-async def create_bank_setup_intent(user: dict = Depends(get_current_user)):
+@limiter.limit("10/minute")
+async def create_bank_setup_intent(request: Request, user: dict = Depends(get_current_user)):
     """Starts linking a bank account for the current user. Returns a
     Stripe client_secret the frontend hands to Stripe.js to complete
     verification entirely in the browser - this endpoint's only job is
