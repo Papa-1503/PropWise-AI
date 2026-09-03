@@ -8,6 +8,16 @@ IMPORTANT: any "content" text stored here is whatever staff provide when
 creating the document. This app does not generate legal language — lease
 and agreement wording should come from a real estate attorney or a
 licensed template provider before being used with real tenants.
+
+BUG FIX (Sept 3, 2026): documents had no building name anywhere - not in
+the PDF, not in the in-app list, not even a raw propertyId to fall back
+on, since a document only ever stored leaseId, never propertyId directly.
+Confirmed the frontend create form never even collected leaseId at all,
+so most real documents had nothing to resolve a building name FROM in the
+first place - see Documents.jsx's own new lease-picker for the other half
+of this fix. Resolved live (via leaseId -> lease -> property), not stored
+as a snapshot at creation time, so a later property rename is reflected
+correctly rather than needing every existing document backfilled.
 """
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends
@@ -20,7 +30,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from xml.sax.saxutils import escape as _xml_escape
 
-from db import documents_col, leases_col
+from db import documents_col, leases_col, properties_col
 from models import DocumentCreate, DocumentSign
 from auth import require_staff, get_current_user
 
@@ -29,6 +39,25 @@ router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 def _pdf_text(value) -> str:
     return _xml_escape(str(value) if value is not None else "")
+
+
+async def _resolve_building_name(lease_id: str | None) -> str | None:
+    """Real, live resolution: leaseId -> lease's propertyId -> property's
+    name. Returns None (not a placeholder string) at any step that
+    doesn't resolve - a document genuinely not tied to a lease yet is a
+    real, valid state (see DocumentCreate's leaseId being Optional),
+    not an error to paper over with a fake value."""
+    if not lease_id or not ObjectId.is_valid(lease_id):
+        return None
+    lease = await leases_col.find_one({"_id": ObjectId(lease_id)})
+    if not lease:
+        return None
+    property_id = lease.get("propertyId")
+    if not property_id:
+        return None
+    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+    property_doc = await properties_col.find_one({"_id": query_id})
+    return property_doc.get("name") if property_doc else None
 
 
 @router.post("")
@@ -49,6 +78,7 @@ async def list_documents(user: dict = Depends(get_current_user)):
     results = await cursor.to_list(length=200)
     for r in results:
         r["_id"] = str(r["_id"])
+        r["buildingName"] = await _resolve_building_name(r.get("leaseId"))
     return {"documents": results}
 
 
@@ -62,6 +92,7 @@ async def get_document(document_id: str, user: dict = Depends(get_current_user))
     if user["role"] != "staff" and doc.get("tenantEmail") != user["email"]:
         raise HTTPException(status_code=403, detail="Not your document")
     doc["_id"] = str(doc["_id"])
+    doc["buildingName"] = await _resolve_building_name(doc.get("leaseId"))
     return doc
 
 
@@ -108,14 +139,25 @@ async def document_pdf(document_id: str, user: dict = Depends(get_current_user))
     if user["role"] != "staff" and doc.get("tenantEmail") != user["email"]:
         raise HTTPException(status_code=403, detail="Not your document")
 
+    building_name = await _resolve_building_name(doc.get("leaseId"))
+
     buffer = BytesIO()
     pdf = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.8 * inch, bottomMargin=0.8 * inch)
     styles = getSampleStyleSheet()
+    building_style = ParagraphStyle("Building", parent=styles["Normal"], fontSize=12, textColor="#1e293b", spaceAfter=2)
     title_style = ParagraphStyle("TitleCustom", parent=styles["Title"], fontSize=16, spaceAfter=10)
     body_style = ParagraphStyle("Body", parent=styles["Normal"], fontSize=10, leading=15, spaceAfter=8)
     sig_style = ParagraphStyle("Sig", parent=styles["Normal"], fontSize=10, textColor="#334155", spaceBefore=20)
 
-    story = [Paragraph(_pdf_text(doc.get("title")), title_style)]
+    story = []
+    # Real letterhead - the actual gap this fix addresses. Omitted
+    # entirely (not a placeholder like "Unknown building") when this
+    # document genuinely has no resolvable lease/property, which is
+    # an honest state for a document created before a lease was
+    # selected, or one never tied to a specific unit at all.
+    if building_name:
+        story.append(Paragraph(_pdf_text(building_name), building_style))
+    story.append(Paragraph(_pdf_text(doc.get("title")), title_style))
     for para in str(doc.get("content", "")).split("\n\n"):
         if para.strip():
             story.append(Paragraph(_pdf_text(para), body_style))
