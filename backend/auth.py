@@ -2,9 +2,26 @@
 Auth core: password hashing, JWT issue/verify, and FastAPI dependencies
 for protecting routes by login state and by role (staff vs tenant).
 
-Requires: pip install bcrypt python-jose python-multipart
+Requires: pip install bcrypt PyJWT python-multipart
 Set JWT_SECRET in your environment in production — the default below
 is only for local dev and is NOT safe to ship.
+
+CHANGED (Sept 2, 2026): swapped python-jose for PyJWT. python-jose
+carries a real, current CVE (CVE-2025-61152 — a forged token with
+alg=none bypasses signature verification entirely, confirmed via a
+direct search, not assumed) plus several older, real CVEs against its
+bundled ecdsa dependency that its maintainers have stated they don't
+plan to fix. This app's own decode call already specified an explicit
+algorithms=[JWT_ALGORITHM] allowlist, which defends against the worst
+(alg=none) exploit path regardless of library — so this wasn't
+actively exploitable here — but continuing to depend on an
+unmaintained library with open, unfixed CVEs is a real, avoidable
+supply-chain risk worth removing outright, not just working around.
+PyJWT is the more actively maintained, more widely used library for
+this exact use case. The only real API difference for how this file
+uses it: the exception type changes from jose.JWTError to
+jwt.PyJWTError (or its subclasses like ExpiredSignatureError) — encode/
+decode call shapes are otherwise identical.
 """
 import os
 from datetime import datetime, timedelta, timezone
@@ -12,7 +29,8 @@ from typing import Optional
 
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError
 import bcrypt
 from bson import ObjectId
 
@@ -73,7 +91,7 @@ async def get_current_user(request: Request, token: Optional[str] = Depends(oaut
         user_id = payload.get("sub")
         if not user_id:
             raise unauthorized
-    except JWTError:
+    except PyJWTError:
         raise unauthorized
 
     user = await users_col.find_one({"_id": ObjectId(user_id)})
