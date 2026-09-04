@@ -23,6 +23,7 @@ import AICopilot from "./AICopilot";
 import ScenarioPlanner from "./ScenarioPlanner";
 import ComplianceCalendar from "./ComplianceCalendar";
 import PortfolioPricing from "./PortfolioPricing";
+import PhotoUploadPage from "./PhotoUploadPage";
 import AIActionsPanel from "./AIActionsPanel";
 import PaymentsPanel from "./PaymentsPanel";
 import PortfolioHealthHeader from "./PortfolioHealthHeader";
@@ -434,6 +435,7 @@ export default function App() {
           <BrowserRouter>
             <Routes>
               <Route path="/apply" element={<LeadCaptureForm />} />
+              <Route path="/upload-photos/:token" element={<PhotoUploadPage />} />
               <Route path="/" element={<RootRedirect />} />
 
           <Route path="/app" element={<AppGate />}>
