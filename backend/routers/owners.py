@@ -9,6 +9,7 @@ from bson import ObjectId
 
 from db import properties_col, payments_col, tickets_col
 from auth import require_owner
+import cash_flow_service
 
 router = APIRouter(prefix="/api/owners", tags=["owners"])
 
@@ -96,6 +97,20 @@ async def owner_statements(user: dict = Depends(require_owner)):
             "outstanding": round(grand_billed - grand_collected, 2),
         },
     }
+@router.get("/me/cash-flow")
+async def owner_cash_flow(months: int = 6, user: dict = Depends(require_owner)):
+    """Real net cash flow (income minus real operating expenses) across
+    every property this owner actually owns - see cash_flow_service.py
+    for the full reasoning. /me/statements above only ever showed the
+    income side (billed/collected/outstanding); this is the genuinely
+    new net figure, scoped the same safe way every other owner
+    endpoint here is (ownerId-filtered property_ids, never trusting a
+    client-supplied property list)."""
+    property_ids = await _owned_property_ids(user["id"])
+    months_data = await cash_flow_service.cash_flow_trend(property_ids, months)
+    return {"months": months_data}
+
+
 @router.get("/me/tax-summary")
 async def owner_tax_summary(year: int, user: dict = Depends(require_owner)):
     props = await properties_col.find({"ownerId": user["id"]}).to_list(length=500)
