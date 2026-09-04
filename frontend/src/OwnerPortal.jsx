@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "./AuthContext";
 import Avatar from "./Avatar";
-import { LayoutDashboard, FileText, Receipt, Building2, DoorOpen, Wrench } from "lucide-react";
+import { LayoutDashboard, FileText, Receipt, Building2, DoorOpen, Wrench, TrendingUp } from "lucide-react";
 import { API_BASE } from "./config";
 import Resident360Modal from "./Resident360Modal";
 import UnitHistoryModal from "./UnitHistoryModal";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 /**
  * OwnerPortal
@@ -24,6 +25,7 @@ const TABS = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "units", label: "Units", icon: DoorOpen },
   { id: "statements", label: "Statements", icon: Receipt },
+  { id: "cashflow", label: "Cash Flow", icon: TrendingUp },
   { id: "tax", label: "Tax Summary", icon: FileText },
 ];
 
@@ -138,6 +140,71 @@ function OwnerStatementsView() {
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+function OwnerCashFlowView() {
+  const [months, setMonths] = useState(null);
+  const [error, setError] = useState(null);
+  const { authFetch } = useAuth();
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await authFetch(`${API_BASE}/owners/me/cash-flow?months=6`);
+        if (!res.ok) throw new Error("Couldn't load your cash flow");
+        const data = await res.json();
+        setMonths(data.months || []);
+      } catch (err) {
+        setError(err.message);
+      }
+    })();
+  }, [authFetch]);
+
+  if (error) return <p className="text-sm text-rose-600">{error}</p>;
+  if (!months) return <div className="h-32 bg-slate-100 rounded-xl animate-pulse" />;
+
+  const latest = months[months.length - 1];
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5">
+        Real rent collected minus real operating expenses, by month, across every property you own. Not a substitute
+        for a full NOI figure from your accountant — capital expenditures and debt service aren't factored in.
+      </p>
+
+      {latest && (
+        <div className="grid grid-cols-3 gap-3">
+          <StatCard label={`Income (${latest.month})`} value={`$${latest.income.toLocaleString()}`} tone="good" />
+          <StatCard label={`Expenses (${latest.month})`} value={`$${latest.expenses.toLocaleString()}`} tone="warn" />
+          <StatCard
+            label={`Net Cash Flow (${latest.month})`}
+            value={`$${latest.netCashFlow.toLocaleString()}`}
+            tone={latest.netCashFlow >= 0 ? "good" : "warn"}
+          />
+        </div>
+      )}
+
+      <div className="bg-white border border-slate-200 rounded-xl p-4">
+        <h3 className="text-sm font-semibold text-slate-800 mb-2">Trend</h3>
+        {months.length === 0 ? (
+          <p className="text-xs text-slate-400">Not enough income/expense history yet.</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={240}>
+            <LineChart data={months}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+              <Tooltip formatter={(v) => `$${v.toLocaleString()}`} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Line type="monotone" dataKey="income" name="Income" stroke="#10b981" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="expenses" name="Expenses" stroke="#f43f5e" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="netCashFlow" name="Net" stroke="#6366f1" strokeWidth={2.5} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   );
@@ -352,6 +419,7 @@ export default function OwnerPortal({ user, logout }) {
         {tab === "dashboard" && <OwnerDashboardView />}
         {tab === "units" && <OwnerUnitsView />}
         {tab === "statements" && <OwnerStatementsView />}
+        {tab === "cashflow" && <OwnerCashFlowView />}
         {tab === "tax" && <OwnerTaxSummaryView />}
       </main>
     </div>
