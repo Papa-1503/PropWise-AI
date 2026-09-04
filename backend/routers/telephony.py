@@ -61,6 +61,8 @@ from auth import require_staff
 import voice_triage_service
 from services.ticket_severity import compute_severity
 from routers.maintenance import create_ticket_document
+from routers.photo_upload import create_upload_token
+import sms_service
 
 router = APIRouter(prefix="/api/telephony", tags=["telephony"])
 
@@ -314,7 +316,22 @@ async def voice_ai_turn(request: Request):
         {"callSid": call_sid},
         {"$set": {"turns": turns, "pendingQuestion": None, "ticketId": ticket_result.get("id"), "severityTier": severity_tier}},
     )
-
+    # A spoken URL isn't usable, so the photo-upload link goes out as a
+    # real, separate SMS to the caller's own number instead - same
+    # token-issuing logic routers/sms_inbound.py uses for its text-in
+    # flow. Never blocks call routing if the SMS send itself fails
+    # (e.g. a landline that can't receive texts) - the ticket is
+    # already real either way, a photo is a bonus, not a requirement.
+    try:
+        upload_token = await create_upload_token(ticket_result.get("id"), triage_doc["propertyId"], unit_id)
+        upload_link = f"https://rentflow-ai-1.onrender.com/upload-photos/{upload_token}"
+        await sms_service.send_sms_async(
+            triage_doc.get("callerNumber"),
+            f"PropWise AI: we logged your maintenance request ({title}). "
+            f"If you have a photo, send it here (link expires in 48h): {upload_link}",
+        )
+    except Exception:
+        pass
     tech_phone = triage_doc.get("techPhone")
     if severity_tier in ("emergency", "urgent") and tech_phone:
         response.say(f"Thanks - I've logged this as {title}. Connecting you to our on-call technician now.")
