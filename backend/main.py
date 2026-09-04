@@ -70,6 +70,7 @@ from routers import forms
 from routers import scenario_ai
 from routers import compliance
 from routers import sms_inbound
+from routers import portfolio_pricing
 app = FastAPI(title="PropWise AI API")
 
 # Real rate limiting (slowapi) — genuinely missing before this,
@@ -191,6 +192,7 @@ app.include_router(forms.router)
 app.include_router(scenario_ai.router)
 app.include_router(compliance.router)
 app.include_router(sms_inbound.router)
+app.include_router(portfolio_pricing.router)
 # BUG FIX (found by actually running this): StaticFiles() raises at import
 # time if the directory doesn't already exist on disk. On a fresh checkout
 # there is no ./uploads folder yet, so the server would crash before it
