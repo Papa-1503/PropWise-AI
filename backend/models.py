@@ -238,7 +238,18 @@ class RentRulesUpdate(BaseModel):
     # ^ days AFTER a late fee is applied, with the charge still unpaid,
     # before it's automatically escalated — read by run_escalation_check.
 
-
+class ComplianceRulesUpdate(BaseModel):
+    """Deliberately staff-entered, never hardcoded anywhere in this app
+    - see compliance_calendar_service.py's module docstring for the
+    full reasoning. These real notice-period/deadline numbers should
+    come from this property's own state statute or legal counsel, not
+    from this app guessing at current law. `state` is a free-text
+    label only (e.g. "CA", "California") for staff's own reference and
+    organization - it does not drive any lookup or validation here."""
+    state: Optional[str] = None
+    rentIncreaseNoticeDays: Optional[int] = Field(default=None, ge=0, le=365)
+    nonRenewalNoticeDays: Optional[int] = Field(default=None, ge=0, le=365)
+    depositReturnDeadlineDays: Optional[int] = Field(default=None, ge=0, le=365)
 class TelephonyConfigUpdate(BaseModel):
     """The Twilio phone number that routes to this property's after-
     hours on-call line. Twilio's Voice webhook (routers/telephony.py)
