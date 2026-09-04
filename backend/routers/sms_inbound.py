@@ -40,13 +40,15 @@ reliable than a bespoke keyword check would be.
 """
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import Response
 from twilio.twiml.messaging_response import MessagingResponse
+from bson import ObjectId
 
-from db import leases_col, sms_triage_col
+from db import leases_col, sms_triage_col, properties_col
 from phone_utils import normalize_phone
 from routers.telephony import _validate_twilio_signature
+from auth import require_staff
 import voice_triage_service
 from services.ticket_severity import compute_severity
 from routers.maintenance import create_ticket_document
@@ -171,3 +173,27 @@ async def sms_inbound(request: Request):
         )
 
     return Response(content=str(response), media_type="application/xml")
+
+
+@router.get("/log")
+async def list_sms_log(user: dict = Depends(require_staff)):
+    """Manager-facing view of real, past SMS triage conversations -
+    the other real half of two-way SMS beyond the resulting ticket
+    itself. sms_triage_col already stored every real question and
+    answer; there was just no view of it before this."""
+    docs = await sms_triage_col.find({}).sort("createdAt", -1).to_list(length=200)
+    property_ids = {d.get("propertyId") for d in docs if d.get("propertyId")}
+    properties = {}
+    for pid in property_ids:
+        query_id = ObjectId(pid) if ObjectId.is_valid(pid) else pid
+        prop = await properties_col.find_one({"_id": query_id})
+        if prop:
+            properties[pid] = prop.get("name")
+
+    for d in docs:
+        d["id"] = str(d.pop("_id"))
+        d["propertyName"] = properties.get(d.get("propertyId"))
+        if isinstance(d.get("createdAt"), datetime):
+            d["createdAt"] = d["createdAt"].isoformat()
+
+    return {"smsLog": docs}
