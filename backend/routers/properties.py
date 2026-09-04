@@ -22,7 +22,7 @@ from services.events import emit_event
 from datetime import datetime, timezone, timedelta
 from audit_service import log_action
 from auth import require_staff
-from models import PropertyCreate, PropertyUpdate, UnitStatusUpdate, UnitDetailsUpdate, UnitIn, OwnerAssign, RentRulesUpdate, TelephonyConfigUpdate, PreferredVendorsUpdate
+from models import PropertyCreate, PropertyUpdate, UnitStatusUpdate, UnitDetailsUpdate, UnitIn, OwnerAssign, RentRulesUpdate, TelephonyConfigUpdate, PreferredVendorsUpdate, ComplianceRulesUpdate
 
 router = APIRouter(prefix="/api/properties", tags=["properties"])
 
@@ -114,6 +114,33 @@ async def update_rent_rules(property_id: str, payload: RentRulesUpdate, user: di
     await log_action(
         actor_id=str(user["id"]), actor_email=user.get("email", ""),
         action="rent_rules_updated", target_type="property", target_id=property_id,
+        details=updates,
+    )
+
+    return serialize(result)
+
+
+@router.patch("/{property_id}/compliance-rules")
+async def update_compliance_rules(property_id: str, payload: ComplianceRulesUpdate, user: dict = Depends(require_staff)):
+    """Staff-entered legal notice periods / deadlines for this property's
+    real jurisdiction - see ComplianceRulesUpdate and
+    compliance_calendar_service.py for why these are never hardcoded
+    by this app itself. Once set, routers/compliance.py's calendar
+    endpoint computes real upcoming deadlines from these numbers
+    against this property's actual lease/inspection data."""
+    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    result = await properties_col.find_one_and_update(
+        {"_id": query_id}, {"$set": updates}, return_document=True
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    await log_action(
+        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        action="compliance_rules_updated", target_type="property", target_id=property_id,
         details=updates,
     )
 
