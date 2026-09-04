@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useId, useMemo } from "react";
 import { useAuth } from "./AuthContext";
 import { useToast } from "./ToastContext";
 import EmptyState from "./EmptyState";
-import { FileSignature, Plus, X, FileText, Search, AlertTriangle } from "lucide-react";
+import { FileSignature, Plus, X, FileText, Search, AlertTriangle, ScanLine } from "lucide-react";
 import { API_BASE } from "./config";
 import Resident360Modal from "./Resident360Modal";
 import UnitHistoryModal from "./UnitHistoryModal";
@@ -34,9 +34,46 @@ function NewLeaseModal({ propertyId, onClose, onSaved }) {
   const [rent, setRent] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanNote, setScanNote] = useState(null); // { propertyNameOnDocument, unitNumberOnDocument, confidence, notes }
   const { authFetch } = useAuth();
   const { show: showToast } = useToast();
   const idPrefix = useId();
+
+  async function handleScan(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setScanning(true);
+    setError(null);
+    setScanNote(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await authFetch(`${API_BASE}/lease-extract/extract`, { method: "POST", body: formData });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "Couldn't read the lease document.");
+      const ex = data.extracted || {};
+      if (ex.residentName) setResidentName(ex.residentName);
+      if (ex.residentEmail) setResidentEmail(ex.residentEmail);
+      if (ex.residentPhone) setResidentPhone(ex.residentPhone);
+      if (ex.startDate) setStartDate(ex.startDate);
+      if (ex.endDate) setEndDate(ex.endDate);
+      if (ex.rent != null) setRent(String(ex.rent));
+      setScanNote({
+        propertyNameOnDocument: ex.propertyNameOnDocument,
+        unitNumberOnDocument: ex.unitNumberOnDocument,
+        confidence: ex.confidence,
+        notes: ex.notes,
+      });
+      showToast("Lease scanned — review the prefilled fields below.", "success");
+    } catch (err) {
+      showToast(err.message || "Couldn't read the lease document.", "error");
+      setError(err.message);
+    } finally {
+      setScanning(false);
+      e.target.value = "";
+    }
+  }
 
   async function handleSave() {
     if (!unitId.trim() || !residentName.trim() || !startDate || !endDate) {
@@ -82,6 +119,24 @@ function NewLeaseModal({ propertyId, onClose, onSaved }) {
             <X size={18} />
           </button>
         </div>
+
+        <label className="flex items-center justify-center gap-2 text-xs font-medium text-indigo-600 border-2 border-dashed border-indigo-200 rounded-lg py-3 cursor-pointer hover:bg-indigo-50 mb-3">
+          <ScanLine size={16} />
+          {scanning ? "Reading lease…" : "Scan a signed lease to prefill this form"}
+          <input type="file" accept="image/*,application/pdf" className="hidden" onChange={handleScan} disabled={scanning} />
+        </label>
+        {scanNote && (
+          <div className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 mb-3">
+            <p className="text-slate-500">
+              Confidence: <span className="capitalize font-medium">{scanNote.confidence || "—"}</span>
+              {(scanNote.propertyNameOnDocument || scanNote.unitNumberOnDocument) && (
+                <> · On document: {scanNote.propertyNameOnDocument || "—"}{scanNote.unitNumberOnDocument ? `, unit ${scanNote.unitNumberOnDocument}` : ""}</>
+              )}
+            </p>
+            <p className="text-amber-600 mt-1">Double-check every field, and enter the unit yourself below — extraction never picks the unit for you.</p>
+            {scanNote.notes && <p className="text-slate-400 mt-1">{scanNote.notes}</p>}
+          </div>
+        )}
 
         <div className="space-y-3">
           <div>
