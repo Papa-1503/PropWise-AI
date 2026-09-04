@@ -447,3 +447,30 @@ async def list_call_log(user: dict = Depends(require_staff)):
     for log in logs:
         log["id"] = str(log.pop("_id"))
     return {"callLog": logs}
+
+
+@router.get("/triage-log")
+async def list_triage_log(user: dict = Depends(require_staff)):
+    """The real AI conversation itself (each question asked, each real
+    answer given) for every after-hours AI-triaged call - distinct
+    from /call-log above, which is the raw recording/transcription of
+    the human portion of the call (after a tech picks up), not the
+    structured Q&A the AI ran beforehand. This was real, stored data
+    (voice_triage_col) with no staff-facing view before this - the
+    only way to see it was a direct database query."""
+    docs = await voice_triage_col.find({}).sort("createdAt", -1).to_list(length=200)
+    property_ids = {d.get("propertyId") for d in docs if d.get("propertyId")}
+    properties = {}
+    for pid in property_ids:
+        query_id = ObjectId(pid) if ObjectId.is_valid(pid) else pid
+        prop = await properties_col.find_one({"_id": query_id})
+        if prop:
+            properties[pid] = prop.get("name")
+
+    for d in docs:
+        d["id"] = str(d.pop("_id"))
+        d["propertyName"] = properties.get(d.get("propertyId"))
+        if isinstance(d.get("createdAt"), datetime):
+            d["createdAt"] = d["createdAt"].isoformat()
+
+    return {"triageLog": docs}
