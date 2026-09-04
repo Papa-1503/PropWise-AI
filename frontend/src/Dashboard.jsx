@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import { API_BASE } from "./config";
 import AffirmationBanner from "./AffirmationBanner";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 
 /**
  * Dashboard
@@ -159,6 +159,57 @@ function RevenueTrendChart({ propertyId }) {
   );
 }
 
+function CashFlowTrendChart({ propertyId }) {
+  const [months, setMonths] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const { authFetch } = useAuth();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (propertyId) params.set("propertyId", propertyId);
+        const res = await authFetch(`${API_BASE}/dashboard/cash-flow-trend?${params.toString()}`);
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          setMonths(data.months || []);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [propertyId, authFetch]);
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-4">
+      <h3 className="text-sm font-semibold text-slate-800 mb-2">
+        Net Cash Flow by Month <span className="text-[10px] font-normal text-slate-400">(income minus real operating expenses)</span>
+      </h3>
+      {loading ? (
+        <p className="text-xs text-slate-400">Loading…</p>
+      ) : months.length === 0 ? (
+        <p className="text-xs text-slate-400">Not enough income/expense history yet.</p>
+      ) : (
+        <ResponsiveContainer width="100%" height={220}>
+          <LineChart data={months}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+            <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+            <Tooltip formatter={(v) => `$${v.toLocaleString()}`} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Line type="monotone" dataKey="income" name="Income" stroke="#10b981" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="expenses" name="Expenses" stroke="#f43f5e" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="netCashFlow" name="Net" stroke="#6366f1" strokeWidth={2.5} dot={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard({ propertyId }) {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -227,6 +278,7 @@ export default function Dashboard({ propertyId }) {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
         <RevenueTrendChart propertyId={propertyId} />
+        <CashFlowTrendChart propertyId={propertyId} />
         <OccupancyChart
           occupied={stats.occupiedUnits ?? 0}
           vacant={stats.vacantUnitsCount ?? 0}
