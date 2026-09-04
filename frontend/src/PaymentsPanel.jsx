@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "./AuthContext";
+import { useToast } from "./ToastContext";
 import { API_BASE } from "./config";
 import EmptyState from "./EmptyState";
-import { DollarSign } from "lucide-react";
+import { DollarSign, BellRing } from "lucide-react";
 import AutopaySetup from "./AutopaySetup";
 
 
@@ -64,6 +65,48 @@ function RecordPaymentForm({ charge, onRecorded, authFetch }) {
         {saving ? "…" : "Record"}
       </button>
     </div>
+  );
+}
+
+// Real multi-channel send (in-app + SMS + email, via
+// payment_reminder_service.py) sharing the exact same 48h cooldown as
+// the automated 6-hour scheduler check - this button can never bypass
+// that, it just triggers the same real logic on demand.
+function SendReminderButton({ charge, authFetch }) {
+  const [sending, setSending] = useState(false);
+  const { show: showToast } = useToast();
+
+  async function handleClick() {
+    setSending(true);
+    try {
+      const res = await authFetch(`${API_BASE}/payments/${charge.id}/send-reminder`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "Couldn't send the reminder.");
+      if (!data.sent) {
+        showToast(data.reason || "A reminder was already sent recently.", "warning");
+      } else {
+        const sentVia = Object.entries(data.channels || {})
+          .filter(([k, v]) => k === "inApp" ? v : v?.sent)
+          .map(([k]) => (k === "inApp" ? "in-app" : k));
+        showToast(`Reminder sent${sentVia.length ? ` via ${sentVia.join(", ")}` : ""}.`, "success");
+      }
+    } catch (err) {
+      showToast(err.message || "Couldn't send the reminder.", "error");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={sending}
+      title="Send a payment reminder now (in-app, SMS, and email if on file)"
+      className="flex items-center gap-1 text-[11px] text-indigo-700 hover:underline disabled:text-slate-300"
+    >
+      <BellRing size={11} />
+      {sending ? "Sending…" : "Send reminder"}
+    </button>
   );
 }
 
@@ -179,7 +222,10 @@ export default function PaymentsPanel({ propertyId }) {
                 {c.amountPaid > 0 && ` — $${c.amountPaid.toFixed(2)} paid`}
               </div>
               {isStaff && c.status !== "paid" && (
-                <RecordPaymentForm charge={c} onRecorded={handleRecorded} authFetch={authFetch} />
+                <div className="flex items-center justify-between mt-1.5">
+                  <RecordPaymentForm charge={c} onRecorded={handleRecorded} authFetch={authFetch} />
+                  <SendReminderButton charge={c} authFetch={authFetch} />
+                </div>
               )}
             </div>
           ))}
