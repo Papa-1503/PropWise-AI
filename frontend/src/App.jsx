@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Outlet, useOutletContext } from "react-router-dom";
 import { useState, lazy, Suspense } from "react";
-import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList, Package, Droplets, TrendingUp, Shield, Tag, PenTool, Receipt } from "lucide-react";
+import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList, Package, Droplets, TrendingUp, Shield, Tag, PenTool, Receipt, Calculator } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";
 import { ToastProvider } from "./ToastContext";
 import { DarkModeProvider, useDarkMode } from "./DarkModeContext";
@@ -20,6 +20,7 @@ const Dashboard = lazy(() => import("./Dashboard"));
 import MaintenanceTickets from "./MaintenanceTickets";
 import InspectionsList from "./InspectionsList";
 import AICopilot from "./AICopilot";
+import ScenarioPlanner from "./ScenarioPlanner";
 import AIActionsPanel from "./AIActionsPanel";
 import PaymentsPanel from "./PaymentsPanel";
 import PortfolioHealthHeader from "./PortfolioHealthHeader";
@@ -111,7 +112,7 @@ function TabNotFound() {
 // change, just because the sidebar's visual presentation did.
 // Tenant nav is untouched — only 5 tabs, no grouping needed.
 const STAFF_TAB_GROUPS = [
-  { label: "Overview", tabs: ["dashboard", "actions", "ai"] },
+  { label: "Overview", tabs: ["dashboard", "actions", "ai", "scenario"] },
   { label: "Leasing", tabs: ["leads", "screening", "leases", "forms"] },
   { label: "Maintenance", tabs: ["maintenance", "inspections", "schedules", "on-call"] },
   { label: "Rent & Accounting", tabs: ["payments", "rubs", "reconciliation", "trust-accounting", "capital-planning", "bill-scan"] },
@@ -132,6 +133,7 @@ const TAB_LABELS = {
   dashboard: "Dashboard",
   actions: "AI Actions",
   ai: "AI Copilot",
+  scenario: "Scenario Planner",
   inspections: "Inspections",
   maintenance: "Maintenance",
   payments: "Payments",
@@ -167,6 +169,7 @@ const TAB_ICONS = {
   payments: DollarSign,
   feed: Rss,
   ai: Sparkles,
+  scenario: Calculator,
   documents: FileText,
   gallery: Image,
   workflows: GitBranch,
@@ -459,6 +462,7 @@ export default function App() {
             <Route path="settings" element={<Settings />} />
             <Route path="feed" element={<SocialFeed />} />
             <Route path="ai" element={<AICopilotWrapper />} />
+            <Route path="scenario" element={<ScenarioPlannerWrapper />} />
             <Route path="renewal-checkin/:leaseId" element={<RenewalCheckIn />} />
             <Route path="*" element={<TabNotFound />} />
           </Route>
@@ -559,4 +563,8 @@ function ReconciliationWrapper() {
 function AICopilotWrapper() {
   const { effectivePropertyId } = useOutletContext();
   return <AICopilot propertyId={effectivePropertyId} />;
+}
+function ScenarioPlannerWrapper() {
+  const { effectivePropertyId } = useOutletContext();
+  return <ScenarioPlanner propertyId={effectivePropertyId} />;
 }
