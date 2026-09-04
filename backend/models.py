@@ -404,10 +404,12 @@ class UserOut(BaseModel):
     propertyId: Optional[str] = None
     unitId: Optional[str] = None
     autopayEnabled: bool = False
+    preferredLanguage: Optional[str] = None
 
 
 class ProfileUpdate(BaseModel):
     name: str
+    preferredLanguage: Optional[str] = None
 
 
 class PasswordChange(BaseModel):
