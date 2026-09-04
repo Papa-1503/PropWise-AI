@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Outlet, useOutletContext } from "react-router-dom";
 import { useState, lazy, Suspense } from "react";
-import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList, Package, Droplets, TrendingUp, Shield, Tag, PenTool, Receipt, Calculator, Scale, Percent } from "lucide-react";
+import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList, Package, Droplets, TrendingUp, Shield, Tag, PenTool, Receipt, Calculator, Scale, Percent, History } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";
 import { ToastProvider } from "./ToastContext";
 import { DarkModeProvider, useDarkMode } from "./DarkModeContext";
@@ -24,6 +24,7 @@ import ScenarioPlanner from "./ScenarioPlanner";
 import ComplianceCalendar from "./ComplianceCalendar";
 import PortfolioPricing from "./PortfolioPricing";
 import PhotoUploadPage from "./PhotoUploadPage";
+import ConversationLog from "./ConversationLog";
 import AIActionsPanel from "./AIActionsPanel";
 import PaymentsPanel from "./PaymentsPanel";
 import PortfolioHealthHeader from "./PortfolioHealthHeader";
@@ -119,7 +120,7 @@ const STAFF_TAB_GROUPS = [
   { label: "Leasing", tabs: ["leads", "screening", "leases", "forms"] },
   { label: "Maintenance", tabs: ["maintenance", "inspections", "schedules", "on-call"] },
   { label: "Rent & Accounting", tabs: ["payments", "rubs", "reconciliation", "trust-accounting", "capital-planning", "bill-scan", "portfolio-pricing"] },
-  { label: "Communications", tabs: ["communications", "feed", "packages", "write-assist"] },
+  { label: "Communications", tabs: ["communications", "feed", "packages", "write-assist", "conversation-log"] },
   { label: "Documents & Reports", tabs: ["documents", "gallery", "predictive-analytics", "compliance"] },
   { label: "Admin", tabs: ["properties", "staff", "workflows", "custom-roles", "custom-fields"] },
 ];
@@ -163,6 +164,7 @@ const TAB_LABELS = {
   "custom-roles": "Custom Roles",
   "custom-fields": "Custom Fields",
   "write-assist": "Write Assist",
+  "conversation-log": "Conversation Log",
   "bill-scan": "Bill Scan",
   "portfolio-pricing": "Portfolio Pricing",
 };
@@ -197,6 +199,7 @@ const TAB_ICONS = {
   "custom-roles": Shield,
   "custom-fields": Tag,
   "write-assist": PenTool,
+  "conversation-log": History,
   "bill-scan": Receipt,
   "portfolio-pricing": Percent,
 };
@@ -473,6 +476,7 @@ export default function App() {
             <Route path="scenario" element={<ScenarioPlannerWrapper />} />
             <Route path="compliance" element={<ComplianceCalendarWrapper />} />
             <Route path="portfolio-pricing" element={<PortfolioPricing />} />
+            <Route path="conversation-log" element={<ConversationLog />} />
             <Route path="renewal-checkin/:leaseId" element={<RenewalCheckIn />} />
             <Route path="*" element={<TabNotFound />} />
           </Route>
