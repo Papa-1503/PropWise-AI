@@ -45,6 +45,7 @@ from pydantic import BaseModel
 
 from auth import get_current_user
 from services.diy_safety import check_diy_eligibility
+import translation_service
 
 router = APIRouter(prefix="/api/diy-troubleshooting", tags=["diy-troubleshooting"])
 
@@ -97,6 +98,7 @@ async def get_guidance(payload: DiyGuidanceRequest, user: dict = Depends(get_cur
         "steps, tell the resident to submit a maintenance ticket instead. Give 3-5 clear, "
         "numbered steps. End by telling the resident that if this doesn't resolve the "
         "issue, they should submit a maintenance request."
+        f"{translation_service.language_instruction(user.get('preferredLanguage'))}"
     )
 
     try:
