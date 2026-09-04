@@ -16,11 +16,23 @@ import { Wrench, Plus, X } from "lucide-react";
  *
  * Expected ticket shape from the API:
  * {
- *   id, title, unitId, propertyId, status: "open"|"in_progress"|"done",
+ *   id, title, description, unitId, propertyId, status: "open"|"in_progress"|"done",
  *   priority: "normal"|"urgent", source: "resident"|"inspection",
- *   sourceInspectionId, assignee, category, createdAt,
+ *   sourceInspectionId, assignee, category, createdAt, resolutionNotes,
  *   assignedVendorName, estimatedCost, estimatedArrivalHours
  * }
+ *
+ * Two things fixed here together, since they're the same underlying gap
+ * (neither side of a ticket's story could actually be written down):
+ * - Tenants previously had no "New ticket" button at all (isStaff-gated)
+ *   and TicketCreate had no free-text field beyond a short title, so a
+ *   resident could never actually describe what was wrong.
+ * - The backend has always required real resolutionNotes to close a
+ *   ticket (status="done"), but the old cycleStatus button jumped
+ *   straight to "done" with no way to provide them — so on a real
+ *   device this silently failed and rolled back with no explanation.
+ *   ResolveTicketModal below is the missing piece that actually lets a
+ *   tech write up what they did before a ticket can close.
  */
 
 import { API_BASE } from "./config";
@@ -32,7 +44,81 @@ const STATUS_STYLE = {
   done: "bg-emerald-50 text-emerald-700 border-emerald-200",
 };
 
-function GroupedTicketRow({ title, items, selectable, selectedIds, onToggleSelect, onUpdateStatus }) {
+function ResolveTicketModal({ ticket, onClose, onResolve }) {
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const idPrefix = useId();
+
+  async function handleSubmit() {
+    if (!notes.trim()) {
+      setError("Describe what you found and what you did to fix it.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await onResolve(ticket.id, notes.trim());
+      onClose();
+    } catch (err) {
+      setError(err.message || "Couldn't close the ticket.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30 p-4">
+      <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-5">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-semibold">Mark resolved</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+            <X size={18} />
+          </button>
+        </div>
+        <p className="text-xs text-slate-500 mb-3">{ticket.title} · Unit {ticket.unitId}</p>
+
+        <label htmlFor={`${idPrefix}-notes`} className="text-xs text-slate-500">
+          What did you find, and what did you do to fix it?
+        </label>
+        <textarea
+          id={`${idPrefix}-notes`}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          rows={4}
+          placeholder="e.g. Replaced worn cartridge in kitchen faucet — was the cause of the drip. Tested, no more leak."
+          className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
+        />
+        <p className="text-[11px] text-slate-400 mt-1">
+          Required to close the ticket — the resident sees this once it's resolved.
+        </p>
+
+        {error && (
+          <p role="alert" className="text-xs text-rose-600 mt-3 bg-rose-50 border border-rose-200 rounded px-3 py-2">{error}</p>
+        )}
+
+        <div className="flex gap-2 mt-4">
+          <button
+            onClick={handleSubmit}
+            disabled={saving}
+            className="flex-1 text-sm font-semibold bg-slate-900 disabled:bg-slate-300 text-white py-2 rounded-lg hover:bg-slate-800"
+          >
+            {saving ? "Closing…" : "Mark resolved"}
+          </button>
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="flex-1 text-sm font-semibold bg-white border border-slate-300 py-2 rounded-lg"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GroupedTicketRow({ title, items, selectable, selectedIds, onToggleSelect, onUpdateStatus, onRequestResolve, isStaff }) {
   const [expanded, setExpanded] = useState(false);
   const allSelected = items.every((t) => selectedIds.has(t.id));
   const someSelected = items.some((t) => selectedIds.has(t.id));
@@ -74,7 +160,8 @@ function GroupedTicketRow({ title, items, selectable, selectedIds, onToggleSelec
                   key={t.id}
                   ticket={t}
                   onUpdateStatus={onUpdateStatus}
-                  isStaff={true}
+                  onRequestResolve={onRequestResolve}
+                  isStaff={isStaff}
                   selectable={selectable}
                   selected={selectedIds.has(t.id)}
                   onToggleSelect={onToggleSelect}
@@ -88,13 +175,20 @@ function GroupedTicketRow({ title, items, selectable, selectedIds, onToggleSelec
   );
 }
 
-function TicketRow({ ticket, onUpdateStatus, onVendorAssigned, isStaff, buildingName, selectable, selected, onToggleSelect }) {
+function TicketRow({ ticket, onUpdateStatus, onRequestResolve, onVendorAssigned, isStaff, buildingName, selectable, selected, onToggleSelect }) {
   const [updating, setUpdating] = useState(false);
   const [showVendorPanel, setShowVendorPanel] = useState(false);
 
   const cycleStatus = async () => {
+    if (!isStaff) return; // only staff can change status - backend enforces this too, this just avoids a button that always silently fails
     const order = ["open", "in_progress", "done"];
     const next = order[(order.indexOf(ticket.status) + 1) % order.length];
+    if (next === "done") {
+      // Closing requires a real write-up of what was done - handled by
+      // ResolveTicketModal, not a bare status flip. See its own note.
+      onRequestResolve(ticket.id);
+      return;
+    }
     setUpdating(true);
     await onUpdateStatus(ticket.id, next);
     setUpdating(false);
@@ -145,11 +239,20 @@ function TicketRow({ ticket, onUpdateStatus, onVendorAssigned, isStaff, building
             Unit {ticket.unitId} · {ticket.assignee || "Unassigned"} ·{" "}
             {ticket.createdAt ? new Date(ticket.createdAt).toLocaleDateString() : ""}
           </p>
+          {ticket.description && (
+            <p className="text-xs text-slate-600 mt-1 whitespace-pre-wrap">{ticket.description}</p>
+          )}
           {ticket.assignedVendorName && (
             <p className="text-xs text-emerald-700 mt-1">
               ✓ Assigned to {ticket.assignedVendorName}
               {ticket.estimatedArrivalHours != null && ` · ~${ticket.estimatedArrivalHours}h arrival`}
               {ticket.estimatedCost != null && ` · $${ticket.estimatedCost}`}
+            </p>
+          )}
+          {ticket.status === "done" && ticket.resolutionNotes && (
+            <p className="text-xs text-slate-600 mt-1 bg-emerald-50/60 border border-emerald-100 rounded px-2 py-1">
+              <span className="font-medium text-emerald-700">What was done: </span>
+              {ticket.resolutionNotes}
             </p>
           )}
           {isStaff && ticket.status !== "done" && (
@@ -163,9 +266,9 @@ function TicketRow({ ticket, onUpdateStatus, onVendorAssigned, isStaff, building
         </div>
         <button
           onClick={cycleStatus}
-          disabled={updating}
-          className={`text-[11px] font-mono uppercase px-2.5 py-1 rounded-full border whitespace-nowrap ${STATUS_STYLE[ticket.status]}`}
-          title="Click to advance status"
+          disabled={updating || !isStaff}
+          className={`text-[11px] font-mono uppercase px-2.5 py-1 rounded-full border whitespace-nowrap ${STATUS_STYLE[ticket.status]} ${!isStaff ? "cursor-default" : ""}`}
+          title={isStaff ? "Click to advance status" : undefined}
         >
           {updating ? "..." : STATUS_LABEL[ticket.status]}
         </button>
@@ -187,9 +290,10 @@ function TicketRow({ ticket, onUpdateStatus, onVendorAssigned, isStaff, building
   );
 }
 
-function NewTicketModal({ propertyId, onClose, onSaved }) {
+function NewTicketModal({ propertyId, isStaff, onClose, onSaved }) {
   const [unitId, setUnitId] = useState("");
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [category, setCategory] = useState("general");
   const [priority, setPriority] = useState("normal");
   const [saving, setSaving] = useState(false);
@@ -199,24 +303,26 @@ function NewTicketModal({ propertyId, onClose, onSaved }) {
   const idPrefix = useId();
 
   async function handleSave() {
-    if (!unitId.trim() || !title.trim()) {
-      setError("Unit and title are required.");
+    if ((isStaff && !unitId.trim()) || !title.trim()) {
+      setError(isStaff ? "Unit and title are required." : "Title is required.");
       return;
     }
     setSaving(true);
     setError(null);
     try {
+      const body = { propertyId, title, description: description.trim() || null, category, priority, source: "staff" };
+      if (isStaff) body.unitId = unitId; // a tenant's unit is set server-side from their own account, never from this form
       const res = await authFetch(`${API_BASE}/maintenance/tickets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ propertyId, unitId, title, category, priority, source: "staff" }),
+        body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || "Something went wrong");
       if (data.wasExistingDuplicate) {
-        showToast(`A matching open ticket already existed for Unit ${unitId} — not duplicated.`, "warning");
+        showToast(`A matching open ticket already existed${isStaff ? ` for Unit ${unitId}` : ""} — not duplicated.`, "warning");
       } else {
-        showToast(`Ticket created: ${title} (Unit ${unitId})`, "success");
+        showToast(isStaff ? `Ticket created: ${title} (Unit ${unitId})` : "Your request was submitted.", "success");
       }
       onSaved();
       onClose();
@@ -232,23 +338,25 @@ function NewTicketModal({ propertyId, onClose, onSaved }) {
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30 p-4">
       <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold">New ticket</h3>
+          <h3 className="font-semibold">{isStaff ? "New ticket" : "Report an issue"}</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
             <X size={18} />
           </button>
         </div>
 
         <div className="space-y-3">
-          <div>
-            <label htmlFor={`${idPrefix}-unit`} className="text-xs text-slate-500">Unit</label>
-            <input
-              id={`${idPrefix}-unit`}
-              value={unitId}
-              onChange={(e) => setUnitId(e.target.value)}
-              placeholder="e.g. 104"
-              className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
-            />
-          </div>
+          {isStaff && (
+            <div>
+              <label htmlFor={`${idPrefix}-unit`} className="text-xs text-slate-500">Unit</label>
+              <input
+                id={`${idPrefix}-unit`}
+                value={unitId}
+                onChange={(e) => setUnitId(e.target.value)}
+                placeholder="e.g. 104"
+                className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
+              />
+            </div>
+          )}
           <div>
             <label htmlFor={`${idPrefix}-title`} className="text-xs text-slate-500">Title</label>
             <input
@@ -256,6 +364,23 @@ function NewTicketModal({ propertyId, onClose, onSaved }) {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Kitchen faucet leaking"
+              className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
+            />
+          </div>
+          <div>
+            <label htmlFor={`${idPrefix}-description`} className="text-xs text-slate-500">
+              {isStaff ? "Description (optional)" : "Tell us what's wrong"}
+            </label>
+            <textarea
+              id={`${idPrefix}-description`}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={4}
+              placeholder={
+                isStaff
+                  ? "Any extra detail worth passing to the tech"
+                  : "What's happening, where, and when it started — anything that would help whoever comes to fix it"
+              }
               className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
             />
           </div>
@@ -295,7 +420,7 @@ function NewTicketModal({ propertyId, onClose, onSaved }) {
           disabled={saving}
           className="mt-4 w-full bg-slate-900 disabled:bg-slate-300 text-white text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-800"
         >
-          {saving ? "Creating…" : "Create ticket"}
+          {saving ? "Submitting…" : isStaff ? "Create ticket" : "Submit request"}
         </button>
       </div>
     </div>
@@ -308,10 +433,18 @@ const BOARD_COLUMNS = [
   { status: "done", label: "Resolved", accent: "border-emerald-300 bg-emerald-50/40" },
 ];
 
-function KanbanCard({ ticket, onUpdateStatus }) {
+function KanbanCard({ ticket, onUpdateStatus, onRequestResolve }) {
   const columnIndex = BOARD_COLUMNS.findIndex((c) => c.status === ticket.status);
   const prevColumn = BOARD_COLUMNS[columnIndex - 1];
   const nextColumn = BOARD_COLUMNS[columnIndex + 1];
+
+  function handleAdvance() {
+    if (nextColumn.status === "done") {
+      onRequestResolve(ticket.id); // same reasoning as TicketRow.cycleStatus above
+      return;
+    }
+    onUpdateStatus(ticket.id, nextColumn.status);
+  }
 
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-3 mb-2.5 shadow-sm">
@@ -330,6 +463,9 @@ function KanbanCard({ ticket, onUpdateStatus }) {
       </div>
       <p className="text-xs font-medium text-slate-800 mb-1">{ticket.title}</p>
       <p className="text-[11px] text-slate-500 mb-2">Unit {ticket.unitId || "—"}</p>
+      {ticket.description && (
+        <p className="text-[11px] text-slate-500 mb-2 line-clamp-2">{ticket.description}</p>
+      )}
       <div className="flex items-center justify-between">
         {prevColumn ? (
           <button
@@ -341,7 +477,7 @@ function KanbanCard({ ticket, onUpdateStatus }) {
         ) : <span />}
         {nextColumn && (
           <button
-            onClick={() => onUpdateStatus(ticket.id, nextColumn.status)}
+            onClick={handleAdvance}
             className="text-[10px] font-semibold text-indigo-600 hover:text-indigo-800"
           >
             {nextColumn.label} →
@@ -352,7 +488,7 @@ function KanbanCard({ ticket, onUpdateStatus }) {
   );
 }
 
-function KanbanBoard({ tickets, onUpdateStatus }) {
+function KanbanBoard({ tickets, onUpdateStatus, onRequestResolve }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {BOARD_COLUMNS.map((col) => {
@@ -368,7 +504,7 @@ function KanbanBoard({ tickets, onUpdateStatus }) {
             {items.length === 0 ? (
               <p className="text-xs text-slate-400 text-center py-6">No tickets</p>
             ) : (
-              items.map((t) => <KanbanCard key={t.id} ticket={t} onUpdateStatus={onUpdateStatus} />)
+              items.map((t) => <KanbanCard key={t.id} ticket={t} onUpdateStatus={onUpdateStatus} onRequestResolve={onRequestResolve} />)
             )}
           </div>
         );
@@ -387,6 +523,7 @@ export default function MaintenanceTickets({ propertyId }) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [confirmingBulk, setConfirmingBulk] = useState(null); // target status | null
   const [showNewTicket, setShowNewTicket] = useState(false);
+  const [resolvingTicketId, setResolvingTicketId] = useState(null);
   const [undoState, setUndoState] = useState(null); // { previousStatuses: Map, message } | null
   const { authFetch, user, getPropertyName } = useAuth();
   const isStaff = user?.role === "staff";
@@ -432,6 +569,22 @@ export default function MaintenanceTickets({ propertyId }) {
     }
   };
 
+  // Closing a ticket is never a bare status flip - it always carries the
+  // real resolutionNotes the backend requires (enforced server-side in
+  // routers/maintenance.py's update_ticket). Deliberately NOT optimistic
+  // the way handleUpdateStatus is above: a ticket only actually leaves
+  // "in progress" once the write-up has genuinely been saved.
+  async function handleResolve(ticketId, resolutionNotes) {
+    const res = await authFetch(`${API_BASE}/maintenance/tickets/${ticketId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "done", resolutionNotes }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Couldn't close the ticket.");
+    setTickets((prev) => prev.map((t) => (t.id === ticketId ? data : t)));
+  }
+
   function toggleSelect(ticketId) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -445,6 +598,10 @@ export default function MaintenanceTickets({ propertyId }) {
   // selected ticket. "Undo" is possible because we record each ticket's
   // real previous status before changing it, then can PATCH each one
   // back individually if the person clicks undo.
+  //
+  // "done" is deliberately not a bulk target here (see the button list
+  // below) - closing requires a real, per-ticket resolution write-up,
+  // which doesn't make sense to collect for N tickets in one popup.
   function applyBulkStatus(status) {
     const affectedIds = [...selectedIds];
     const previousStatuses = new Map(
@@ -537,6 +694,7 @@ export default function MaintenanceTickets({ propertyId }) {
   }, [filtered]);
 
   const urgentOpenCount = tickets.filter((t) => t.status !== "done" && t.priority === "urgent").length;
+  const resolvingTicket = resolvingTicketId ? tickets.find((t) => t.id === resolvingTicketId) : null;
 
   return (
     <div className="max-w-2xl mx-auto p-5 bg-white rounded-xl border border-slate-200">
@@ -548,17 +706,15 @@ export default function MaintenanceTickets({ propertyId }) {
           )}
         </div>
         <div className="flex items-center gap-2">
-          {isStaff && (
-            <button
-              onClick={() => setShowNewTicket(true)}
-              disabled={!propertyId}
-              title={!propertyId ? "Pick a specific building first" : undefined}
-              className="flex items-center gap-1 text-[11px] font-semibold bg-slate-900 disabled:bg-slate-300 text-white px-2.5 py-1 rounded-full"
-            >
-              <Plus size={12} />
-              New ticket
-            </button>
-          )}
+          <button
+            onClick={() => setShowNewTicket(true)}
+            disabled={!propertyId}
+            title={!propertyId ? "Pick a specific building first" : undefined}
+            className="flex items-center gap-1 text-[11px] font-semibold bg-slate-900 disabled:bg-slate-300 text-white px-2.5 py-1 rounded-full"
+          >
+            <Plus size={12} />
+            {isStaff ? "New ticket" : "Report an issue"}
+          </button>
           <div className="flex gap-1">
             {["all", "open", "in_progress", "done"].map((s) => (
               <button
@@ -572,35 +728,46 @@ export default function MaintenanceTickets({ propertyId }) {
               </button>
             ))}
           </div>
-          <div className="flex gap-0.5 bg-slate-100 rounded-full p-0.5">
-            {[["list", "List"], ["board", "Board"]].map(([mode, label]) => (
-              <button
-                key={mode}
-                onClick={() => setViewMode(mode)}
-                className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${
-                  viewMode === mode ? "bg-white shadow-sm text-slate-800" : "text-slate-500"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          {isStaff && (
+            <div className="flex gap-0.5 bg-slate-100 rounded-full p-0.5">
+              {[["list", "List"], ["board", "Board"]].map(([mode, label]) => (
+                <button
+                  key={mode}
+                  onClick={() => setViewMode(mode)}
+                  className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${
+                    viewMode === mode ? "bg-white shadow-sm text-slate-800" : "text-slate-500"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
       {showNewTicket && (
         <NewTicketModal
           propertyId={propertyId}
+          isStaff={isStaff}
           onClose={() => setShowNewTicket(false)}
           onSaved={() => setRefreshKey((k) => k + 1)}
+        />
+      )}
+
+      {resolvingTicket && (
+        <ResolveTicketModal
+          ticket={resolvingTicket}
+          onClose={() => setResolvingTicketId(null)}
+          onResolve={handleResolve}
         />
       )}
 
       {isStaff && selectedIds.size > 0 && (
         <div className="flex items-center justify-between bg-slate-900 text-white rounded-lg px-4 py-2.5 mb-3 text-sm">
           <span>{selectedIds.size} selected</span>
-          <div className="flex gap-2">
-            {["open", "in_progress", "done"].map((s) => (
+          <div className="flex items-center gap-2">
+            {["open", "in_progress"].map((s) => (
               <button
                 key={s}
                 onClick={() => setConfirmingBulk(s)}
@@ -609,6 +776,9 @@ export default function MaintenanceTickets({ propertyId }) {
                 Mark {STATUS_LABEL[s]}
               </button>
             ))}
+            <span className="text-[10px] text-slate-400" title="Closing a ticket requires a written resolution note per ticket, so it's done one at a time.">
+              Close tickets individually →
+            </span>
             <button onClick={() => setSelectedIds(new Set())} className="text-xs text-slate-300 hover:text-white px-2">
               Clear
             </button>
@@ -678,6 +848,8 @@ export default function MaintenanceTickets({ propertyId }) {
               selectedIds={selectedIds}
               onToggleSelect={toggleSelect}
               onUpdateStatus={handleUpdateStatus}
+              onRequestResolve={setResolvingTicketId}
+              isStaff={isStaff}
             />
           ))}
           {ungrouped.map((ticket) => (
@@ -685,6 +857,7 @@ export default function MaintenanceTickets({ propertyId }) {
               key={ticket.id}
               ticket={ticket}
               onUpdateStatus={handleUpdateStatus}
+              onRequestResolve={setResolvingTicketId}
               onVendorAssigned={handleVendorAssigned}
               isStaff={isStaff}
               buildingName={isStaff ? getPropertyName(ticket.propertyId) : null}
@@ -697,7 +870,7 @@ export default function MaintenanceTickets({ propertyId }) {
       )}
 
       {!loading && !error && viewMode === "board" && (
-        <KanbanBoard tickets={filtered} onUpdateStatus={handleUpdateStatus} />
+        <KanbanBoard tickets={filtered} onUpdateStatus={handleUpdateStatus} onRequestResolve={setResolvingTicketId} />
       )}
     </div>
   );
