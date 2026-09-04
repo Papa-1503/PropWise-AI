@@ -1,141 +1,122 @@
 """
-Motor (async MongoDB) client setup.
+After-hours voice triage — the AI conversation logic behind
+routers/telephony.py's phone-answering flow.
 
-Adjust MONGO_URL / DB_NAME to match your actual deployment — these
-default to local dev values via environment variables.
+Deliberately built on Twilio's <Gather input="speech"> turn-based
+exchange, not real-time Media Streams - a turn-based Q&A needs no new
+persistent infrastructure (no WebSocket server, no speech-to-speech
+model), reusing only what this app already has real, working
+credentials for (Twilio Voice, already-verified webhook signing). A
+live, talk-over-each-other phone conversation would need that new
+infrastructure - real, deliberately out of scope for this pass.
+
+Same "AI decides what to ask, real code decides the numbers/rules"
+split already established elsewhere in this app: this module ONLY
+decides what to say and when the conversation has gathered enough to
+create a ticket. It never scores severity itself - the caller's
+propertyId/unitId/title/description flow into the exact same
+deterministic services/ticket_severity.py every other ticket in this
+app is scored by (see routers/telephony.py's use of
+routers.maintenance.create_ticket_document).
 """
 import os
-from motor.motor_asyncio import AsyncIOMotorClient
+import json
 
-MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
-DB_NAME = os.getenv("DB_NAME", "rentflow")
+from anthropic import AsyncAnthropic
 
-client = AsyncIOMotorClient(MONGO_URL)
-db = client[DB_NAME]
+anthropic_client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+MODEL = "claude-sonnet-4-6"
 
-# Collections used across routers
-inspections_col = db["inspections"]
-photos_col = db["inspection_photos"]
-unit_baseline_photos_col = db["unit_baseline_photos"]
-condition_reports_col = db["condition_reports"]
-tickets_col = db["maintenance_tickets"]
-properties_col = db["properties"]
-leases_col = db["leases"]
-users_col = db["users"]
-ai_actions_col = db["ai_actions"]
-vendors_col = db["vendors"]
-vendor_bids_col = db["vendor_bids"]
-payments_col = db["payments"]
-notifications_col = db["notifications"]
-push_subscriptions_col = db["push_subscriptions"]
-market_rent_analyses_col = db["market_rent_analyses"]
-tour_slots_col = db["tour_slots"]
-tour_bookings_col = db["tour_bookings"]
-smart_lock_access_log_col = db["smart_lock_access_log"]
-accounting_connections_col = db["accounting_connections"]
-scheduler_health_col = db["scheduler_health"]
-renewal_checkins_col = db["renewal_checkins"]
-posts_col = db["posts"]
-leads_col = db["leads"]
-documents_col = db["documents"]
-gallery_photos_col = db["gallery_photos"]
-screening_col = db["screening_requests"]
-bank_lines_col = db["bank_statement_lines"]
-dashboard_prefs_col = db["dashboard_preferences"]
-workflows_col = db["workflows"]
-workflow_runs_col = db["workflow_runs"]
-maintenance_schedules_col = db["maintenance_schedules"]
-communications_col = db["communications"]
-on_call_shifts_col = db["on_call_shifts"]
-on_call_log_col = db["on_call_log"]
-audit_log_col = db["audit_log"]
-budgets_col = db["budgets"]
-kb_articles_col = db["kb_articles"]
-supplies_col = db["supplies"]
-supply_orders_col = db["supply_orders"]
-repair_items_col = db["repair_items"]
-labor_rates_col = db["labor_rates"]
-fixed_assets_col = db["fixed_assets"]
-capital_projects_col = db["capital_projects"]
-custom_field_definitions_col = db["custom_field_definitions"]
-custom_field_values_col = db["custom_field_values"]
-communication_templates_col = db["communication_templates"]
-custom_roles_col = db["custom_roles"]
-custom_views_col = db["custom_views"]
-custom_reports_col = db["custom_reports"]
-application_questions_col = db["application_questions"]
-packages_col = db["packages"]
-community_posts_col = db["community_posts"]
-late_notices_col = db["late_notices"]
-async def ensure_indexes():
-    """Call once at app startup (see main.py) to keep queries fast."""
-    await inspections_col.create_index([("propertyId", 1), ("unitId", 1)])
-    await tickets_col.create_index([("propertyId", 1), ("status", 1)])
-    await tickets_col.create_index([("sourceInspectionId", 1)])
-    # Vendor SLA escalation's hot-path query (find tickets whose SLA
-    # window has passed and haven't been confirmed yet), plus a
-    # unique, sparse index on the acceptance token itself - unique so
-    # two tickets can never accidentally collide on the same token,
-    # sparse since most tickets never have this field set at all.
-    await tickets_col.create_index([("vendorAcceptanceStatus", 1), ("vendorAcceptanceDeadline", 1)])
-    await tickets_col.create_index("vendorAcceptanceToken", unique=True, sparse=True)
-    await leases_col.create_index([("propertyId", 1), ("endDate", 1)])
-    await push_subscriptions_col.create_index([("userId", 1), ("endpoint", 1)], unique=True)
-    await users_col.create_index("email", unique=True)
-    await ai_actions_col.create_index([("propertyId", 1), ("status", 1)])
-    await vendors_col.create_index("category")
-    await vendors_col.create_index("insuranceExpiresDate", sparse=True)
-    await vendors_col.create_index("licenseExpiresDate", sparse=True)
-    await vendor_bids_col.create_index("ticketId")
-    await unit_baseline_photos_col.create_index([("propertyId", 1), ("unitId", 1), ("room", 1)])
-    await condition_reports_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])
-    await payments_col.create_index([("propertyId", 1), ("unitId", 1), ("dueDate", 1)])
-    await payments_col.create_index("status")
-    await notifications_col.create_index([("userId", 1), ("read", 1), ("createdAt", -1)])
-    await posts_col.create_index([("createdAt", -1)])
-    await workflows_col.create_index([("status", 1)])
-    await workflow_runs_col.create_index([("workflowId", 1), ("startedAt", -1)])
-    await maintenance_schedules_col.create_index([("propertyId", 1), ("nextDueDate", 1)])
-    await communications_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])
-    # Two indexes for on-call: one for "who's on call right now" (the
-    # hot-path query — filter by propertyId, find the shift whose
-    # window contains now), one for the plain shift-list/calendar view
-    # sorted chronologically.
-    await on_call_shifts_col.create_index([("propertyIds", 1), ("startTime", 1), ("endTime", 1)])
-    await on_call_shifts_col.create_index([("startTime", 1)])
-    await on_call_log_col.create_index([("recordingSid", 1)], unique=True, sparse=True)
-    await on_call_log_col.create_index([("createdAt", -1)])
-    # Two indexes for audit log: the common "show me everything on this
-    # record" lookup, and the common "show me everything this person
-    # did" lookup. Both sorted newest-first since that's how an audit
-    # log is actually read.
-    await audit_log_col.create_index([("targetType", 1), ("targetId", 1), ("createdAt", -1)])
-    await audit_log_col.create_index([("actorId", 1), ("createdAt", -1)])
-    # One budget per property+category+period - the natural unique key
-    # for "what did this property expect to spend on this category this
-    # month", preventing an accidental duplicate budget line for the
-    # same real thing.
-    await budgets_col.create_index([("propertyId", 1), ("category", 1), ("period", 1)], unique=True)
-    await bank_lines_col.create_index([("propertyId", 1), ("category", 1), ("date", 1)])
-    await kb_articles_col.create_index([("category", 1), ("updatedAt", -1)])
-    # propertyId, not global - supplies are tracked per property, same
-    # as everything else in this app
-    await supplies_col.create_index([("propertyId", 1), ("category", 1)])
-    await supply_orders_col.create_index([("propertyId", 1), ("createdAt", -1)])
-    await repair_items_col.create_index([("damageType", 1)])
-    await labor_rates_col.create_index([("category", 1)], unique=True)
-    await fixed_assets_col.create_index([("propertyId", 1)])
-    await capital_projects_col.create_index([("propertyId", 1), ("targetDate", 1)])
-    await custom_field_definitions_col.create_index([("entityType", 1), ("fieldName", 1)], unique=True)
-    await custom_field_values_col.create_index([("entityType", 1), ("entityId", 1), ("fieldName", 1)], unique=True)
-    await community_posts_col.create_index([("propertyId", 1), ("createdAt", -1)])
-    await late_notices_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])
-    await custom_views_col.create_index([("ownerId", 1), ("entityType", 1)])
-    await packages_col.create_index([("propertyId", 1), ("pickedUp", 1), ("loggedAt", -1)])
-    await market_rent_analyses_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])
-    await tour_slots_col.create_index([("propertyId", 1), ("startTime", 1)])
-    await smart_lock_access_log_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])
-    await accounting_connections_col.create_index("provider", unique=True)
-    await tour_bookings_col.create_index("slotId")
-    await scheduler_health_col.create_index("scheduler", unique=True)
-    await renewal_checkins_col.create_index([("leaseId", 1), ("promptedAt", -1)])
+# The very first question is asked immediately, with no AI call needed -
+# lower latency for the caller, and one fewer real API call per call
+# received. The AI only starts deciding things from the caller's first
+# answer onward.
+FIRST_QUESTION = "Hi, this is the after-hours maintenance line. What's going on, and which unit are you calling about?"
+
+# Hard cap on how many questions the AI can ask (in addition to the
+# fixed first one) - bounds call length and real API cost, and gives
+# every caller a guaranteed end to the conversation even if the model
+# never confidently concludes on its own.
+MAX_FOLLOWUP_QUESTIONS = 2
+
+_SYSTEM_PROMPT_TEMPLATE = """You are triaging an after-hours maintenance phone call for a property management company. Have a brief, natural conversation to gather what's wrong and which unit it's in. Ask at most one short question per turn - never more than one question in a single response.
+
+{unit_context}
+
+{conclude_instruction}
+
+Respond with ONLY JSON, no prose, no markdown fences:
+{{
+  "action": "ask" or "conclude",
+  "question": "<next spoken question, one short sentence>" or null,
+  "title": "<short plain title for a maintenance ticket, e.g. 'Kitchen sink leaking'>" or null,
+  "description": "<a few sentences summarizing what the caller described>" or null,
+  "category": "plumbing" or "electrical" or "hvac" or "general" or "landscaping" or "locksmith" or null,
+  "unitId": "<unit number if the caller stated one this call, else null>"
+}}
+
+Use action "conclude" once you genuinely know what's wrong (title/description/category must all be set then). Use "ask" only if you still need one more piece of information (question must be set then, title/description/category should be null)."""
+
+
+def _build_system_prompt(known_unit: str | None, force_conclude: bool) -> str:
+    unit_context = (
+        f"The caller's unit is already known: {known_unit}. Do not ask for it again."
+        if known_unit
+        else "The caller's unit is not yet known - ask for it if they haven't already said which unit they're in."
+    )
+    conclude_instruction = (
+        "You must conclude now with whatever information you have gathered so far, even if incomplete "
+        "- do not ask another question."
+        if force_conclude
+        else f"You may ask up to {MAX_FOLLOWUP_QUESTIONS} follow-up questions total before you must conclude."
+    )
+    return _SYSTEM_PROMPT_TEMPLATE.format(unit_context=unit_context, conclude_instruction=conclude_instruction)
+
+
+def _fallback_conclude(turns: list[dict]) -> dict:
+    """Used only if the model's response can't be parsed as the
+    expected JSON - a real, if crude, safe default (conclude with
+    whatever the caller actually said, verbatim) rather than either
+    crashing the call or looping forever waiting for a well-formed
+    response that isn't coming."""
+    combined = " ".join(t.get("answer", "") for t in turns if t.get("answer"))
+    return {
+        "action": "conclude",
+        "question": None,
+        "title": (combined[:80] or "After-hours call - details unclear"),
+        "description": combined or "Caller's description could not be captured clearly.",
+        "category": "general",
+        "unitId": None,
+    }
+
+
+async def next_step(turns: list[dict], known_unit: str | None) -> dict:
+    """turns: list of {"question": str, "answer": str} already
+    exchanged this call, oldest first. Returns the parsed decision
+    dict (see _SYSTEM_PROMPT_TEMPLATE's JSON shape). Never raises -
+    any real failure (API error, malformed JSON) falls back to
+    concluding with what was actually said, since a phone call has no
+    good way to show an error message and must always end somewhere."""
+    force_conclude = len(turns) >= MAX_FOLLOWUP_QUESTIONS + 1  # +1 for the fixed first question
+
+    messages = []
+    for turn in turns:
+        messages.append({"role": "assistant", "content": turn["question"]})
+        messages.append({"role": "user", "content": turn.get("answer") or "(no response)"})
+
+    try:
+        response = await anthropic_client.messages.create(
+            model=MODEL,
+            max_tokens=300,
+            system=_build_system_prompt(known_unit, force_conclude),
+            messages=messages,
+        )
+        raw_text = "".join(block.text for block in response.content if getattr(block, "type", None) == "text")
+        result = json.loads(raw_text)
+        if result.get("action") not in ("ask", "conclude"):
+            raise ValueError("unexpected action")
+        if force_conclude:
+            result["action"] = "conclude"
+        return result
+    except Exception:
+        return _fallback_conclude(turns)
