@@ -152,6 +152,48 @@ async def list_delinquent(propertyId: str | None = None, user: dict = Depends(re
     return {"charges": delinquent, "count": len(delinquent), "totalOutstanding": round(total_outstanding, 2)}
 
 
+@router.post("/{charge_id}/send-reminder")
+async def send_reminder_now(charge_id: str, user: dict = Depends(require_staff)):
+    """Manual 'send reminder now' staff action - shares the exact same
+    real service (payment_reminder_service.py) and the exact same real
+    48h cooldown (reminder_eligible) as the automated scheduler check
+    in routers/admin.py's _do_payment_reminder_check. A resident can
+    never be spammed regardless of which path triggered a send, and
+    staff clicking this can never bypass the same spam-prevention the
+    automated schedule respects - if a reminder already went out in
+    the last 48 hours, this returns that fact rather than sending a
+    second one."""
+    if not ObjectId.is_valid(charge_id):
+        raise HTTPException(status_code=400, detail="Invalid charge ID")
+
+    charge = await payments_col.find_one({"_id": ObjectId(charge_id)})
+    if not charge:
+        raise HTTPException(status_code=404, detail="Charge not found")
+
+    if charge.get("amountPaid", 0) >= charge.get("amountDue", 0):
+        raise HTTPException(status_code=400, detail="This charge is already paid in full.")
+
+    now = datetime.now(timezone.utc)
+    if not payment_reminder_service.reminder_eligible(charge, now):
+        return {
+            "sent": False,
+            "reason": "A reminder was already sent for this charge within the last 48 hours.",
+            "lastReminderSentAt": charge.get("lastReminderSentAt").isoformat() if charge.get("lastReminderSentAt") else None,
+        }
+
+    result = await payment_reminder_service.send_payment_reminder(charge)
+    await payments_col.update_one(
+        {"_id": charge["_id"]},
+        {"$set": {"lastReminderSentAt": now, "reminderSent": True}},
+    )
+    await log_action(
+        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        action="payment_reminder_sent_manually", target_type="payment", target_id=charge_id,
+        details=result,
+    )
+    return {"sent": True, "channels": result}
+
+
 @router.patch("/{charge_id}/record")
 async def record_payment(charge_id: str, payload: PaymentRecord, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(charge_id):
