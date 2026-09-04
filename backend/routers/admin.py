@@ -61,8 +61,8 @@ from stripe_service import (
 import notifications_service
 import vendor_sla_service
 import renewal_risk_service
+import payment_reminder_service
 from auth import require_staff
-
 DEFAULT_LATE_FEE_AMOUNT = 50.0
 DEFAULT_LATE_FEE_GRACE_DAYS = 5
 
@@ -235,17 +235,67 @@ async def run_payment_reminder_check(payload: AdminKeyPayload, windowDays: int =
 
 
 async def _do_payment_reminder_check(windowDays: int = 5):
-    """Split out from the HTTP handler above, same pattern as
-    _do_late_fee_check, so the background scheduler can call this
-    directly. Defaults to the same 5-day window the endpoint already used."""
+    """Real multi-channel reminders (in-app + SMS + email via
+    payment_reminder_service.py) with a genuine 48h cooldown, replacing
+    the old logic that only sent a single in-app notification and
+    never reminded again once reminderSent was set. That file existed
+    fully built but was never actually called from here - confirmed
+    directly by reading this function before this change, which still
+    used the old one-shot reminderSent boolean and only ever looked at
+    upcoming charges.
+
+    Broadened to cover BOTH upcoming charges (due within windowDays,
+    same window this always used) AND already-late charges (dueDate in
+    the past) - the old version stopped reminding the moment a charge
+    became overdue, which is backwards: a charge that's actually late
+    is exactly when repeat reminders matter most. Both groups go
+    through the same real payment_reminder_service.reminder_eligible()
+    check (48h since lastReminderSentAt, or never reminded) - a
+    resident is never messaged more than once every 48 hours
+    regardless of which of these two groups their charge falls into."""
     now = datetime.now(timezone.utc)
     cutoff = now + timedelta(days=windowDays)
     cursor = payments_col.find({
-        "dueDate": {"$gte": now, "$lte": cutoff},
-        "reminderSent": {"$ne": True},
+        "$or": [
+            {"dueDate": {"$gte": now, "$lte": cutoff}},  # upcoming
+            {"dueDate": {"$lt": now}},                    # already late
+        ],
     })
-    upcoming_charges = await cursor.to_list(length=1000)
+    all_charges = await cursor.to_list(length=2000)
 
+    notified = []
+    skipped_cooldown = 0
+    channel_totals = {"inApp": 0, "sms": 0, "email": 0}
+
+    for charge in all_charges:
+        if charge.get("amountPaid", 0) >= charge.get("amountDue", 0):
+            continue  # already paid in full, nothing to remind about
+        if not payment_reminder_service.reminder_eligible(charge, now):
+            skipped_cooldown += 1
+            continue
+
+        result = await payment_reminder_service.send_payment_reminder(charge)
+        if result["inApp"]:
+            channel_totals["inApp"] += 1
+        if result["sms"]["sent"]:
+            channel_totals["sms"] += 1
+        if result["email"]["sent"]:
+            channel_totals["email"] += 1
+
+        await payments_col.update_one(
+            {"_id": charge["_id"]},
+            {"$set": {"lastReminderSentAt": now, "reminderSent": True}},  # reminderSent kept in sync for any older code/reports still reading it
+        )
+        notified.append(str(charge["_id"]))
+
+    return {
+        "status": "done",
+        "chargesChecked": len(all_charges),
+        "notified": len(notified),
+        "skippedCooldown": skipped_cooldown,
+        "channelTotals": channel_totals,
+        "chargeIds": notified,
+    }
     notified = []
     for charge in upcoming_charges:
         if charge.get("amountPaid", 0) >= charge.get("amountDue", 0):
