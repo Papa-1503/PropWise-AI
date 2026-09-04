@@ -9,11 +9,12 @@ Dashboard screen (occupancy, revenue, vacancies, open tickets, inspections due).
 """
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from db import properties_col, leases_col, tickets_col, inspections_col, ai_actions_col, payments_col, leads_col, dashboard_prefs_col
 from auth import require_staff
 from models import DashboardPreferencesUpdate
+import cash_flow_service
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
@@ -396,6 +397,18 @@ async def revenue_trend(propertyId: str | None = None, months: int = 6, user: di
     ]
     results = await payments_col.aggregate(pipeline).to_list(length=months)
     return {"months": [{"month": r["_id"], "collected": round(r["total"], 2)} for r in results]}
+
+
+@router.get("/cash-flow-trend")
+async def cash_flow_trend_endpoint(propertyId: str | None = None, months: int = 6, user: dict = Depends(require_staff)):
+    """Real net cash flow (income minus real operating expenses) per
+    month - see cash_flow_service.py for the full reasoning. Genuinely
+    new: income-vs-expense was never combined into one figure anywhere
+    in this app before this."""
+    property_ids = [propertyId] if propertyId else None
+    months_data = await cash_flow_service.cash_flow_trend(property_ids, months)
+    return {"months": months_data}
+
 
 DEFAULT_WIDGETS = [
     "healthScore", "occupancy", "revenue", "vacancies",
