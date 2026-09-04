@@ -1,315 +1,144 @@
+
 """
-Maintenance ticket endpoints.
+Motor (async MongoDB) client setup.
 
-GET   /api/maintenance/tickets            -> list, filterable by propertyId/status
-POST  /api/maintenance/tickets            -> create a ticket (used directly by staff,
-                                              and auto-called from the inspection flow)
-PATCH /api/maintenance/tickets/:id        -> update status/assignee/priority
-POST  /api/maintenance/tickets/:id/time   -> log hours worked against a ticket
-
-Resident-submitted tickets (source == "resident") are auto-assigned to a
-staff member whose assignedProperties includes the ticket's propertyId,
-via routers/staff.py. If no tech is assigned to that property yet, falls
-back to the existing notify_all_staff behavior rather than leaving the
-ticket silently unassigned.
-
-Time logging is intentionally simple — hours entered directly, not a
-running timer. No payroll, tax, or workers' comp logic; this is purely
-for internal labor-cost accuracy, feeding the estimate-vs-actual
-comparison planned in the damage cost estimates feature.
+Adjust MONGO_URL / DB_NAME to match your actual deployment — these
+default to local dev values via environment variables.
 """
-from datetime import datetime, timezone
+import os
+from motor.motor_asyncio import AsyncIOMotorClient
 
-from fastapi import APIRouter, HTTPException, Depends
-from bson import ObjectId
+MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
+DB_NAME = os.getenv("DB_NAME", "rentflow")
 
-from db import tickets_col, users_col
-from models import TicketCreate, TicketUpdate, TimeEntryCreate, TicketSatisfactionSubmit
-import notifications_service
-from auth import require_staff, get_current_user
-from services.events import emit_event
-from services.ticket_dedup import find_existing_open_duplicate, record_duplicate_occurrence
-from services.ticket_severity import compute_severity
-import vendor_sla_service
+client = AsyncIOMotorClient(MONGO_URL)
+db = client[DB_NAME]
 
-router = APIRouter(prefix="/api/maintenance/tickets", tags=["maintenance"])
-
-
-def serialize(ticket: dict) -> dict:
-    ticket["id"] = str(ticket.pop("_id"))
-    return ticket
-
-
-async def find_tech_for_property(property_id: str) -> dict | None:
-    """Returns the first staff user assigned to this property, or None."""
-    return await users_col.find_one({"role": "staff", "assignedProperties": property_id})
-
-
-
-
-@router.get("")
-async def list_tickets(
-    propertyId: str | None = None,
-    status: str | None = None,
-    user: dict = Depends(get_current_user),
-):
-    query = {}
-    if user["role"] == "tenant":
-        query["propertyId"] = user.get("propertyId")
-        query["unitId"] = user.get("unitId")
-    elif propertyId:
-        query["propertyId"] = propertyId
-    if status:
-        query["status"] = status
-    cursor = tickets_col.find(query).sort("createdAt", -1).limit(200)
-    tickets = await cursor.to_list(length=200)
-    return {"tickets": [serialize(t) for t in tickets]}
-
-
-@router.post("")
-async def create_ticket(payload: TicketCreate, user: dict = Depends(get_current_user)):
-    doc = payload.model_dump()
-    doc["status"] = "open"
-    doc["createdAt"] = datetime.now(timezone.utc)
-    if user["role"] == "tenant":
-        doc["propertyId"] = user.get("propertyId")
-        doc["unitId"] = user.get("unitId")
-        doc["source"] = "resident"
-
-    existing_duplicate = await find_existing_open_duplicate(
-        doc.get("propertyId"), doc.get("unitId"), doc.get("title")
-    )
-    if existing_duplicate:
-        await record_duplicate_occurrence(existing_duplicate)
-        existing_duplicate["_id"] = str(existing_duplicate["_id"])
-        return {**existing_duplicate, "wasExistingDuplicate": True}
-
-    severity = compute_severity(doc.get("title"), doc.get("category"))
-    doc["severityScore"] = severity["score"]
-    doc["severityTier"] = severity["tier"]
-    doc["severityExplanation"] = severity["explanation"]
-
-    assigned_tech = None
-    if doc.get("source") == "resident" and doc.get("propertyId"):
-        assigned_tech = await find_tech_for_property(doc["propertyId"])
-        if assigned_tech:
-            doc["assignee"] = assigned_tech.get("email")
-
-    # Auto vendor dispatch — deliberately gated on the COMPUTED severity
-    # tier (low/routine), not the raw priority a resident self-reported,
-    # since residents both over- and under-report urgency (the entire
-    # reason ticket_severity.py exists). "urgent"/"emergency" tickets
-    # always stay unassigned here regardless of what preferredVendors
-    # says, so a human makes that call every time the stakes are real.
-    #
-    # CHANGED (Sept 2, 2026): the actual assignment + real SLA
-    # tracking (acceptance token, deadline, confirmation SMS) now
-    # happens via vendor_sla_service.dispatch_with_sla AFTER insert,
-    # since that needs a real ticket _id to track against — the
-    # candidate vendor is still found before insert so a ticket that
-    # has no eligible vendor at all doesn't pay for a second DB round
-    # trip it doesn't need.
-    auto_assign_candidate = None
-    if severity["tier"] in ("low", "routine") and doc.get("propertyId") and doc.get("category"):
-        auto_assign_candidate = await vendor_sla_service.find_next_eligible_vendor(doc["propertyId"], doc["category"])
-
-    result = await tickets_col.insert_one(doc)
-    doc["_id"] = result.inserted_id
-
-    auto_assigned_vendor = None
-    if auto_assign_candidate:
-        await vendor_sla_service.dispatch_with_sla(str(result.inserted_id), doc, auto_assign_candidate)
-        doc["status"] = "in_progress"
-        doc["estimatedArrivalHours"] = auto_assign_candidate.get("avgArrivalHours")
-        await tickets_col.update_one({"_id": result.inserted_id}, {"$set": {"vendorAutoAssigned": True}})
-        auto_assigned_vendor = auto_assign_candidate
-
-    if doc.get("source") == "resident":
-        if assigned_tech:
-            await notifications_service.notify_user(
-                str(assigned_tech["_id"]),
-                type="urgent_ticket" if doc.get("priority") == "urgent" else "general",
-                title=f"New maintenance request: {doc['title']}",
-                body=f"Unit {doc['unitId']} — assigned to you",
-                link=f"/maintenance/{str(result.inserted_id)}",
-            )
-        else:
-            await notifications_service.notify_all_staff(
-                type="urgent_ticket" if doc.get("priority") == "urgent" else "general",
-                title=f"Unassigned request: {doc['title']}",
-                body=f"Unit {doc['unitId']} — no tech assigned to this property yet",
-                link=f"/maintenance/{str(result.inserted_id)}",
-            )
-        if auto_assigned_vendor:
-            eta = doc.get("estimatedArrivalHours")
-            await notifications_service.notify_unit_resident(
-                doc.get("propertyId"), doc.get("unitId"),
-                type="vendor_assigned",
-                title=f"{auto_assigned_vendor['name']} assigned to your request",
-                body=f"{doc.get('title', 'Your maintenance request')}" + (f" — ETA ~{eta}h" if eta else ""),
-                link=f"/maintenance/{str(result.inserted_id)}",
-            )
-    elif doc.get("priority") == "urgent":
-        await notifications_service.notify_all_staff(
-            type="urgent_ticket",
-            title=f"Urgent: {doc['title']}",
-            body=f"Unit {doc['unitId']} — reported via {doc.get('source', 'staff')}",
-            link=f"/maintenance/{str(result.inserted_id)}",
-        )
-
-    return serialize(doc)
-
-
-@router.patch("/{ticket_id}")
-async def update_ticket(ticket_id: str, payload: TicketUpdate, user: dict = Depends(require_staff)):
-    if not ObjectId.is_valid(ticket_id):
-        raise HTTPException(status_code=400, detail="Invalid ticket ID")
-    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
-    if not updates:
-        raise HTTPException(status_code=400, detail="No fields to update")
-
-    if updates.get("status") == "done":
-        # A real, human-written resolution summary is required to
-        # actually close a ticket - either provided in this same
-        # request, or already on file from an earlier PATCH (e.g. a
-        # tech writes it up first, then a supervisor changes status
-        # separately). Never allowed to silently close with nothing
-        # explaining what was actually done - that's the entire point
-        # of this feature, not an optional nice-to-have.
-        existing = await tickets_col.find_one({"_id": ObjectId(ticket_id)}, {"resolutionNotes": 1})
-        has_existing_notes = bool(existing and existing.get("resolutionNotes"))
-        if not updates.get("resolutionNotes") and not has_existing_notes:
-            raise HTTPException(
-                status_code=400,
-                detail="Resolution notes are required to close a ticket - describe what was found and what was done to fix it.",
-            )
-
-    updates["updatedAt"] = datetime.now(timezone.utc)
-    result = await tickets_col.find_one_and_update(
-        {"_id": ObjectId(ticket_id)},
-        {"$set": updates},
-        return_document=True,
-    )
-    if not result:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-
-    if updates.get("status") == "done":
-        try:
-            await emit_event("work_order_closed", {
-                "ticketId": ticket_id,
-                "propertyId": result.get("propertyId"),
-                "unitId": result.get("unitId"),
-                "title": result.get("title"),
-            })
-        except Exception as e:
-            print(f"Workflow dispatch failed: {e}")
-
-        property_id = result.get("propertyId")
-        unit_id = result.get("unitId")
-        if property_id and unit_id:
-            resolution_summary = result.get("resolutionNotes", "")
-            body = f"Your maintenance request '{result.get('title', 'ticket')}' is closed."
-            if resolution_summary:
-                # Real, genuine transparency - the resident sees what
-                # the tech actually found and did, not just a bare
-                # "closed" status with no explanation. Truncated for a
-                # notification body (a full-length writeup belongs on
-                # the ticket detail itself, which the link below opens),
-                # not truncated in the stored/API-served field.
-                body += f" What was done: {resolution_summary[:200]}{'...' if len(resolution_summary) > 200 else ''}"
-            body += " Rate how it went."
-            await notifications_service.notify_unit_resident(
-                property_id, unit_id,
-                type="general",
-                title="How did we do?",
-                body=body,
-                link=f"/maintenance/{ticket_id}/rate",
-            )
-
-    return serialize(result)
-
-
-@router.post("/{ticket_id}/time")
-async def log_time(ticket_id: str, payload: TimeEntryCreate, user: dict = Depends(require_staff)):
-    if not ObjectId.is_valid(ticket_id):
-        raise HTTPException(status_code=400, detail="Invalid ticket ID")
-
-    entry = {
-        "hours": payload.hours,
-        "note": payload.note,
-        "loggedBy": user.get("email"),
-        "loggedAt": datetime.now(timezone.utc),
-    }
-
-    result = await tickets_col.find_one_and_update(
-        {"_id": ObjectId(ticket_id)},
-        {
-            "$push": {"timeEntries": entry},
-            "$inc": {"totalHours": payload.hours},
-        },
-        return_document=True,
-    )
-    if not result:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-    return serialize(result)
-
-
-@router.post("/{ticket_id}/satisfaction")
-async def submit_satisfaction(ticket_id: str, payload: TicketSatisfactionSubmit, user: dict = Depends(get_current_user)):
-    """Tenant-facing satisfaction rating on a closed ticket. Same
-    never-trust-client-submitted-scope pattern used throughout this
-    session - the ticket is cross-checked against the authenticated
-    tenant's OWN propertyId/unitId, so a resident can't rate (or even
-    confirm the existence of) a ticket that isn't theirs."""
-    if not ObjectId.is_valid(ticket_id):
-        raise HTTPException(status_code=400, detail="Invalid ticket ID")
-    ticket = await tickets_col.find_one({"_id": ObjectId(ticket_id)})
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-
-    if user.get("role") == "tenant" and (
-        ticket.get("propertyId") != user.get("propertyId") or ticket.get("unitId") != user.get("unitId")
-    ):
-        raise HTTPException(status_code=403, detail="Not your ticket")
-
-    if ticket.get("status") != "done":
-        raise HTTPException(status_code=400, detail="Only closed tickets can be rated.")
-
-    result = await tickets_col.find_one_and_update(
-        {"_id": ObjectId(ticket_id)},
-        {"$set": {
-            "satisfactionRating": payload.rating,
-            "satisfactionComment": payload.comment,
-            "satisfactionSubmittedAt": datetime.now(timezone.utc),
-        }},
-        return_document=True,
-    )
-
-    # The actual "flag unhappy ones internally" half of the original
-    # ask - a low rating notifies staff immediately rather than
-    # silently sitting in the data waiting for someone to run a
-    # report. 1-2 is genuinely dissatisfied, not just "fine, not great."
-    if payload.rating <= 2:
-        await notifications_service.notify_all_staff(
-            type="general",
-            title="Low satisfaction rating on a closed ticket",
-            body=f"Unit {ticket.get('unitId')} rated '{ticket.get('title', 'a ticket')}' {payload.rating}/5"
-                 + (f": {payload.comment}" if payload.comment else ""),
-            link=f"/maintenance/{ticket_id}",
-        )
-
-    return serialize(result)
-
-
-@router.get("/satisfaction/flagged")
-async def list_flagged_satisfaction(propertyId: str | None = None, user: dict = Depends(require_staff)):
-    """Staff-facing report of low-satisfaction closed tickets (rating
-    1-2), the other real half of this feature - somewhere staff can
-    actually go look, not just react to the real-time notification
-    above."""
-    query = {"satisfactionRating": {"$lte": 2}}
-    if propertyId:
-        query["propertyId"] = propertyId
-    cursor = tickets_col.find(query).sort("satisfactionSubmittedAt", -1).limit(200)
-    tickets = await cursor.to_list(length=200)
-    return {"tickets": [serialize(t) for t in tickets]}
+# Collections used across routers
+inspections_col = db["inspections"]
+photos_col = db["inspection_photos"]
+unit_baseline_photos_col = db["unit_baseline_photos"]
+condition_reports_col = db["condition_reports"]
+tickets_col = db["maintenance_tickets"]
+properties_col = db["properties"]
+leases_col = db["leases"]
+users_col = db["users"]
+ai_actions_col = db["ai_actions"]
+vendors_col = db["vendors"]
+vendor_bids_col = db["vendor_bids"]
+payments_col = db["payments"]
+notifications_col = db["notifications"]
+push_subscriptions_col = db["push_subscriptions"]
+market_rent_analyses_col = db["market_rent_analyses"]
+tour_slots_col = db["tour_slots"]
+tour_bookings_col = db["tour_bookings"]
+smart_lock_access_log_col = db["smart_lock_access_log"]
+accounting_connections_col = db["accounting_connections"]
+scheduler_health_col = db["scheduler_health"]
+renewal_checkins_col = db["renewal_checkins"]
+posts_col = db["posts"]
+leads_col = db["leads"]
+documents_col = db["documents"]
+gallery_photos_col = db["gallery_photos"]
+screening_col = db["screening_requests"]
+bank_lines_col = db["bank_statement_lines"]
+dashboard_prefs_col = db["dashboard_preferences"]
+workflows_col = db["workflows"]
+workflow_runs_col = db["workflow_runs"]
+maintenance_schedules_col = db["maintenance_schedules"]
+communications_col = db["communications"]
+on_call_shifts_col = db["on_call_shifts"]
+on_call_log_col = db["on_call_log"]
+voice_triage_col = db["voice_triage"]
+audit_log_col = db["audit_log"]
+budgets_col = db["budgets"]
+kb_articles_col = db["kb_articles"]
+supplies_col = db["supplies"]
+supply_orders_col = db["supply_orders"]
+repair_items_col = db["repair_items"]
+labor_rates_col = db["labor_rates"]
+fixed_assets_col = db["fixed_assets"]
+capital_projects_col = db["capital_projects"]
+custom_field_definitions_col = db["custom_field_definitions"]
+custom_field_values_col = db["custom_field_values"]
+communication_templates_col = db["communication_templates"]
+custom_roles_col = db["custom_roles"]
+custom_views_col = db["custom_views"]
+custom_reports_col = db["custom_reports"]
+application_questions_col = db["application_questions"]
+packages_col = db["packages"]
+community_posts_col = db["community_posts"]
+late_notices_col = db["late_notices"]
+async def ensure_indexes():
+    """Call once at app startup (see main.py) to keep queries fast."""
+    await inspections_col.create_index([("propertyId", 1), ("unitId", 1)])
+    await tickets_col.create_index([("propertyId", 1), ("status", 1)])
+    await tickets_col.create_index([("sourceInspectionId", 1)])
+    # Vendor SLA escalation's hot-path query (find tickets whose SLA
+    # window has passed and haven't been confirmed yet), plus a
+    # unique, sparse index on the acceptance token itself - unique so
+    # two tickets can never accidentally collide on the same token,
+    # sparse since most tickets never have this field set at all.
+    await tickets_col.create_index([("vendorAcceptanceStatus", 1), ("vendorAcceptanceDeadline", 1)])
+    await tickets_col.create_index("vendorAcceptanceToken", unique=True, sparse=True)
+    await leases_col.create_index([("propertyId", 1), ("endDate", 1)])
+    await push_subscriptions_col.create_index([("userId", 1), ("endpoint", 1)], unique=True)
+    await users_col.create_index("email", unique=True)
+    await ai_actions_col.create_index([("propertyId", 1), ("status", 1)])
+    await vendors_col.create_index("category")
+    await vendors_col.create_index("insuranceExpiresDate", sparse=True)
+    await vendors_col.create_index("licenseExpiresDate", sparse=True)
+    await vendor_bids_col.create_index("ticketId")
+    await unit_baseline_photos_col.create_index([("propertyId", 1), ("unitId", 1), ("room", 1)])
+    await condition_reports_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])
+    await payments_col.create_index([("propertyId", 1), ("unitId", 1), ("dueDate", 1)])
+    await payments_col.create_index("status")
+    await notifications_col.create_index([("userId", 1), ("read", 1), ("createdAt", -1)])
+    await posts_col.create_index([("createdAt", -1)])
+    await workflows_col.create_index([("status", 1)])
+    await workflow_runs_col.create_index([("workflowId", 1), ("startedAt", -1)])
+    await maintenance_schedules_col.create_index([("propertyId", 1), ("nextDueDate", 1)])
+    await communications_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])
+    # Two indexes for on-call: one for "who's on call right now" (the
+    # hot-path query — filter by propertyId, find the shift whose
+    # window contains now), one for the plain shift-list/calendar view
+    # sorted chronologically.
+    await on_call_shifts_col.create_index([("propertyIds", 1), ("startTime", 1), ("endTime", 1)])
+    await on_call_shifts_col.create_index([("startTime", 1)])
+    await on_call_log_col.create_index([("recordingSid", 1)], unique=True, sparse=True)
+    await on_call_log_col.create_index([("createdAt", -1)])
+    await voice_triage_col.create_index([("callSid", 1)], unique=True)
+    # Two indexes for audit log: the common "show me everything on this
+    # record" lookup, and the common "show me everything this person
+    # did" lookup. Both sorted newest-first since that's how an audit
+    # log is actually read.
+    await audit_log_col.create_index([("targetType", 1), ("targetId", 1), ("createdAt", -1)])
+    await audit_log_col.create_index([("actorId", 1), ("createdAt", -1)])
+    # One budget per property+category+period - the natural unique key
+    # for "what did this property expect to spend on this category this
+    # month", preventing an accidental duplicate budget line for the
+    # same real thing.
+    await budgets_col.create_index([("propertyId", 1), ("category", 1), ("period", 1)], unique=True)
+    await bank_lines_col.create_index([("propertyId", 1), ("category", 1), ("date", 1)])
+    await kb_articles_col.create_index([("category", 1), ("updatedAt", -1)])
+    # propertyId, not global - supplies are tracked per property, same
+    # as everything else in this app
+    await supplies_col.create_index([("propertyId", 1), ("category", 1)])
+    await supply_orders_col.create_index([("propertyId", 1), ("createdAt", -1)])
+    await repair_items_col.create_index([("damageType", 1)])
+    await labor_rates_col.create_index([("category", 1)], unique=True)
+    await fixed_assets_col.create_index([("propertyId", 1)])
+    await capital_projects_col.create_index([("propertyId", 1), ("targetDate", 1)])
+    await custom_field_definitions_col.create_index([("entityType", 1), ("fieldName", 1)], unique=True)
+    await custom_field_values_col.create_index([("entityType", 1), ("entityId", 1), ("fieldName", 1)], unique=True)
+    await community_posts_col.create_index([("propertyId", 1), ("createdAt", -1)])
+    await late_notices_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])
+    await custom_views_col.create_index([("ownerId", 1), ("entityType", 1)])
+    await packages_col.create_index([("propertyId", 1), ("pickedUp", 1), ("loggedAt", -1)])
+    await market_rent_analyses_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])
+    await tour_slots_col.create_index([("propertyId", 1), ("startTime", 1)])
+    await smart_lock_access_log_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])
+    await accounting_connections_col.create_index("provider", unique=True)
+    await tour_bookings_col.create_index("slotId")
+    await scheduler_health_col.create_index("scheduler", unique=True)
+    await renewal_checkins_col.create_index([("leaseId", 1), ("promptedAt", -1)])
