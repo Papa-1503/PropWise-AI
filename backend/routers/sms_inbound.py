@@ -50,6 +50,7 @@ from routers.telephony import _validate_twilio_signature
 import voice_triage_service
 from services.ticket_severity import compute_severity
 from routers.maintenance import create_ticket_document
+from routers.photo_upload import create_upload_token
 
 router = APIRouter(prefix="/api/sms", tags=["sms"])
 
@@ -162,6 +163,11 @@ async def sms_inbound(request: Request):
     if ticket_result.get("wasExistingDuplicate"):
         response.message(f"Looks like you already have an open request for this: {title}. We're on it.")
     else:
-        response.message(f"Thanks - logged as: {title}. We'll follow up soon. Reply anytime with an update.")
+        upload_token = await create_upload_token(ticket_result.get("id"), triage_doc["propertyId"], unit_id)
+        upload_link = f"https://rentflow-ai-1.onrender.com/upload-photos/{upload_token}"
+        response.message(
+            f"Thanks - logged as: {title}. We'll follow up soon. "
+            f"If you have a photo, you can send it here (link expires in 48h): {upload_link}"
+        )
 
     return Response(content=str(response), media_type="application/xml")
