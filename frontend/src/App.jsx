@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Outlet, useOutletContext } from "react-router-dom";
 import { useState, lazy, Suspense } from "react";
-import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList, Package, Droplets, TrendingUp, Shield, Tag, PenTool, Receipt, Calculator, Scale, Percent, History } from "lucide-react";
+import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList, Package, Droplets, TrendingUp, Shield, Tag, PenTool, Receipt, Calculator, Scale, Percent, History, HardHat } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";
 import { ToastProvider } from "./ToastContext";
 import { DarkModeProvider, useDarkMode } from "./DarkModeContext";
@@ -25,6 +25,7 @@ import ComplianceCalendar from "./ComplianceCalendar";
 import PortfolioPricing from "./PortfolioPricing";
 import PhotoUploadPage from "./PhotoUploadPage";
 import ConversationLog from "./ConversationLog";
+import VendorsList from "./VendorsList";
 import AIActionsPanel from "./AIActionsPanel";
 import PaymentsPanel from "./PaymentsPanel";
 import PortfolioHealthHeader from "./PortfolioHealthHeader";
@@ -122,7 +123,7 @@ const STAFF_TAB_GROUPS = [
   { label: "Rent & Accounting", tabs: ["payments", "rubs", "reconciliation", "trust-accounting", "capital-planning", "bill-scan", "portfolio-pricing"] },
   { label: "Communications", tabs: ["communications", "feed", "packages", "write-assist", "conversation-log"] },
   { label: "Documents & Reports", tabs: ["documents", "gallery", "predictive-analytics", "compliance"] },
-  { label: "Admin", tabs: ["properties", "staff", "workflows", "custom-roles", "custom-fields"] },
+  { label: "Admin", tabs: ["properties", "staff", "workflows", "custom-roles", "custom-fields", "vendors"] },
 ];
 const STAFF_TABS = STAFF_TAB_GROUPS.flatMap((g) => g.tabs);
 const TENANT_TABS = ["documents", "maintenance", "payments", "gallery", "ai"];
@@ -167,6 +168,7 @@ const TAB_LABELS = {
   "conversation-log": "Conversation Log",
   "bill-scan": "Bill Scan",
   "portfolio-pricing": "Portfolio Pricing",
+  vendors: "Vendors",
 };
 const TAB_ICONS = {
   dashboard: LayoutDashboard,
@@ -202,6 +204,7 @@ const TAB_ICONS = {
   "conversation-log": History,
   "bill-scan": Receipt,
   "portfolio-pricing": Percent,
+  vendors: HardHat,
 };
 
 /** Auth gate + layout for everything under /app. Renders LoginScreen
@@ -477,6 +480,7 @@ export default function App() {
             <Route path="compliance" element={<ComplianceCalendarWrapper />} />
             <Route path="portfolio-pricing" element={<PortfolioPricing />} />
             <Route path="conversation-log" element={<ConversationLog />} />
+            <Route path="vendors" element={<VendorsList />} />
             <Route path="renewal-checkin/:leaseId" element={<RenewalCheckIn />} />
             <Route path="*" element={<TabNotFound />} />
           </Route>
