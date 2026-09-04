@@ -23,6 +23,7 @@ from anthropic import AsyncAnthropic
 from db import tickets_col, inspections_col, leases_col, properties_col
 from models import CopilotRequest, CopilotResponse, FaqRequest
 from auth import get_current_user, require_staff
+import translation_service
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -204,6 +205,7 @@ async def tenant_faq(payload: FaqRequest, user: dict = Depends(get_current_user)
         "property office rather than guessing at policies or information not provided "
         "here.\n\n"
         f"CONTEXT:\n{context_text}"
+        f"{translation_service.language_instruction(user.get('preferredLanguage'))}"
     )
 
     messages = [{"role": t.role, "content": t.content} for t in payload.history]
