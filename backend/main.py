@@ -59,6 +59,7 @@ from routers import custom_roles
 from routers import write_assist
 from routers import custom_views
 from routers import bill_scan
+from routers import lease_extract
 from routers import ai_summaries
 from routers import custom_reports
 from routers import custom_rental_applications
@@ -176,6 +177,7 @@ app.include_router(custom_roles.router)
 app.include_router(write_assist.router)
 app.include_router(custom_views.router)
 app.include_router(bill_scan.router)
+app.include_router(lease_extract.router)
 app.include_router(ai_summaries.router)
 app.include_router(custom_reports.router)
 app.include_router(custom_rental_applications.router)
