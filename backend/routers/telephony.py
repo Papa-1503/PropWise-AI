@@ -1,331 +1,328 @@
 """
-Twilio Voice webhook — after-hours on-call call routing.
+Maintenance ticket endpoints.
 
-POST /api/telephony/voice   -> Twilio hits this when a call comes in to
-                                a property's configured Twilio number.
-                                Returns TwiML telling Twilio what to do
-                                with the call.
+GET   /api/maintenance/tickets            -> list, filterable by propertyId/status
+POST  /api/maintenance/tickets            -> create a ticket (used directly by staff,
+                                              and auto-called from the inspection flow)
+PATCH /api/maintenance/tickets/:id        -> update status/assignee/priority
+POST  /api/maintenance/tickets/:id/time   -> log hours worked against a ticket
 
-Setup this depends on (manual, one-time, outside this app, per
-property that wants after-hours routing):
-  1. Buy a real Twilio phone number in the Twilio console
-  2. Point that number's Voice webhook at
-     https://rentflow-ai.onrender.com/api/telephony/voice (POST)
-  3. Set that number as the property's `twilioNumber` via
-     PATCH /api/properties/{id}/telephony (routers/properties.py)
+Resident-submitted tickets (source == "resident") are auto-assigned to a
+staff member whose assignedProperties includes the ticket's propertyId,
+via routers/staff.py. If no tech is assigned to that property yet, falls
+back to the existing notify_all_staff behavior rather than leaving the
+ticket silently unassigned.
 
-Routing logic:
-  - Look up which property owns the number Twilio says was called
-    (the `To` param) via twilioNumber
-  - If it's currently within that property's configured after-hours
-    window (afterHoursStart/afterHoursEnd, wrapping past midnight is
-    handled explicitly below), look up who's on call right now — the
-    same query GET /api/on-call/current uses (see routers/oncall.py)
-  - Match the caller's number (the `From` param, Twilio sends E.164)
-    against that property's leases via phone_utils.normalize_phone -
-    see _match_caller_to_resident below. When matched, the on-call
-    tech hears who's calling and which unit before the call connects,
-    the same context a caller-ID-aware office phone gives a human
-    receptionist. Every call is also logged to the audit trail
-    (routers/audit.py) with the match result, whether or not one was
-    found.
-  - Look up the on-call tech's phone (users_col.phone, set via
-    PATCH /api/staff/{id}/phone) and dial it
-  - Otherwise (no on-call shift, no phone on file, or outside the
-    after-hours window) fall back to an honest spoken message rather
-    than silently dropping the call or dialing nothing
-
-Security: every request is verified against Twilio's request signature
-(X-Twilio-Signature header) using TWILIO_AUTH_TOKEN, the same token
-already used for outbound SMS in sms_service.py. An unsigned or
-incorrectly-signed request is rejected with 403 before any TwiML is
-generated - this endpoint is public (Twilio can't authenticate as a
-PropWise AI user), so signature validation is the only thing standing
-between it and anyone who finds the URL and POSTs fake call data to it.
+Time logging is intentionally simple — hours entered directly, not a
+running timer. No payroll, tax, or workers' comp logic; this is purely
+for internal labor-cost accuracy, feeding the estimate-vs-actual
+comparison planned in the damage cost estimates feature.
 """
-import os
-from datetime import datetime, time, timezone
+from datetime import datetime, timezone
 
+from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
-from fastapi import APIRouter, Request, HTTPException, Depends
-from fastapi.responses import Response
-from twilio.request_validator import RequestValidator
-from twilio.rest import Client
-from twilio.twiml.voice_response import VoiceResponse
 
-from db import properties_col, on_call_shifts_col, users_col, leases_col, on_call_log_col
-from phone_utils import normalize_phone
-from audit_service import log_action
-from auth import require_staff
+from db import tickets_col, users_col
+from models import TicketCreate, TicketUpdate, TimeEntryCreate, TicketSatisfactionSubmit
+import notifications_service
+from auth import require_staff, get_current_user
+from services.events import emit_event
+from services.ticket_dedup import find_existing_open_duplicate, record_duplicate_occurrence
+from services.ticket_severity import compute_severity
+import vendor_sla_service
 
-router = APIRouter(prefix="/api/telephony", tags=["telephony"])
-
-
-def _validate_twilio_signature(request: Request, form_dict: dict, signature: str) -> None:
-    token = os.getenv("TWILIO_AUTH_TOKEN")
-    if not token:
-        # Fail closed, not open - an unconfigured server should reject
-        # every call, not silently accept unsigned ones.
-        raise HTTPException(status_code=503, detail="Telephony not configured on this server.")
-    validator = RequestValidator(token)
-    # BUG FIX (found by checking the real audit log after two live test
-    # calls showed ZERO after_hours_call_routed entries - proof the
-    # webhook logic never got past this line): str(request.url) reflects
-    # the scheme our server actually SEES the request arrive on, not the
-    # scheme Twilio actually signed. Render terminates HTTPS and forwards
-    # internally over plain HTTP, and no proxy-header trust is configured
-    # (no --proxy-headers on the uvicorn start command, no
-    # ProxyHeadersMiddleware) - so request.url reports "http://...", while
-    # Twilio always signs the real public "https://..." URL it called.
-    # Validating against the wrong scheme fails EVERY signature check,
-    # rejecting every real call with a 403 before any routing logic runs.
-    # Rebuilding the URL from the known public domain (same approach
-    # already used for the recording/transcription callback URLs) sidesteps
-    # the scheme-detection problem entirely rather than depending on
-    # infrastructure-level proxy header configuration.
-    public_url = f"https://rentflow-ai.onrender.com{request.url.path}"
-    if request.url.query:
-        public_url += f"?{request.url.query}"
-    if not validator.validate(public_url, form_dict, signature):
-        raise HTTPException(status_code=403, detail="Invalid Twilio signature.")
+router = APIRouter(prefix="/api/maintenance/tickets", tags=["maintenance"])
 
 
-def _is_after_hours(now_utc: datetime, start_hhmm: str | None, end_hhmm: str | None) -> bool:
-    """True if now_utc falls within the [start, end) after-hours window.
-    Handles the window wrapping past midnight (e.g. 18:00-08:00 means
-    "after 6pm OR before 8am", not a literal same-day range, which
-    would be empty/backwards). If either bound isn't configured, treats
-    every hour as after-hours - the safer default for a property that
-    hasn't set this up yet, so a call still reaches someone rather than
-    silently getting no after-hours coverage at all."""
-    if not start_hhmm or not end_hhmm:
-        return True
-    start_h, start_m = map(int, start_hhmm.split(":"))
-    end_h, end_m = map(int, end_hhmm.split(":"))
-    start = time(start_h, start_m)
-    end = time(end_h, end_m)
-    now_t = now_utc.time()
-    if start <= end:
-        return start <= now_t < end
-    return now_t >= start or now_t < end
+def serialize(ticket: dict) -> dict:
+    ticket["id"] = str(ticket.pop("_id"))
+    return ticket
 
 
-async def _match_caller_to_resident(from_number: str, property_id: str) -> dict | None:
-    """Matches an incoming call's caller ID to a real resident, scoped to
-    the specific property that was called - a phone number matching a
-    lease at a *different* property is not a meaningful match for this
-    call, even if the digits happen to line up (e.g. a former resident
-    who moved between two of the same landlord's buildings).
-
-    Real normalization tradeoff, stated honestly: residentPhone is
-    stored exactly as staff typed it (612-555-9999, (612) 555-9999,
-    etc. - all seen in real use), so an exact-string Mongo query against
-    it would almost never match Twilio's E.164-formatted caller ID even
-    for the correct number. Rather than a bigger, riskier change
-    normalizing every stored residentPhone at write time, this fetches
-    that property's leases (a small, bounded set - one property, not
-    the whole leases collection) and normalizes both sides in Python at
-    read time. Simple, safe, and correct for the realistic call volume
-    a single after-hours line sees; would need real reconsideration if
-    this endpoint's call volume ever grew large enough for per-call
-    full-property lease scans to become a genuine performance concern."""
-    normalized_caller = normalize_phone(from_number)
-    if not normalized_caller:
-        return None
-
-    cursor = leases_col.find({"propertyId": property_id, "residentPhone": {"$ne": None}})
-    leases = await cursor.to_list(length=500)
-    for lease in leases:
-        if normalize_phone(lease.get("residentPhone")) == normalized_caller:
-            return lease
-    return None
+async def find_tech_for_property(property_id: str) -> dict | None:
+    """Returns the first staff user assigned to this property, or None."""
+    return await users_col.find_one({"role": "staff", "assignedProperties": property_id})
 
 
-@router.post("/voice")
-async def voice_webhook(request: Request):
-    form = await request.form()
-    form_dict = dict(form)
-    signature = request.headers.get("X-Twilio-Signature", "")
-    _validate_twilio_signature(request, form_dict, signature)
 
-    called_number = form_dict.get("To", "")
-    response = VoiceResponse()
 
-    property_doc = await properties_col.find_one({"twilioNumber": called_number})
-    if not property_doc:
-        response.say("This number is not currently configured. Please try again later.")
-        return Response(content=str(response), media_type="application/xml")
+@router.get("")
+async def list_tickets(
+    propertyId: str | None = None,
+    status: str | None = None,
+    user: dict = Depends(get_current_user),
+):
+    query = {}
+    if user["role"] == "tenant":
+        query["propertyId"] = user.get("propertyId")
+        query["unitId"] = user.get("unitId")
+    elif propertyId:
+        query["propertyId"] = propertyId
+    if status:
+        query["status"] = status
+    cursor = tickets_col.find(query).sort("createdAt", -1).limit(200)
+    tickets = await cursor.to_list(length=200)
+    return {"tickets": [serialize(t) for t in tickets]}
 
-    now = datetime.now(timezone.utc)
-    after_hours = _is_after_hours(
-        now, property_doc.get("afterHoursStart"), property_doc.get("afterHoursEnd")
+
+@router.post("")
+async def create_ticket(payload: TicketCreate, user: dict = Depends(get_current_user)):
+    doc = payload.model_dump()
+    if user["role"] == "tenant":
+        doc["propertyId"] = user.get("propertyId")
+        doc["unitId"] = user.get("unitId")
+        doc["source"] = "resident"
+    return await create_ticket_document(doc)
+
+
+async def create_ticket_document(doc: dict) -> dict:
+    """The real, full ticket-creation pipeline (dedup check, real
+    deterministic severity scoring, auto-assignment to a property's
+    tech, low/routine-tier vendor auto-dispatch, real notifications) -
+    extracted from the HTTP handler above so a second real caller
+    (routers/telephony.py's AI phone triage) gets the exact same
+    pipeline a normal ticket submission gets, not a smaller
+    reimplementation of a subset of it. `doc` must already have
+    propertyId/unitId/title/description/category/priority/source set;
+    status and createdAt are set here."""
+    doc["status"] = "open"
+    doc["createdAt"] = datetime.now(timezone.utc)
+
+    existing_duplicate = await find_existing_open_duplicate(
+        doc.get("propertyId"), doc.get("unitId"), doc.get("title")
     )
+    if existing_duplicate:
+        await record_duplicate_occurrence(existing_duplicate)
+        existing_duplicate["_id"] = str(existing_duplicate["_id"])
+        return {**existing_duplicate, "wasExistingDuplicate": True}
 
-    if not after_hours:
-        response.say(
-            "Thanks for calling. This line is for after-hours maintenance "
-            "emergencies. Please call back during business hours, or leave "
-            "a message after the tone for a callback."
-        )
-        response.record(max_length=120, play_beep=True)
-        return Response(content=str(response), media_type="application/xml")
+    severity = compute_severity(doc.get("title"), doc.get("category"))
+    doc["severityScore"] = severity["score"]
+    doc["severityTier"] = severity["tier"]
+    doc["severityExplanation"] = severity["explanation"]
 
-    property_id = str(property_doc["_id"])
-    caller_number = form_dict.get("From", "")
-    matched_lease = await _match_caller_to_resident(caller_number, property_id)
+    assigned_tech = None
+    if doc.get("source") == "resident" and doc.get("propertyId"):
+        assigned_tech = await find_tech_for_property(doc["propertyId"])
+        if assigned_tech:
+            doc["assignee"] = assigned_tech.get("email")
 
-    on_call_shift = await on_call_shifts_col.find_one({
-        "propertyIds": property_id,
-        "startTime": {"$lte": now},
-        "endTime": {"$gte": now},
-    })
+    # Auto vendor dispatch — deliberately gated on the COMPUTED severity
+    # tier (low/routine), not the raw priority a resident self-reported,
+    # since residents both over- and under-report urgency (the entire
+    # reason ticket_severity.py exists). "urgent"/"emergency" tickets
+    # always stay unassigned here regardless of what preferredVendors
+    # says, so a human makes that call every time the stakes are real.
+    #
+    # CHANGED (Sept 2, 2026): the actual assignment + real SLA
+    # tracking (acceptance token, deadline, confirmation SMS) now
+    # happens via vendor_sla_service.dispatch_with_sla AFTER insert,
+    # since that needs a real ticket _id to track against — the
+    # candidate vendor is still found before insert so a ticket that
+    # has no eligible vendor at all doesn't pay for a second DB round
+    # trip it doesn't need.
+    auto_assign_candidate = None
+    if severity["tier"] in ("low", "routine") and doc.get("propertyId") and doc.get("category"):
+        auto_assign_candidate = await vendor_sla_service.find_next_eligible_vendor(doc["propertyId"], doc["category"])
 
-    tech_phone = None
-    if on_call_shift and ObjectId.is_valid(on_call_shift.get("userId", "")):
-        tech = await users_col.find_one({"_id": ObjectId(on_call_shift["userId"])})
-        tech_phone = tech.get("phone") if tech else None
+    result = await tickets_col.insert_one(doc)
+    doc["_id"] = result.inserted_id
 
-    await log_action(
-        actor_id="twilio_voice_webhook", actor_email="",
-        action="after_hours_call_routed",
-        target_type="property", target_id=property_id,
-        details={
-            "callerNumber": caller_number,
-            "matchedResident": matched_lease.get("residentName") if matched_lease else None,
-            "matchedUnitId": matched_lease.get("unitId") if matched_lease else None,
-            "routedToTechPhone": bool(tech_phone),
-        },
-    )
+    auto_assigned_vendor = None
+    if auto_assign_candidate:
+        await vendor_sla_service.dispatch_with_sla(str(result.inserted_id), doc, auto_assign_candidate)
+        doc["status"] = "in_progress"
+        doc["estimatedArrivalHours"] = auto_assign_candidate.get("avgArrivalHours")
+        await tickets_col.update_one({"_id": result.inserted_id}, {"$set": {"vendorAutoAssigned": True}})
+        auto_assigned_vendor = auto_assign_candidate
 
-    if tech_phone:
-        if matched_lease:
-            # A real, if small, staff-facing improvement: the tech
-            # answering hears who's calling and which unit before
-            # picking up, the same context a caller-ID-aware office
-            # phone would already give a human receptionist - this
-            # after-hours line otherwise gives none of that.
-            response.say(
-                f"Incoming after-hours call from {matched_lease.get('residentName', 'a resident')}, "
-                f"unit {matched_lease.get('unitId', 'unknown')}. Connecting now."
+    if doc.get("source") == "resident":
+        if assigned_tech:
+            await notifications_service.notify_user(
+                str(assigned_tech["_id"]),
+                type="urgent_ticket" if doc.get("priority") == "urgent" else "general",
+                title=f"New maintenance request: {doc['title']}",
+                body=f"Unit {doc['unitId']} — assigned to you",
+                link=f"/maintenance/{str(result.inserted_id)}",
             )
-        # BUG FIX (found by reading Twilio's own docs on recordingStatusCallback):
-        # this must be an absolute URL - Twilio can't resolve a relative path
-        # like "/api/telephony/recording-status" against the call it's already
-        # on. Call routing itself worked fine either way (that's a direct
-        # webhook response, not a callback Twilio has to resolve on its own),
-        # which is why this went unnoticed during the first successful test
-        # call - only the recording/transcript capture was silently broken.
-        response.dial(tech_phone, record="record-from-answer-dual", recording_status_callback="https://rentflow-ai.onrender.com/api/telephony/recording-status")
-    else:
-        response.say(
-            "Thanks for calling. Nobody is currently available to take "
-            "your call. Please leave a message after the tone and our "
-            "on-call team will call you back."
+        else:
+            await notifications_service.notify_all_staff(
+                type="urgent_ticket" if doc.get("priority") == "urgent" else "general",
+                title=f"Unassigned request: {doc['title']}",
+                body=f"Unit {doc['unitId']} — no tech assigned to this property yet",
+                link=f"/maintenance/{str(result.inserted_id)}",
+            )
+        if auto_assigned_vendor:
+            eta = doc.get("estimatedArrivalHours")
+            await notifications_service.notify_unit_resident(
+                doc.get("propertyId"), doc.get("unitId"),
+                type="vendor_assigned",
+                title=f"{auto_assigned_vendor['name']} assigned to your request",
+                body=f"{doc.get('title', 'Your maintenance request')}" + (f" — ETA ~{eta}h" if eta else ""),
+                link=f"/maintenance/{str(result.inserted_id)}",
+            )
+    elif doc.get("priority") == "urgent":
+        await notifications_service.notify_all_staff(
+            type="urgent_ticket",
+            title=f"Urgent: {doc['title']}",
+            body=f"Unit {doc['unitId']} — reported via {doc.get('source', 'staff')}",
+            link=f"/maintenance/{str(result.inserted_id)}",
         )
-        response.record(max_length=120, play_beep=True)
 
-    return Response(content=str(response), media_type="application/xml")
+    return serialize(doc)
 
 
-@router.post("/recording-status")
-async def recording_status_callback(request: Request):
-    """Real Twilio recordingStatusCallback webhook - see /voice's
-    Dial verb above, which requests this specifically. Twilio calls
-    this once the recording is genuinely ready (RecordingStatus=
-    "completed"), with real parameters (RecordingSid, RecordingUrl,
-    CallSid, RecordingDuration) confirmed directly from Twilio's own
-    documentation before building this, not guessed. Same real
-    signature-validation requirement as /voice - an unauthenticated
-    webhook here would be a real way for anyone to inject fake
-    call-log entries.
+@router.patch("/{ticket_id}")
+async def update_ticket(ticket_id: str, payload: TicketUpdate, user: dict = Depends(require_staff)):
+    if not ObjectId.is_valid(ticket_id):
+        raise HTTPException(status_code=400, detail="Invalid ticket ID")
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
 
-    Requests Twilio's own built-in transcription (a real, separate
-    Twilio API call, not a third-party integration) rather than
-    building a new transcription pipeline - reuses infrastructure
-    this app already has real credentials for. Transcription result
-    itself arrives at a SEPARATE callback (/transcription-status)
-    once Twilio finishes it, since transcription is asynchronous and
-    genuinely not ready at the same moment as the recording."""
-    form = await request.form()
-    form_dict = dict(form)
-    signature = request.headers.get("X-Twilio-Signature", "")
-    _validate_twilio_signature(request, form_dict, signature)
+    if updates.get("status") == "done":
+        # A real, human-written resolution summary is required to
+        # actually close a ticket - either provided in this same
+        # request, or already on file from an earlier PATCH (e.g. a
+        # tech writes it up first, then a supervisor changes status
+        # separately). Never allowed to silently close with nothing
+        # explaining what was actually done - that's the entire point
+        # of this feature, not an optional nice-to-have.
+        existing = await tickets_col.find_one({"_id": ObjectId(ticket_id)}, {"resolutionNotes": 1})
+        has_existing_notes = bool(existing and existing.get("resolutionNotes"))
+        if not updates.get("resolutionNotes") and not has_existing_notes:
+            raise HTTPException(
+                status_code=400,
+                detail="Resolution notes are required to close a ticket - describe what was found and what was done to fix it.",
+            )
 
-    recording_status = form_dict.get("RecordingStatus")
-    if recording_status != "completed":
-        # "in-progress" or "absent" - nothing real to store yet, or
-        # genuinely nothing was recorded (a silent/instant call).
-        return Response(content="", media_type="text/xml")
+    updates["updatedAt"] = datetime.now(timezone.utc)
+    result = await tickets_col.find_one_and_update(
+        {"_id": ObjectId(ticket_id)},
+        {"$set": updates},
+        return_document=True,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Ticket not found")
 
-    recording_sid = form_dict.get("RecordingSid")
-    recording_url = form_dict.get("RecordingUrl")
-    call_sid = form_dict.get("CallSid")
-    duration = form_dict.get("RecordingDuration")
+    if updates.get("status") == "done":
+        try:
+            await emit_event("work_order_closed", {
+                "ticketId": ticket_id,
+                "propertyId": result.get("propertyId"),
+                "unitId": result.get("unitId"),
+                "title": result.get("title"),
+            })
+        except Exception as e:
+            print(f"Workflow dispatch failed: {e}")
 
-    doc = {
-        "callSid": call_sid,
-        "recordingSid": recording_sid,
-        "recordingUrl": recording_url,
-        "durationSeconds": int(duration) if duration and duration.isdigit() else None,
-        "transcriptText": None,
-        "transcriptStatus": "pending",
-        "createdAt": datetime.now(timezone.utc),
+        property_id = result.get("propertyId")
+        unit_id = result.get("unitId")
+        if property_id and unit_id:
+            resolution_summary = result.get("resolutionNotes", "")
+            body = f"Your maintenance request '{result.get('title', 'ticket')}' is closed."
+            if resolution_summary:
+                # Real, genuine transparency - the resident sees what
+                # the tech actually found and did, not just a bare
+                # "closed" status with no explanation. Truncated for a
+                # notification body (a full-length writeup belongs on
+                # the ticket detail itself, which the link below opens),
+                # not truncated in the stored/API-served field.
+                body += f" What was done: {resolution_summary[:200]}{'...' if len(resolution_summary) > 200 else ''}"
+            body += " Rate how it went."
+            await notifications_service.notify_unit_resident(
+                property_id, unit_id,
+                type="general",
+                title="How did we do?",
+                body=body,
+                link=f"/maintenance/{ticket_id}/rate",
+            )
+
+    return serialize(result)
+
+
+@router.post("/{ticket_id}/time")
+async def log_time(ticket_id: str, payload: TimeEntryCreate, user: dict = Depends(require_staff)):
+    if not ObjectId.is_valid(ticket_id):
+        raise HTTPException(status_code=400, detail="Invalid ticket ID")
+
+    entry = {
+        "hours": payload.hours,
+        "note": payload.note,
+        "loggedBy": user.get("email"),
+        "loggedAt": datetime.now(timezone.utc),
     }
-    await on_call_log_col.insert_one(doc)
 
-    if recording_sid:
-        account_sid = os.getenv("TWILIO_ACCOUNT_SID")
-        auth_token = os.getenv("TWILIO_AUTH_TOKEN")
-        if account_sid and auth_token:
-            try:
-                twilio_client = Client(account_sid, auth_token)
-                # Real Twilio transcription request - genuinely async;
-                # the actual text arrives later at transcribeCallback,
-                # not returned here. Failing to even request it should
-                # never block the recording itself from being stored -
-                # the recording is the more important real artifact.
-                twilio_client.recordings(recording_sid).transcriptions.create(
-                    transcribe_callback="https://rentflow-ai.onrender.com/api/telephony/transcription-status"
-                )
-            except Exception as exc:
-                print(f"Failed to request transcription for recording {recording_sid}: {exc}")
-
-    return Response(content="", media_type="text/xml")
+    result = await tickets_col.find_one_and_update(
+        {"_id": ObjectId(ticket_id)},
+        {
+            "$push": {"timeEntries": entry},
+            "$inc": {"totalHours": payload.hours},
+        },
+        return_document=True,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    return serialize(result)
 
 
-@router.post("/transcription-status")
-async def transcription_status_callback(request: Request):
-    """Real Twilio transcribeCallback - fires once Twilio's own
-    transcription of a recording (requested above) is actually done.
-    Confirmed real parameter names (TranscriptionSid, TranscriptionText,
-    TranscriptionStatus) directly from Twilio's documentation."""
-    form = await request.form()
-    form_dict = dict(form)
-    signature = request.headers.get("X-Twilio-Signature", "")
-    _validate_twilio_signature(request, form_dict, signature)
+@router.post("/{ticket_id}/satisfaction")
+async def submit_satisfaction(ticket_id: str, payload: TicketSatisfactionSubmit, user: dict = Depends(get_current_user)):
+    """Tenant-facing satisfaction rating on a closed ticket. Same
+    never-trust-client-submitted-scope pattern used throughout this
+    session - the ticket is cross-checked against the authenticated
+    tenant's OWN propertyId/unitId, so a resident can't rate (or even
+    confirm the existence of) a ticket that isn't theirs."""
+    if not ObjectId.is_valid(ticket_id):
+        raise HTTPException(status_code=400, detail="Invalid ticket ID")
+    ticket = await tickets_col.find_one({"_id": ObjectId(ticket_id)})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
 
-    recording_sid = form_dict.get("RecordingSid")
-    transcription_status = form_dict.get("TranscriptionStatus")
-    transcription_text = form_dict.get("TranscriptionText")
+    if user.get("role") == "tenant" and (
+        ticket.get("propertyId") != user.get("propertyId") or ticket.get("unitId") != user.get("unitId")
+    ):
+        raise HTTPException(status_code=403, detail="Not your ticket")
 
-    if recording_sid:
-        await on_call_log_col.update_one(
-            {"recordingSid": recording_sid},
-            {"$set": {
-                "transcriptStatus": transcription_status or "failed",
-                "transcriptText": transcription_text,
-            }},
+    if ticket.get("status") != "done":
+        raise HTTPException(status_code=400, detail="Only closed tickets can be rated.")
+
+    result = await tickets_col.find_one_and_update(
+        {"_id": ObjectId(ticket_id)},
+        {"$set": {
+            "satisfactionRating": payload.rating,
+            "satisfactionComment": payload.comment,
+            "satisfactionSubmittedAt": datetime.now(timezone.utc),
+        }},
+        return_document=True,
+    )
+
+    # The actual "flag unhappy ones internally" half of the original
+    # ask - a low rating notifies staff immediately rather than
+    # silently sitting in the data waiting for someone to run a
+    # report. 1-2 is genuinely dissatisfied, not just "fine, not great."
+    if payload.rating <= 2:
+        await notifications_service.notify_all_staff(
+            type="general",
+            title="Low satisfaction rating on a closed ticket",
+            body=f"Unit {ticket.get('unitId')} rated '{ticket.get('title', 'a ticket')}' {payload.rating}/5"
+                 + (f": {payload.comment}" if payload.comment else ""),
+            link=f"/maintenance/{ticket_id}",
         )
 
-    return Response(content="", media_type="text/xml")
+    return serialize(result)
 
 
-@router.get("/call-log")
-async def list_call_log(user: dict = Depends(require_staff)):
-    """Manager-facing view of real, past after-hours calls - the
-    other real half of this feature beyond the raw recording/
-    transcript capture itself."""
-    logs = await on_call_log_col.find({}).sort("createdAt", -1).to_list(length=200)
-    for log in logs:
-        log["id"] = str(log.pop("_id"))
-    return {"callLog": logs}
+@router.get("/satisfaction/flagged")
+async def list_flagged_satisfaction(propertyId: str | None = None, user: dict = Depends(require_staff)):
+    """Staff-facing report of low-satisfaction closed tickets (rating
+    1-2), the other real half of this feature - somewhere staff can
+    actually go look, not just react to the real-time notification
+    above."""
+    query = {"satisfactionRating": {"$lte": 2}}
+    if propertyId:
+        query["propertyId"] = propertyId
+    cursor = tickets_col.find(query).sort("satisfactionSubmittedAt", -1).limit(200)
+    tickets = await cursor.to_list(length=200)
+    return {"tickets": [serialize(t) for t in tickets]}
