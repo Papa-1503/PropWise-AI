@@ -63,6 +63,7 @@ import vendor_sla_service
 import renewal_risk_service
 import payment_reminder_service
 from auth import require_staff
+
 DEFAULT_LATE_FEE_AMOUNT = 50.0
 DEFAULT_LATE_FEE_GRACE_DAYS = 5
 
@@ -294,34 +295,6 @@ async def _do_payment_reminder_check(windowDays: int = 5):
         "notified": len(notified),
         "skippedCooldown": skipped_cooldown,
         "channelTotals": channel_totals,
-        "chargeIds": notified,
-    }
-    notified = []
-    for charge in upcoming_charges:
-        if charge.get("amountPaid", 0) >= charge.get("amountDue", 0):
-            continue  # already paid in full, nothing to remind about
-
-        property_id = charge.get("propertyId")
-        unit_id = charge.get("unitId")
-        due_str = charge["dueDate"].strftime("%B %d, %Y") if isinstance(charge.get("dueDate"), datetime) else str(charge.get("dueDate"))
-        amount_owed = charge.get("amountDue", 0) - charge.get("amountPaid", 0)
-
-        if property_id and unit_id:
-            await notifications_service.notify_unit_resident(
-                property_id, unit_id,
-                type="general",
-                title="Upcoming payment due",
-                body=f"${amount_owed:.2f} due {due_str} for {charge.get('description', 'your charge')}",
-                link="/payments",
-            )
-
-        await payments_col.update_one({"_id": charge["_id"]}, {"$set": {"reminderSent": True}})
-        notified.append(str(charge["_id"]))
-
-    return {
-        "status": "done",
-        "chargesChecked": len(upcoming_charges),
-        "notified": len(notified),
         "chargeIds": notified,
     }
 
