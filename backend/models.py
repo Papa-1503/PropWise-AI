@@ -74,6 +74,7 @@ class TicketCreate(BaseModel):
     propertyId: str
     unitId: str
     title: str
+    description: Optional[str] = None
     priority: Literal["normal", "urgent"] = "normal"
     source: Literal["resident", "inspection", "staff", "preventive_maintenance"] = "staff"
     sourceInspectionId: Optional[str] = None
