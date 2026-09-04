@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Outlet, useOutletContext } from "react-router-dom";
 import { useState, lazy, Suspense } from "react";
-import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList, Package, Droplets, TrendingUp, Shield, Tag, PenTool, Receipt, Calculator } from "lucide-react";
+import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList, Package, Droplets, TrendingUp, Shield, Tag, PenTool, Receipt, Calculator, Scale } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";
 import { ToastProvider } from "./ToastContext";
 import { DarkModeProvider, useDarkMode } from "./DarkModeContext";
@@ -21,6 +21,7 @@ import MaintenanceTickets from "./MaintenanceTickets";
 import InspectionsList from "./InspectionsList";
 import AICopilot from "./AICopilot";
 import ScenarioPlanner from "./ScenarioPlanner";
+import ComplianceCalendar from "./ComplianceCalendar";
 import AIActionsPanel from "./AIActionsPanel";
 import PaymentsPanel from "./PaymentsPanel";
 import PortfolioHealthHeader from "./PortfolioHealthHeader";
@@ -117,7 +118,7 @@ const STAFF_TAB_GROUPS = [
   { label: "Maintenance", tabs: ["maintenance", "inspections", "schedules", "on-call"] },
   { label: "Rent & Accounting", tabs: ["payments", "rubs", "reconciliation", "trust-accounting", "capital-planning", "bill-scan"] },
   { label: "Communications", tabs: ["communications", "feed", "packages", "write-assist"] },
-  { label: "Documents & Reports", tabs: ["documents", "gallery", "predictive-analytics"] },
+  { label: "Documents & Reports", tabs: ["documents", "gallery", "predictive-analytics", "compliance"] },
   { label: "Admin", tabs: ["properties", "staff", "workflows", "custom-roles", "custom-fields"] },
 ];
 const STAFF_TABS = STAFF_TAB_GROUPS.flatMap((g) => g.tabs);
@@ -156,6 +157,7 @@ const TAB_LABELS = {
   "trust-accounting": "Trust Accounting",
   "capital-planning": "Capital Planning",
   "predictive-analytics": "Predictive Analytics",
+  compliance: "Compliance",
   "custom-roles": "Custom Roles",
   "custom-fields": "Custom Fields",
   "write-assist": "Write Assist",
@@ -188,6 +190,7 @@ const TAB_ICONS = {
   "trust-accounting": Landmark,
   "capital-planning": Wrench,
   "predictive-analytics": TrendingUp,
+  compliance: Scale,
   "custom-roles": Shield,
   "custom-fields": Tag,
   "write-assist": PenTool,
@@ -463,6 +466,7 @@ export default function App() {
             <Route path="feed" element={<SocialFeed />} />
             <Route path="ai" element={<AICopilotWrapper />} />
             <Route path="scenario" element={<ScenarioPlannerWrapper />} />
+            <Route path="compliance" element={<ComplianceCalendarWrapper />} />
             <Route path="renewal-checkin/:leaseId" element={<RenewalCheckIn />} />
             <Route path="*" element={<TabNotFound />} />
           </Route>
@@ -567,4 +571,8 @@ function AICopilotWrapper() {
 function ScenarioPlannerWrapper() {
   const { effectivePropertyId } = useOutletContext();
   return <ScenarioPlanner propertyId={effectivePropertyId} />;
+}
+function ComplianceCalendarWrapper() {
+  const { effectivePropertyId } = useOutletContext();
+  return <ComplianceCalendar propertyId={effectivePropertyId} />;
 }
