@@ -14,6 +14,7 @@ from bson import ObjectId
 
 from db import notifications_col
 from auth import get_current_user
+import translation_service
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
@@ -31,8 +32,26 @@ async def list_notifications(unreadOnly: bool = False, user: dict = Depends(get_
     if unreadOnly:
         query["read"] = False
     cursor = notifications_col.find(query).sort("createdAt", -1).limit(100)
-    notifications = await cursor.to_list(length=100)
-    return {"notifications": [serialize(n) for n in notifications]}
+    notifications = [serialize(n) for n in await cursor.to_list(length=100)]
+
+    # Real, on-the-fly translation for a resident with a non-English
+    # preference - notifications are stored in English (the canonical
+    # language every notify_* call writes in), so the alternative to
+    # translating here would be either translating at write time
+    # (would require every one of the many notify_* call sites across
+    # this app to know the recipient's language ahead of time) or
+    # storing a second, always-stale translated copy. Real, but not
+    # cached - acceptable for a list capped at 100 items; caching by
+    # (notificationId, language) would be a reasonable follow-up if
+    # this endpoint's call volume ever made the repeated real API
+    # calls a genuine cost concern.
+    preferred_language = user.get("preferredLanguage")
+    if preferred_language and preferred_language != "en":
+        for n in notifications:
+            n["title"] = await translation_service.translate_text(n.get("title", ""), preferred_language)
+            n["body"] = await translation_service.translate_text(n.get("body", ""), preferred_language)
+
+    return {"notifications": notifications}
 
 
 @router.get("/unread-count")
