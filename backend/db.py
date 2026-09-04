@@ -50,6 +50,7 @@ on_call_shifts_col = db["on_call_shifts"]
 on_call_log_col = db["on_call_log"]
 voice_triage_col = db["voice_triage"]
 sms_triage_col = db["sms_triage"]
+photo_upload_tokens_col = db["photo_upload_tokens"]
 audit_log_col = db["audit_log"]
 budgets_col = db["budgets"]
 kb_articles_col = db["kb_articles"]
@@ -109,6 +110,12 @@ async def ensure_indexes():
     await on_call_log_col.create_index([("createdAt", -1)])
     await voice_triage_col.create_index([("callSid", 1)], unique=True)
     await sms_triage_col.create_index([("phone", 1), ("createdAt", -1)])
+    # TTL index - a token document is automatically deleted by MongoDB
+    # itself once its real expiresAt time passes, so an expired link
+    # genuinely stops working with no separate cleanup job needed; the
+    # upload endpoints below just treat "token not found" as "expired
+    # or invalid," which is honestly true either way.
+    await photo_upload_tokens_col.create_index("expiresAt", expireAfterSeconds=0)
     # Two indexes for audit log: the common "show me everything on this
     # record" lookup, and the common "show me everything this person
     # did" lookup. Both sorted newest-first since that's how an audit
