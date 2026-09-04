@@ -58,6 +58,7 @@ from models import StaffOwnerRegister, TenantActivate, UserLogin, TokenResponse,
 from email_service import send_email_async, EmailNotConfigured, EmailSendError
 from auth import hash_password, verify_password, create_access_token, get_current_user, require_staff, set_session_cookie, COOKIE_NAME
 from rate_limiter import limiter
+import translation_service
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -70,6 +71,7 @@ def to_user_out(user: dict) -> UserOut:
         role=user["role"],
         propertyId=user.get("propertyId"),
         unitId=user.get("unitId"),
+        preferredLanguage=user.get("preferredLanguage"),
     )
 
 
@@ -178,6 +180,15 @@ async def login(request: Request, payload: UserLogin, response: Response):
     return TokenResponse(accessToken=token, user=to_user_out(user))
 
 
+@router.get("/languages")
+async def list_supported_languages():
+    """Public - just the real, current supported-language set from
+    translation_service.py, so the frontend's language picker can
+    never silently drift out of sync with what the backend actually
+    supports."""
+    return {"languages": translation_service.SUPPORTED_LANGUAGES}
+
+
 @router.get("/me", response_model=UserOut)
 async def me(user: dict = Depends(get_current_user)):
     return to_user_out(user)
@@ -202,9 +213,17 @@ async def update_profile(payload: ProfileUpdate, user: dict = Depends(get_curren
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Name can't be empty.")
-    await users_col.update_one({"_id": ObjectId(user["id"])}, {"$set": {"name": name}})
+    updates = {"name": name}
+    if payload.preferredLanguage is not None:
+        # Real validation against the actual supported set, not a bare
+        # passthrough - an unrecognized code stored here would silently
+        # never translate anything, with no error telling anyone why.
+        if payload.preferredLanguage not in translation_service.SUPPORTED_LANGUAGES:
+            raise HTTPException(status_code=400, detail="Unsupported language.")
+        updates["preferredLanguage"] = payload.preferredLanguage
+    await users_col.update_one({"_id": ObjectId(user["id"])}, {"$set": updates})
     updated = dict(user)
-    updated["name"] = name
+    updated.update(updates)
     return to_user_out(updated)
 
 
