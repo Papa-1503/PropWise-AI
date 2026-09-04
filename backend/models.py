@@ -130,6 +130,17 @@ class CopilotResponse(BaseModel):
     sources: list[str] = Field(default_factory=list)
 
 
+class ScenarioResponse(BaseModel):
+    """Distinct from CopilotResponse: computedData carries the real,
+    structured numbers scenario_service.py's tools actually returned,
+    so the frontend can render a real stat summary alongside the
+    prose rather than staff having to trust numbers embedded only in
+    free text."""
+    answer: str
+    sources: list[str] = Field(default_factory=list)
+    computedData: Optional[dict] = None
+
+
 class FaqRequest(BaseModel):
     """Tenant-facing auto-responder, deliberately separate from
     CopilotRequest above rather than reusing the staff copilot
