@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "./AuthContext";
 import { useToast } from "./ToastContext";
 import { API_BASE } from "./config";
@@ -20,8 +20,20 @@ import { API_BASE } from "./config";
 function ProfileTab() {
   const { user, setUser, authFetch } = useAuth();
   const [name, setName] = useState(user?.name || "");
+  const [preferredLanguage, setPreferredLanguage] = useState(user?.preferredLanguage || "en");
+  const [languages, setLanguages] = useState({ en: "English" });
   const [saving, setSaving] = useState(false);
   const { show: showToast } = useToast();
+
+  useEffect(() => {
+    if (user?.role !== "tenant") return;
+    // Real, current supported-language set from the backend, not a
+    // hardcoded copy that could silently drift out of sync with it.
+    authFetch(`${API_BASE}/auth/languages`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => data && setLanguages(data.languages))
+      .catch(() => {});
+  }, [user?.role, authFetch]);
 
   async function handleSave() {
     if (!name.trim()) {
@@ -30,10 +42,12 @@ function ProfileTab() {
     }
     setSaving(true);
     try {
+      const body = { name: name.trim() };
+      if (user?.role === "tenant") body.preferredLanguage = preferredLanguage;
       const res = await authFetch(`${API_BASE}/auth/me`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim() }),
+        body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || "Couldn't save.");
@@ -66,6 +80,23 @@ function ProfileTab() {
           className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5 bg-slate-50 text-slate-400"
         />
       </div>
+      {user?.role === "tenant" && (
+        <div>
+          <label className="text-xs text-slate-500">Preferred language</label>
+          <select
+            value={preferredLanguage}
+            onChange={(e) => setPreferredLanguage(e.target.value)}
+            className="w-full text-sm border border-slate-200 rounded px-2 py-1.5 mt-0.5"
+          >
+            {Object.entries(languages).map(([code, name]) => (
+              <option key={code} value={code}>{name}</option>
+            ))}
+          </select>
+          <p className="text-[11px] text-slate-400 mt-1">
+            Notifications and the help assistant will be translated into this language.
+          </p>
+        </div>
+      )}
       <button
         onClick={handleSave}
         disabled={saving}
