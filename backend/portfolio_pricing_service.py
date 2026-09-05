@@ -34,12 +34,18 @@ from db import properties_col
 MIN_PCT_DIFF_TO_FLAG = 5.0  # below this, treat as noise, not a real gap
 
 
-async def compare_pricing_across_buildings() -> list[dict]:
+async def compare_pricing_across_buildings(org_id: str) -> list[dict]:
     """Real average rent per bedroom-count bucket, per building, each
     compared against the average of every OTHER building with at least
     one unit of that same bedroom count - never against itself, and
-    never against a bucket with no real comparison data available."""
-    properties = await properties_col.find({}).to_list(length=500)
+    never against a bucket with no real comparison data available.
+    org_id is required and scopes which buildings are even considered -
+    this was a real, live cross-tenant gap before this pass: any staff
+    member of any organization could see every other organization's
+    pricing data, and a comparison could even mix buildings from
+    different organizations together into the same "rest of the
+    portfolio" average."""
+    properties = await properties_col.find({"orgId": org_id}).to_list(length=500)
 
     # rents_by_property[propertyId][bedroomCount] = [rent, rent, ...]
     rents_by_property: dict[str, dict[int, list[float]]] = defaultdict(lambda: defaultdict(list))
