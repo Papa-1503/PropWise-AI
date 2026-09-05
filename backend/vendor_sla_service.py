@@ -77,12 +77,22 @@ async def find_next_eligible_vendor(property_id: str, category: str, exclude_ven
 
     candidate_ids = normalize_preferred_vendor_ids(property_doc.get("preferredVendors", {}).get(category))
     now = datetime.now(timezone.utc)
+    property_org_id = property_doc.get("orgId")
 
     for vendor_id in candidate_ids:
         if vendor_id in exclude_vendor_ids or not ObjectId.is_valid(vendor_id):
             continue
         vendor = await vendors_col.find_one({"_id": ObjectId(vendor_id)})
         if not vendor or not vendor.get("active", True):
+            continue
+        # Defense in depth: a vendor referenced in preferredVendors
+        # should always already belong to the same org as the property
+        # (vendors.py only ever lets staff choose from their own org's
+        # roster), but this real check makes that a guarantee rather
+        # than an assumption - stale data or a future bug elsewhere
+        # can never cause a property in one organization to auto-
+        # dispatch a vendor belonging to a different one.
+        if property_org_id and vendor.get("orgId") != property_org_id:
             continue
         expired = False
         for field in ("insuranceExpiresDate", "licenseExpiresDate"):
