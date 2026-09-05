@@ -18,6 +18,13 @@ PATCH /api/maintenance/tickets/:id/assign-vendor -> assign a vendor to a ticket
 
 See the NOTE in models.py: distance/arrival numbers here are manually
 maintained on the vendor record, not computed from real addresses.
+
+MULTI-TENANCY: every vendor carries a real orgId, stamped server-side
+at creation from the creating staff member's own orgId - never client-
+submitted. Every query below is scoped by user["orgId"] directly. This
+was a genuinely live cross-tenant gap before this pass - the entire
+vendor roster was visible to any authenticated staff member of ANY
+organization, with no scoping at all.
 """
 from datetime import datetime, timezone, timedelta
 
@@ -44,7 +51,7 @@ def serialize(v: dict) -> dict:
 
 @router.get("")
 async def list_vendors(category: str | None = None, user: dict = Depends(require_staff)):
-    query = {"active": True}
+    query = {"active": True, "orgId": user["orgId"]}
     if category:
         query["category"] = category
     cursor = vendors_col.find(query).sort("rating", -1)
@@ -80,7 +87,7 @@ async def recommended_vendors(category: str, user: dict = Depends(require_staff)
     scale), since "cheap" or "close" means different things for a
     locksmith than for an HVAC contractor.
     """
-    cursor = vendors_col.find({"active": True, "category": category})
+    cursor = vendors_col.find({"active": True, "category": category, "orgId": user["orgId"]})
     vendors = await cursor.to_list(length=200)
     if not vendors:
         return {"vendors": []}
@@ -121,6 +128,7 @@ async def recommended_vendors(category: str, user: dict = Depends(require_staff)
 @router.post("")
 async def create_vendor(payload: VendorCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     for field in ("insuranceExpiresDate", "licenseExpiresDate"):
         if doc.get(field):
             doc[field] = parse_date_utc(doc[field])
@@ -141,7 +149,7 @@ async def update_vendor(vendor_id: str, payload: VendorUpdate, user: dict = Depe
         if field in updates:
             updates[field] = parse_date_utc(updates[field])
     result = await vendors_col.find_one_and_update(
-        {"_id": ObjectId(vendor_id)}, {"$set": updates}, return_document=True
+        {"_id": ObjectId(vendor_id), "orgId": user["orgId"]}, {"$set": updates}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Vendor not found")
@@ -158,6 +166,7 @@ async def expiring_compliance(withinDays: int = 30, user: dict = Depends(require
     cutoff = now + timedelta(days=withinDays)
     cursor = vendors_col.find({
         "active": True,
+        "orgId": user["orgId"],
         "$or": [
             {"insuranceExpiresDate": {"$lte": cutoff, "$gte": now}},
             {"licenseExpiresDate": {"$lte": cutoff, "$gte": now}},
@@ -171,10 +180,11 @@ async def expiring_compliance(withinDays: int = 30, user: dict = Depends(require
 async def create_bid(payload: VendorBidCreate, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(payload.vendorId):
         raise HTTPException(status_code=400, detail="Invalid vendor ID")
-    vendor = await vendors_col.find_one({"_id": ObjectId(payload.vendorId)})
+    vendor = await vendors_col.find_one({"_id": ObjectId(payload.vendorId), "orgId": user["orgId"]})
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["vendorName"] = vendor["name"]
     doc["createdAt"] = datetime.now(timezone.utc)
     result = await vendor_bids_col.insert_one(doc)
@@ -184,7 +194,7 @@ async def create_bid(payload: VendorBidCreate, user: dict = Depends(require_staf
 
 @router.get("/bids")
 async def list_bids(ticketId: str, user: dict = Depends(require_staff)):
-    cursor = vendor_bids_col.find({"ticketId": ticketId}).sort("quotedCost", 1)
+    cursor = vendor_bids_col.find({"ticketId": ticketId, "orgId": user["orgId"]}).sort("quotedCost", 1)
     bids = await cursor.to_list(length=100)
     return {"bids": [serialize(b) for b in bids]}
 
@@ -209,11 +219,11 @@ async def assign_vendor_to_ticket(ticket_id: str, payload: VendorAssign, user: d
     if not ObjectId.is_valid(ticket_id) or not ObjectId.is_valid(payload.vendorId):
         raise HTTPException(status_code=400, detail="Invalid ticket or vendor ID")
 
-    ticket = await tickets_col.find_one({"_id": ObjectId(ticket_id)})
+    ticket = await tickets_col.find_one({"_id": ObjectId(ticket_id), "orgId": user["orgId"]})
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
 
-    vendor = await vendors_col.find_one({"_id": ObjectId(payload.vendorId)})
+    vendor = await vendors_col.find_one({"_id": ObjectId(payload.vendorId), "orgId": user["orgId"]})
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
 
