@@ -373,7 +373,26 @@ class UserLogin(BaseModel):
     password: str
 
 
-class TenantActivate(BaseModel):
+class OrganizationSignup(BaseModel):
+    """Creates a brand-new organization AND its first user in one step -
+    the real "sign up your company" entry point, which genuinely did
+    not exist before. Every OTHER account-creation path assumes an
+    organization already exists: TenantActivate binds into whatever
+    org owns the invite code's property, StaffOwnerRegister requires
+    an already-authenticated staff member of an existing org to invite
+    a colleague into that SAME org (never a client-supplied org id).
+    This is the one and only way a new, independent organization gets
+    created. The first user created here is marked isOrgOwner=True on
+    their user record - not a new role (they're still role="staff"
+    with full staff access, same as always), just a marker for future
+    org-level actions (billing, deleting the org, transferring
+    ownership) that shouldn't be available to every staff member an
+    owner later invites."""
+    organizationName: str
+    name: str
+    email: str
+    password: str
+    class TenantActivate(BaseModel):
     """The public resident sign-up flow, replacing raw Property ID/Unit ID
     fields with a single invite code — a real security fix (Priority 34),
     not just a UX rename. The invite code is generated server-side when
@@ -416,6 +435,8 @@ class UserOut(BaseModel):
     unitId: Optional[str] = None
     autopayEnabled: bool = False
     preferredLanguage: Optional[str] = None
+    orgId: Optional[str] = None
+    isOrgOwner: bool = False
 
 
 class ProfileUpdate(BaseModel):
