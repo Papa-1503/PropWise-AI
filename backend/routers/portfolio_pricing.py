@@ -15,5 +15,5 @@ router = APIRouter(prefix="/api/portfolio-pricing", tags=["portfolio-pricing"])
 
 @router.get("/comparison")
 async def get_pricing_comparison(user: dict = Depends(require_staff)):
-    comparisons = await portfolio_pricing_service.compare_pricing_across_buildings()
+    comparisons = await portfolio_pricing_service.compare_pricing_across_buildings(user["orgId"])
     return {"comparisons": comparisons}
