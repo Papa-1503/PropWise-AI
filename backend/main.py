@@ -297,6 +297,11 @@ async def rent_automation_scheduler():
             logger.info(f"[scheduler] renewal risk check: {result}")
         except Exception:
             logger.exception("[scheduler] renewal risk check failed")
+        try:
+            result = await admin_router._do_vendor_compliance_check()
+            logger.info(f"[scheduler] vendor compliance check: {result}")
+        except Exception:
+            logger.exception("[scheduler] vendor compliance check failed")
         await scheduler_health.record_heartbeat("rent_automation_scheduler")
         await asyncio.sleep(interval_seconds)
 
