@@ -51,7 +51,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
 
-from db import maintenance_schedules_col, tickets_col, users_col, leases_col, payments_col, properties_col, ai_actions_col, late_notices_col, scheduler_health_col
+from db import maintenance_schedules_col, tickets_col, users_col, leases_col, payments_col, properties_col, ai_actions_col, late_notices_col, scheduler_health_col, vendors_col
 from models import AdminKeyPayload
 from stripe_service import (
     StripeNotConfigured,
@@ -705,6 +705,76 @@ async def _do_vendor_sla_check():
         "checked": len(expired_tickets),
         "reassigned": len(reassigned),
         "escalated": len(escalated),
+    }
+
+
+@router.post("/run-vendor-compliance-check")
+async def run_vendor_compliance_check(payload: AdminKeyPayload):
+    """External-trigger endpoint for the vendor insurance/license
+    expiration check. Same pattern as every other check in this file:
+    this HTTP endpoint exists for manual/external-cron triggering; the
+    real background scheduler in main.py calls the underlying function
+    directly."""
+    check_key(payload.key)
+    return await _do_vendor_compliance_check()
+
+
+VENDOR_COMPLIANCE_WINDOW_DAYS = 30
+
+
+async def _do_vendor_compliance_check():
+    """The real, missing other half of GET /api/vendors/expiring-
+    compliance (routers/vendors.py) — that endpoint always existed as
+    a real, correct on-demand query, but nothing ever called it
+    automatically, so staff would only ever learn a vendor's insurance
+    or license was expiring if they happened to check manually. Vendor
+    auto-dispatch already gates on these same two fields (see
+    routers/maintenance.py's create_ticket_document /
+    vendor_sla_service.py) — a lapsed vendor silently failing a
+    dispatch, with no advance warning, is the real risk this closes.
+
+    Idempotent per real expiration date, not a one-time-ever flag: each
+    vendor stores which exact expiresDate it was last alerted for
+    (insuranceAlertSentFor / licenseAlertSentFor). If staff renew the
+    vendor's paperwork and update the date, that's a genuinely new
+    expiration this check has never seen, so it correctly alerts again
+    when that new date approaches — a single alert per real deadline,
+    not a single alert ever."""
+    now = datetime.now(timezone.utc)
+    cutoff = now + timedelta(days=VENDOR_COMPLIANCE_WINDOW_DAYS)
+    vendors = await vendors_col.find({"active": True}).to_list(length=500)
+
+    alerted = []
+    for vendor in vendors:
+        for date_field, alert_field, label in (
+            ("insuranceExpiresDate", "insuranceAlertSentFor", "insurance"),
+            ("licenseExpiresDate", "licenseAlertSentFor", "license"),
+        ):
+            expires = vendor.get(date_field)
+            if not isinstance(expires, datetime):
+                continue
+            expires_aware = expires if expires.tzinfo else expires.replace(tzinfo=timezone.utc)
+            if not (now <= expires_aware <= cutoff):
+                continue
+            if vendor.get(alert_field) == expires_aware:
+                continue  # already alerted for this exact expiration date
+
+            days_left = (expires_aware - now).days
+            await notifications_service.notify_all_staff(
+                type="general",
+                title=f"Vendor {label} expiring soon: {vendor.get('name')}",
+                body=f"{vendor.get('name')}'s {label} expires in {days_left} day{'s' if days_left != 1 else ''} "
+                     f"({expires_aware.strftime('%B %d, %Y')}). Auto-dispatch to this vendor will be blocked once it lapses.",
+                link="/vendors",
+            )
+            await vendors_col.update_one({"_id": vendor["_id"]}, {"$set": {alert_field: expires_aware}})
+            alerted.append(f"{vendor.get('name')} ({label})")
+
+    return {
+        "status": "done",
+        "vendorsChecked": len(vendors),
+        "alertsSent": len(alerted),
+        "details": alerted,
     }
 
 
