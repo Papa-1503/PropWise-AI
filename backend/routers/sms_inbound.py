@@ -111,6 +111,7 @@ async def sms_inbound(request: Request):
             "propertyId": lease.get("propertyId"),
             "unitId": lease.get("unitId"),
             "residentName": lease.get("residentName"),
+            "orgId": lease.get("orgId"),
             "turns": [],
             "concluded": False,
             "ticketId": None,
@@ -155,7 +156,13 @@ async def sms_inbound(request: Request):
         "priority": "urgent" if severity["tier"] in ("emergency", "urgent") else "normal",
         "source": "resident",
     }
-    ticket_result = await create_ticket_document(ticket_doc)
+    # Multi-tenancy: same real orgId lookup used in routers/telephony.py's
+    # equivalent conclude branch - this webhook has no authenticated
+    # user of its own, so the org is derived from the real property
+    # this text-in conversation is already scoped to.
+    property_query_id = ObjectId(triage_doc["propertyId"]) if ObjectId.is_valid(triage_doc["propertyId"]) else triage_doc["propertyId"]
+    property_doc_for_org = await properties_col.find_one({"_id": property_query_id}, {"orgId": 1})
+    ticket_result = await create_ticket_document(ticket_doc, property_doc_for_org.get("orgId") if property_doc_for_org else None)
 
     await sms_triage_col.update_one(
         {"_id": triage_doc["_id"]},
@@ -180,8 +187,11 @@ async def list_sms_log(user: dict = Depends(require_staff)):
     """Manager-facing view of real, past SMS triage conversations -
     the other real half of two-way SMS beyond the resulting ticket
     itself. sms_triage_col already stored every real question and
-    answer; there was just no view of it before this."""
-    docs = await sms_triage_col.find({}).sort("createdAt", -1).to_list(length=200)
+    answer; there was just no view of it before this. Now genuinely
+    scoped to the caller's own org - the previous version returned
+    every conversation across every organization with no filtering at
+    all, a real gap this pass also closes."""
+    docs = await sms_triage_col.find({"orgId": user["orgId"]}).sort("createdAt", -1).to_list(length=200)
     property_ids = {d.get("propertyId") for d in docs if d.get("propertyId")}
     properties = {}
     for pid in property_ids:
