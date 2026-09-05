@@ -16,5 +16,5 @@ router = APIRouter(prefix="/api/compliance", tags=["compliance"])
 @router.get("/calendar")
 async def get_compliance_calendar(propertyId: str | None = None, user: dict = Depends(require_staff)):
     property_ids = [propertyId] if propertyId else None
-    deadlines = await compliance_calendar_service.get_upcoming_deadlines(property_ids)
+    deadlines = await compliance_calendar_service.get_upcoming_deadlines(user["orgId"], property_ids)
     return {"deadlines": deadlines}
