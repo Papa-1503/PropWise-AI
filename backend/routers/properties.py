@@ -13,6 +13,14 @@ Each property document embeds its units:
 }
 Adjust to a separate units collection if that's how your data is actually
 modeled — the dashboard/copilot aggregations would need matching changes.
+
+MULTI-TENANCY: every property carries a real orgId, stamped server-side
+at creation from the creating staff member's own orgId - never client-
+submitted. Every query below filters or checks against user["orgId"],
+folded directly into the query filter itself (not a separate fetch-
+then-compare step) so a cross-org access attempt gets exactly the same
+404 as "this property doesn't exist at all," never confirming that a
+property with that id exists in some other organization.
 """
 from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
@@ -32,18 +40,28 @@ def serialize(prop: dict) -> dict:
     return prop
 
 
+def _property_query(property_id: str, org_id: str) -> dict:
+    """The one real org-scoping filter every property lookup below uses -
+    a single shared helper so this can't accidentally drift between
+    endpoints. Property _id may be a real ObjectId or a plain string
+    (e.g. seeded demo data)."""
+    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+    return {"_id": query_id, "orgId": org_id}
+
+
 @router.get("")
 async def list_properties(user: dict = Depends(require_staff)):
-    cursor = properties_col.find({})
+    cursor = properties_col.find({"orgId": user["orgId"]})
     props = await cursor.to_list(length=200)
     return {"properties": [serialize(p) for p in props]}
 
 
 @router.patch("/{property_id}/units/{unit_id}/status")
 async def update_unit_status(property_id: str, unit_id: str, payload: UnitStatusUpdate, user: dict = Depends(require_staff)):
-    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+    query = _property_query(property_id, user["orgId"])
+    query["units.unitId"] = unit_id
     result = await properties_col.find_one_and_update(
-        {"_id": query_id, "units.unitId": unit_id},
+        query,
         {"$set": {"units.$.status": payload.status}},
         return_document=True,
     )
@@ -71,6 +89,11 @@ async def update_unit_status(property_id: str, unit_id: str, payload: UnitStatus
 @router.post("")
 async def create_property(payload: PropertyCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    # orgId always comes from the creating staff member's own account,
+    # never accepted from the request body - a client-submitted orgId
+    # here would be a direct way to create a property inside a
+    # DIFFERENT organization than the one you're actually a member of.
+    doc["orgId"] = user["orgId"]
     result = await properties_col.insert_one(doc)
     doc["_id"] = result.inserted_id
     return serialize(doc)
@@ -80,12 +103,11 @@ async def create_property(payload: PropertyCreate, user: dict = Depends(require_
 async def update_property(property_id: str, payload: PropertyUpdate, user: dict = Depends(require_staff)):
     """PropertyUpdate existed as a model with no endpoint using it before
     Priority 48 — genuinely dead code, now wired up."""
-    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     result = await properties_col.find_one_and_update(
-        {"_id": query_id}, {"$set": updates}, return_document=True
+        _property_query(property_id, user["orgId"]), {"$set": updates}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Property not found")
@@ -101,12 +123,11 @@ async def update_rent_rules(property_id: str, payload: RentRulesUpdate, user: di
     property silently used the same global defaults regardless. dueDay
     is stored for a future invoice-generation feature to use; nothing
     reads it yet, so setting it has no automated effect today."""
-    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     result = await properties_col.find_one_and_update(
-        {"_id": query_id}, {"$set": updates}, return_document=True
+        _property_query(property_id, user["orgId"]), {"$set": updates}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Property not found")
@@ -128,12 +149,11 @@ async def update_compliance_rules(property_id: str, payload: ComplianceRulesUpda
     by this app itself. Once set, routers/compliance.py's calendar
     endpoint computes real upcoming deadlines from these numbers
     against this property's actual lease/inspection data."""
-    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     result = await properties_col.find_one_and_update(
-        {"_id": query_id}, {"$set": updates}, return_document=True
+        _property_query(property_id, user["orgId"]), {"$set": updates}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Property not found")
@@ -156,12 +176,11 @@ async def update_telephony_config(property_id: str, payload: TelephonyConfigUpda
     /api/telephony/voice) is a one-time manual setup step outside this
     app; this endpoint just tells PropWise AI which number belongs to
     which property once that's done."""
-    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     result = await properties_col.find_one_and_update(
-        {"_id": query_id}, {"$set": updates}, return_document=True
+        _property_query(property_id, user["orgId"]), {"$set": updates}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Property not found")
@@ -177,9 +196,8 @@ async def update_preferred_vendors(property_id: str, payload: PreferredVendorsUp
     omitting it from the payload — a merge-based PATCH would have no
     honest way to express "unset this one," only "don't mention it,"
     which silently leaves stale entries behind forever."""
-    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
     result = await properties_col.find_one_and_update(
-        {"_id": query_id}, {"$set": {"preferredVendors": payload.preferredVendors}}, return_document=True
+        _property_query(property_id, user["orgId"]), {"$set": {"preferredVendors": payload.preferredVendors}}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Property not found")
@@ -196,8 +214,7 @@ async def rent_cycle_timeline(property_id: str, user: dict = Depends(require_sta
     Fully automated: nothing here needs a human to create or maintain —
     it's derived live from real payment due dates plus this property's
     configured (or default) grace period."""
-    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
-    prop = await properties_col.find_one({"_id": query_id})
+    prop = await properties_col.find_one(_property_query(property_id, user["orgId"]))
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
 
@@ -257,12 +274,12 @@ async def add_unit(property_id: str, payload: UnitIn, user: dict = Depends(requi
     """No endpoint previously existed to add a new unit to an existing
     property — only whole-property creation with an initial units array
     was supported."""
-    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
-    existing = await properties_col.find_one({"_id": query_id, "units.unitId": payload.unitId})
+    query = _property_query(property_id, user["orgId"])
+    existing = await properties_col.find_one({**query, "units.unitId": payload.unitId})
     if existing:
         raise HTTPException(status_code=409, detail=f"Unit {payload.unitId} already exists on this property")
     result = await properties_col.find_one_and_update(
-        {"_id": query_id},
+        query,
         {"$push": {"units": payload.model_dump()}},
         return_document=True,
     )
@@ -291,12 +308,13 @@ async def update_unit_details(property_id: str, unit_id: str, payload: UnitDetai
     status-only update endpoint above. No endpoint for this existed
     before Priority 48; a unit's actual details could previously only
     be set once, at creation."""
-    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
     updates = {f"units.$.{k}": v for k, v in payload.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
+    query = _property_query(property_id, user["orgId"])
+    query["units.unitId"] = unit_id
     result = await properties_col.find_one_and_update(
-        {"_id": query_id, "units.unitId": unit_id},
+        query,
         {"$set": updates},
         return_document=True,
     )
@@ -310,11 +328,8 @@ async def assign_owner(property_id: str, payload: OwnerAssign, user: dict = Depe
     if not ObjectId.is_valid(payload.ownerId):
         raise HTTPException(status_code=400, detail="Invalid owner ID")
 
-    # Property _id may be a real ObjectId or a plain string (e.g. seeded demo data)
-    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
-
     result = await properties_col.find_one_and_update(
-        {"_id": query_id},
+        _property_query(property_id, user["orgId"]),
         {"$set": {"ownerId": payload.ownerId}},
         return_document=True,
     )
