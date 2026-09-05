@@ -15,7 +15,7 @@ import os
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from db import ensure_indexes
+from db import ensure_indexes, users_col, properties_col, organizations_col
 from routers import inspections, maintenance, ai_copilot, properties, leases, dashboard, auth, ai_actions, vendors, email_test, payments, notifications, social
 from rate_limiter import limiter
 from routers import condition_reports
@@ -209,6 +209,46 @@ app.mount("/uploads", StaticFiles(directory=UPLOAD_BASE_DIR), name="uploads")
 logger = logging.getLogger("rentflow.scheduler")
 
 
+async def _migrate_legacy_data_to_default_org():
+    """One-time, idempotent migration for real data that existed before
+    the multi-tenant organization layer - every user and property
+    predating this change has no orgId at all. Genuinely necessary,
+    not optional cleanup: without this, every org-scoped query added
+    throughout the app (starting with routers/properties.py) would
+    silently return nothing for this app's own existing, already-live
+    data the moment this deploys - every current real user would see
+    zero properties.
+
+    Safe to run on every startup - it only ever acts on documents
+    still missing orgId, so it's a real no-op after the first
+    successful run, the same "safe to re-run" principle already used
+    by this app's seed scripts."""
+    legacy_user = await users_col.find_one({"orgId": {"$exists": False}})
+    if not legacy_user:
+        return  # already migrated, or a fresh install with no legacy data at all
+
+    default_org = await organizations_col.find_one({"name": "Default Organization"})
+    if not default_org:
+        from datetime import datetime, timezone
+        result = await organizations_col.insert_one({
+            "name": "Default Organization",
+            "plan": "internal",  # this app's own real, pre-existing portfolio - never trial-gated
+            "active": True,
+            "createdAt": datetime.now(timezone.utc),
+            "trialEndsAt": None,
+        })
+        org_id = str(result.inserted_id)
+    else:
+        org_id = str(default_org["_id"])
+
+    user_result = await users_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
+    property_result = await properties_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
+    logger.info(
+        f"[migration] Backfilled {user_result.modified_count} users and "
+        f"{property_result.modified_count} properties into default org {org_id}"
+    )
+
+
 async def rent_automation_scheduler():
     """The real, missing piece that makes these checks genuinely
     automated rather than merely automatable — no cron job or external
@@ -333,6 +373,7 @@ async def vendor_sla_scheduler():
 
 @app.on_event("startup")
 async def on_startup():
+    await _migrate_legacy_data_to_default_org()
     await ensure_indexes()
     asyncio.create_task(rent_automation_scheduler())
     asyncio.create_task(vendor_sla_scheduler())
