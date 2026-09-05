@@ -47,20 +47,22 @@ in an earlier session, the third is today's further hardening):
    TenantActivate model no longer has propertyId/unitId/role fields at
    all, so there's nothing left for a client to even attempt to spoof.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, HTTPException, Depends, Response, Request
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 
-from db import users_col, leases_col
-from models import StaffOwnerRegister, TenantActivate, UserLogin, TokenResponse, UserOut, ProfileUpdate, PasswordChange
+from db import users_col, leases_col, properties_col, organizations_col
+from models import StaffOwnerRegister, TenantActivate, UserLogin, TokenResponse, UserOut, ProfileUpdate, PasswordChange, OrganizationSignup
 from email_service import send_email_async, EmailNotConfigured, EmailSendError
 from auth import hash_password, verify_password, create_access_token, get_current_user, require_staff, set_session_cookie, COOKIE_NAME
 from rate_limiter import limiter
 import translation_service
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+TRIAL_LENGTH_DAYS = 14
 
 
 def to_user_out(user: dict) -> UserOut:
@@ -72,14 +74,78 @@ def to_user_out(user: dict) -> UserOut:
         propertyId=user.get("propertyId"),
         unitId=user.get("unitId"),
         preferredLanguage=user.get("preferredLanguage"),
+        orgId=user.get("orgId"),
+        isOrgOwner=user.get("isOrgOwner", False),
     )
 
 
-async def _create_staff_or_owner(payload: StaffOwnerRegister, forced_role: str, response: Response) -> TokenResponse:
+@router.post("/signup-organization", response_model=TokenResponse)
+@limiter.limit("5/minute")
+async def signup_organization(request: Request, payload: OrganizationSignup, response: Response):
+    """The real "create a brand-new company account" entry point -
+    genuinely did not exist anywhere before this. Every other account-
+    creation path (tenant activation, staff/owner invites) requires an
+    organization to already exist; this is the only place one gets
+    created. Public, rate-limited the same as /register and /login,
+    since - like those - it's an unauthenticated endpoint anyone can
+    reach.
+
+    The created organization starts on a real trial (see
+    TRIAL_LENGTH_DAYS) rather than some permanent free tier - an
+    honest default for a product meant to be sold, not a placeholder
+    that would need revisiting before this could actually go out to
+    real customers."""
+    existing_org = await organizations_col.find_one({"name": payload.organizationName})
+    if existing_org:
+        raise HTTPException(status_code=409, detail="An organization with this name already exists.")
+
+    now = datetime.now(timezone.utc)
+    org_doc = {
+        "name": payload.organizationName,
+        "plan": "trial",
+        "active": True,
+        "createdAt": now,
+        "trialEndsAt": now + timedelta(days=TRIAL_LENGTH_DAYS),
+    }
+    org_result = await organizations_col.insert_one(org_doc)
+    org_id = str(org_result.inserted_id)
+
+    doc = {
+        "email": payload.email,
+        "password": hash_password(payload.password),
+        "name": payload.name,
+        "role": "staff",
+        "orgId": org_id,
+        "isOrgOwner": True,
+        "createdAt": now,
+    }
+    try:
+        result = await users_col.insert_one(doc)
+    except DuplicateKeyError:
+        # Roll back the org we just created rather than leaving an
+        # orphaned organization with no real owner attached to it -
+        # this can only happen on the genuinely rare case of the
+        # email already existing globally (users_col.email has a real
+        # unique index), which the org-name check above doesn't catch.
+        await organizations_col.delete_one({"_id": org_result.inserted_id})
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+
+    doc["id"] = str(result.inserted_id)
+    token = create_access_token(doc["id"], doc["role"])
+    set_session_cookie(response, token)
+    return TokenResponse(accessToken=token, user=to_user_out(doc))
+
+
+async def _create_staff_or_owner(payload: StaffOwnerRegister, forced_role: str, org_id: str, response: Response) -> TokenResponse:
     """Used only by the staff-authenticated register-staff/register-owner
-    paths below — the public tenant path has its own function now."""
+    paths below — the public tenant path has its own function now.
+    org_id always comes from the inviting staff member's OWN orgId
+    (the caller passes current_user["orgId"], never anything client-
+    submitted) - the only way to join an organization other than
+    creating one outright is being invited by someone already in it."""
     doc = payload.model_dump()
     doc["role"] = forced_role
+    doc["orgId"] = org_id
     doc["password"] = hash_password(doc.pop("password"))
     doc["createdAt"] = datetime.now(timezone.utc)
     try:
@@ -98,16 +164,30 @@ async def _create_staff_or_owner(payload: StaffOwnerRegister, forced_role: str, 
 async def register(request: Request, payload: TenantActivate, response: Response):
     """Public resident activation. The invite code is the sole source of
     truth for which unit this account binds to — nothing client-submitted
-    is trusted for that purpose."""
+    is trusted for that purpose. orgId is derived from the property the
+    lease belongs to, not client-submitted either - a resident always
+    joins whichever organization actually owns their building."""
     lease = await leases_col.find_one({"inviteCode": payload.inviteCode})
     if not lease:
         raise HTTPException(status_code=400, detail="Invalid invite code")
+
+    property_id = lease["propertyId"]
+    property_query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+    property_doc = await properties_col.find_one({"_id": property_query_id})
+    if not property_doc or not property_doc.get("orgId"):
+        # A real, if rare, data-integrity problem - a lease pointing at
+        # a property with no organization on file. Refusing activation
+        # here is safer than silently creating an orphaned tenant
+        # account with no organization at all, which nothing in this
+        # app is built to handle correctly.
+        raise HTTPException(status_code=500, detail="This property isn't fully configured yet. Please contact the property office.")
 
     doc = {
         "email": payload.email,
         "password": hash_password(payload.password),
         "name": payload.name,
         "role": "tenant",
+        "orgId": property_doc["orgId"],
         "propertyId": lease["propertyId"],
         "unitId": lease["unitId"],
         "createdAt": datetime.now(timezone.utc),
@@ -158,13 +238,15 @@ async def register(request: Request, payload: TenantActivate, response: Response
 
 @router.post("/register-staff", response_model=TokenResponse)
 async def register_staff(payload: StaffOwnerRegister, response: Response, current_user: dict = Depends(require_staff)):
-    """Only an already-authenticated staff member can create another staff account."""
-    return await _create_staff_or_owner(payload, forced_role="staff", response=response)
+    """Only an already-authenticated staff member can create another staff
+    account, and only ever into that SAME staff member's own organization."""
+    return await _create_staff_or_owner(payload, forced_role="staff", org_id=current_user["orgId"], response=response)
 
 @router.post("/register-owner", response_model=TokenResponse)
 async def register_owner(payload: StaffOwnerRegister, response: Response, current_user: dict = Depends(require_staff)):
-    """Only an already-authenticated staff member can create an owner account."""
-    return await _create_staff_or_owner(payload, forced_role="owner", response=response)
+    """Only an already-authenticated staff member can create an owner
+    account, and only ever into that SAME staff member's own organization."""
+    return await _create_staff_or_owner(payload, forced_role="owner", org_id=current_user["orgId"], response=response)
 
 
 @router.post("/login", response_model=TokenResponse)
