@@ -24,6 +24,7 @@ import ScenarioPlanner from "./ScenarioPlanner";
 import ComplianceCalendar from "./ComplianceCalendar";
 import PortfolioPricing from "./PortfolioPricing";
 import PhotoUploadPage from "./PhotoUploadPage";
+import OrganizationSignup from "./OrganizationSignup";
 import ConversationLog from "./ConversationLog";
 import VendorsList from "./VendorsList";
 import AIActionsPanel from "./AIActionsPanel";
@@ -442,6 +443,7 @@ export default function App() {
             <Routes>
               <Route path="/apply" element={<LeadCaptureForm />} />
               <Route path="/upload-photos/:token" element={<PhotoUploadPage />} />
+              <Route path="/signup" element={<OrganizationSignup />} />
               <Route path="/" element={<RootRedirect />} />
 
           <Route path="/app" element={<AppGate />}>
