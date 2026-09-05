@@ -392,7 +392,9 @@ class OrganizationSignup(BaseModel):
     name: str
     email: str
     password: str
-    class TenantActivate(BaseModel):
+
+
+class TenantActivate(BaseModel):
     """The public resident sign-up flow, replacing raw Property ID/Unit ID
     fields with a single invite code — a real security fix (Priority 34),
     not just a UX rename. The invite code is generated server-side when
@@ -1309,7 +1311,8 @@ class AccessCodeCreate(BaseModel):
     startsAt/endsAt are optional ISO datetime strings - omitting both
     creates an always-on code (staff should almost always set at least
     endsAt for a vendor/tour code, but this doesn't force it, since a
-    genuine ongoing-access use case exists too, e.g. a live-in super)."""
+    genuine ongoing-access use case exists too, e.g. a live-in super).
+    """
     name: str
     code: Optional[str] = None  # omit to let Seam generate a random one
     startsAt: Optional[str] = None
