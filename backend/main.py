@@ -212,24 +212,29 @@ logger = logging.getLogger("rentflow.scheduler")
 
 async def _migrate_legacy_data_to_default_org():
     """One-time, idempotent migration for real data that existed before
-    the multi-tenant organization layer - every user and property
-    predating this change has no orgId at all. Genuinely necessary,
-    not optional cleanup: without this, every org-scoped query added
-    throughout the app (starting with routers/properties.py) would
-    silently return nothing for this app's own existing, already-live
-    data the moment this deploys - every current real user would see
-    zero properties.
+    the multi-tenant organization layer - every user, property, and
+    lease predating this change has no orgId at all. Genuinely
+    necessary, not optional cleanup: without this, every org-scoped
+    query added throughout the app would silently return nothing for
+    this app's own existing, already-live data.
 
-    Safe to run on every startup - it only ever acts on documents
-    still missing orgId, so it's a real no-op after the first
-    successful run, the same "safe to re-run" principle already used
-    by this app's seed scripts."""
-    legacy_user = await users_col.find_one({"orgId": {"$exists": False}})
-    if not legacy_user:
-        return  # already migrated, or a fresh install with no legacy data at all
-
+    BUG FIX: the original version only ran its body at all if it found
+    a user still missing orgId. That was correct for the very first
+    deploy of this migration, but broke the moment a LATER deploy
+    added lease-backfill logic to this same function - by then every
+    user already had orgId from the first run, so this early-return
+    fired immediately and the new lease-backfill code never ran at
+    all, confirmed directly via a live diagnostic endpoint showing
+    leasesWithOrgId: 0 after that second deploy. Each collection now
+    has its own independent "does this still need backfilling" check,
+    so no single collection's already-migrated state can ever mask
+    another collection genuinely still needing it - on any future
+    startup, on any deploy, forever."""
     default_org = await organizations_col.find_one({"name": "Default Organization"})
     if not default_org:
+        legacy_user = await users_col.find_one({"orgId": {"$exists": False}})
+        if not legacy_user:
+            return  # fresh install with no legacy data at all - nothing to migrate into
         from datetime import datetime, timezone
         result = await organizations_col.insert_one({
             "name": "Default Organization",
@@ -253,7 +258,9 @@ async def _migrate_legacy_data_to_default_org():
     # no orgId (a real, if rare, data-integrity gap) is left alone
     # rather than guessed at - it stays invisible to the org-scoped
     # queries until that's fixed directly, which is safer than
-    # silently assigning it to the wrong organization.
+    # silently assigning it to the wrong organization. This part now
+    # runs independently every startup regardless of whether the
+    # user/property backfill above found anything to do.
     leases_missing_org = await leases_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=10000)
     leases_updated = 0
     for lease in leases_missing_org:
@@ -266,11 +273,12 @@ async def _migrate_legacy_data_to_default_org():
             await leases_col.update_one({"_id": lease["_id"]}, {"$set": {"orgId": prop["orgId"]}})
             leases_updated += 1
 
-    logger.info(
-        f"[migration] Backfilled {user_result.modified_count} users, "
-        f"{property_result.modified_count} properties, and {leases_updated} leases "
-        f"into default org {org_id}"
-    )
+    if user_result.modified_count or property_result.modified_count or leases_updated:
+        logger.info(
+            f"[migration] Backfilled {user_result.modified_count} users, "
+            f"{property_result.modified_count} properties, and {leases_updated} leases "
+            f"into default org {org_id}"
+        )
 
 
 async def rent_automation_scheduler():
