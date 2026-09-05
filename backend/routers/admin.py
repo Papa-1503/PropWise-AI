@@ -777,7 +777,36 @@ async def _do_vendor_compliance_check():
         "details": alerted,
     }
 
+@router.get("/lease-migration-diagnostic")
+async def lease_migration_diagnostic(user: dict = Depends(require_staff)):
+    """TEMPORARY diagnostic endpoint - real visibility into exactly why
+    leases might not be showing up after the multi-tenant org-scoping
+    migration, without needing direct database or log access. Reports
+    real counts and a few real sample records so the actual mismatch
+    (if any) is visible directly, rather than guessed at. Safe to
+    remove once the migration is confirmed working correctly."""
+    total_leases = await leases_col.count_documents({})
+    leases_with_org = await leases_col.count_documents({"orgId": {"$exists": True}})
+    leases_without_org = total_leases - leases_with_org
 
+    sample_leases = await leases_col.find({}, {"propertyId": 1, "orgId": 1, "residentName": 1}).to_list(length=5)
+    for l in sample_leases:
+        l["_id"] = str(l["_id"])
+
+    total_properties = await properties_col.count_documents({})
+    sample_properties = await properties_col.find({}, {"name": 1, "orgId": 1}).to_list(length=5)
+    for p in sample_properties:
+        p["_id"] = str(p["_id"])
+
+    return {
+        "totalLeases": total_leases,
+        "leasesWithOrgId": leases_with_org,
+        "leasesWithoutOrgId": leases_without_org,
+        "sampleLeases": sample_leases,
+        "totalProperties": total_properties,
+        "sampleProperties": sample_properties,
+        "yourOrgId": user.get("orgId"),
+    }
 @router.get("/scheduler-health")
 async def scheduler_health_status(user: dict = Depends(require_staff)):
     """Real, current status of both background schedulers — see
