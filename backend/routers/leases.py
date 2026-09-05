@@ -4,6 +4,18 @@ Lease endpoints.
 GET   /api/leases?propertyId=&expiringWithinDays=   -> list, optionally filtered
 POST  /api/leases                                   -> create a lease
 PATCH /api/leases/:id                                -> update renewal status / balance
+
+MULTI-TENANCY: every lease carries a real orgId, stamped server-side at
+creation from the creating staff member's own orgId — never client-
+submitted. create_lease additionally verifies the given propertyId
+actually belongs to that same org before allowing the lease to be
+created against it (a real data-integrity check, not just a security
+one — without it, a lease could end up pointing at a property outside
+the creator's own org, which nothing else in this app expects). Every
+staff-facing query below is scoped through the shared _lease_query
+helper; tenant-facing endpoints keep their existing propertyId/unitId
+ownership check (the real security boundary for a tenant) and add an
+orgId filter alongside it for defense in depth.
 """
 from datetime import datetime, timedelta, timezone
 import secrets
@@ -42,7 +54,6 @@ def generate_invite_code() -> str:
     return "".join(secrets.choice(_INVITE_CODE_ALPHABET) for _ in range(8))
 
 
-
 def serialize(lease: dict) -> dict:
     lease["id"] = str(lease.pop("_id"))
     for field in ("startDate", "endDate"):
@@ -51,9 +62,19 @@ def serialize(lease: dict) -> dict:
     return lease
 
 
+def _lease_query(lease_id: str, org_id: str) -> dict:
+    """The one real org-scoping filter every staff-facing lease lookup
+    below uses - a single shared helper so this can't accidentally
+    drift between endpoints, same pattern as routers/properties.py's
+    _property_query."""
+    if not ObjectId.is_valid(lease_id):
+        raise HTTPException(status_code=400, detail="Invalid lease ID")
+    return {"_id": ObjectId(lease_id), "orgId": org_id}
+
+
 @router.get("")
 async def list_leases(propertyId: str | None = None, expiringWithinDays: int | None = None, user: dict = Depends(require_staff_or_owner)):
-    query: dict = {}
+    query: dict = {"orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
     if expiringWithinDays is not None:
@@ -71,7 +92,9 @@ async def list_leases(propertyId: str | None = None, expiringWithinDays: int | N
     # rejecting the request for not specifying one.
     if user["role"] == "owner":
         owned_ids = {
-            str(p["_id"]) for p in await properties_col.find({"ownerId": user["id"]}, {"_id": 1}).to_list(length=500)
+            str(p["_id"]) for p in await properties_col.find(
+                {"ownerId": user["id"], "orgId": user["orgId"]}, {"_id": 1}
+            ).to_list(length=500)
         }
         if propertyId:
             if propertyId not in owned_ids:
@@ -93,10 +116,12 @@ async def my_lease(user: dict = Depends(get_current_user)):
     Matched on propertyId+unitId (set during invite-code registration),
     not residentEmail, since that's the more robust match — a tenant's
     login email isn't guaranteed to exactly match what staff typed into
-    the lease's residentEmail field when the lease was created."""
+    the lease's residentEmail field when the lease was created. orgId
+    included alongside for defense in depth, though propertyId/unitId
+    are already the real ownership boundary here."""
     if user["role"] != "tenant":
         raise HTTPException(status_code=403, detail="Only tenants can use this endpoint.")
-    lease = await leases_col.find_one({"propertyId": user.get("propertyId"), "unitId": user.get("unitId")})
+    lease = await leases_col.find_one({"propertyId": user.get("propertyId"), "unitId": user.get("unitId"), "orgId": user.get("orgId")})
     if not lease:
         return {"lease": None}
     return {"lease": serialize(lease)}
@@ -104,7 +129,17 @@ async def my_lease(user: dict = Depends(get_current_user)):
 
 @router.post("")
 async def create_lease(payload: LeaseCreate, user: dict = Depends(require_staff)):
+    # Real data-integrity check, not just a security one: without this,
+    # a lease could end up pointing at a propertyId outside the
+    # creator's own org (e.g. a stale ID from a different org's
+    # session), which nothing else in this app expects a lease to do.
+    property_query_id = ObjectId(payload.propertyId) if ObjectId.is_valid(payload.propertyId) else payload.propertyId
+    property_doc = await properties_col.find_one({"_id": property_query_id, "orgId": user["orgId"]})
+    if not property_doc:
+        raise HTTPException(status_code=404, detail="Property not found")
+
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["startDate"] = parse_date_utc(doc["startDate"])
     doc["endDate"] = parse_date_utc(doc["endDate"])
     doc["balance"] = 0
@@ -135,15 +170,13 @@ async def create_lease(payload: LeaseCreate, user: dict = Depends(require_staff)
 
 @router.patch("/{lease_id}")
 async def update_lease(lease_id: str, payload: LeaseUpdate, user: dict = Depends(require_staff)):
-    if not ObjectId.is_valid(lease_id):
-        raise HTTPException(status_code=400, detail="Invalid lease ID")
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     if "endDate" in updates:
         updates["endDate"] = parse_date_utc(updates["endDate"])
     result = await leases_col.find_one_and_update(
-        {"_id": ObjectId(lease_id)}, {"$set": updates}, return_document=True
+        _lease_query(lease_id, user["orgId"]), {"$set": updates}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Lease not found")
@@ -158,9 +191,7 @@ async def update_lease(lease_id: str, payload: LeaseUpdate, user: dict = Depends
 
 @router.post("/{lease_id}/generate-document")
 async def generate_lease_document(lease_id: str, user: dict = Depends(require_staff)):
-    if not ObjectId.is_valid(lease_id):
-        raise HTTPException(status_code=400, detail="Invalid lease ID")
-    lease = await leases_col.find_one({"_id": ObjectId(lease_id)})
+    lease = await leases_col.find_one(_lease_query(lease_id, user["orgId"]))
     if not lease:
         raise HTTPException(status_code=404, detail="Lease not found")
 
@@ -222,10 +253,11 @@ async def request_lease_renewal(lease_id: str, user: dict = Depends(get_current_
     their OWN lease, verified against their server-verified
     propertyId/unitId, not anything in the request itself (there's
     nothing to submit here besides the lease_id in the URL, but the
-    ownership check still applies to that)."""
+    ownership check still applies to that). orgId included alongside
+    for defense in depth."""
     if not ObjectId.is_valid(lease_id):
         raise HTTPException(status_code=400, detail="Invalid lease ID")
-    lease = await leases_col.find_one({"_id": ObjectId(lease_id)})
+    lease = await leases_col.find_one({"_id": ObjectId(lease_id), "orgId": user.get("orgId")})
     if not lease:
         raise HTTPException(status_code=404, detail="Lease not found")
 
@@ -288,8 +320,6 @@ async def update_insurance_policy(lease_id: str, payload: InsurancePolicyUpdate,
     (see POST /{lease_id}/insurance-proof below) - a resident might
     call in their carrier and policy number before the certificate
     itself is ever uploaded, or the reverse."""
-    if not ObjectId.is_valid(lease_id):
-        raise HTTPException(status_code=400, detail="Invalid lease ID")
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -298,7 +328,7 @@ async def update_insurance_policy(lease_id: str, payload: InsurancePolicyUpdate,
     updates = {f"insurance{k[0].upper()}{k[1:]}": v for k, v in updates.items()}
 
     result = await leases_col.find_one_and_update(
-        {"_id": ObjectId(lease_id)}, {"$set": updates}, return_document=True
+        _lease_query(lease_id, user["orgId"]), {"$set": updates}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Lease not found")
@@ -324,9 +354,7 @@ async def upload_insurance_proof(
     'image' - a real certificate of insurance is very commonly a PDF,
     not a photo, and this is the app's first upload endpoint that
     needs to accept both."""
-    if not ObjectId.is_valid(lease_id):
-        raise HTTPException(status_code=400, detail="Invalid lease ID")
-    lease = await leases_col.find_one({"_id": ObjectId(lease_id)})
+    lease = await leases_col.find_one(_lease_query(lease_id, user["orgId"]))
     if not lease:
         raise HTTPException(status_code=404, detail="Lease not found")
 
@@ -359,7 +387,7 @@ async def insurance_compliance_report(propertyId: str | None = None, user: dict 
     expiration date is on file at all, or that date has already
     passed - the exact same real-world condition a habitability or
     lease-compliance check needs to catch."""
-    query = {"insuranceRequired": True}
+    query = {"insuranceRequired": True, "orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
     leases = await leases_col.find(query).to_list(length=1000)
@@ -395,9 +423,6 @@ async def offer_renewal_incentive(lease_id: str, payload: RenewalIncentiveOffer,
     run-lease-renewal-check pass) since a staff member actively
     offering something is a more time-sensitive event than the
     generic scheduled reminder."""
-    if not ObjectId.is_valid(lease_id):
-        raise HTTPException(status_code=400, detail="Invalid lease ID")
-
     updates = {
         "renewalIncentiveDescription": payload.description,
         "renewalIncentiveStatus": "offered",
@@ -407,7 +432,7 @@ async def offer_renewal_incentive(lease_id: str, payload: RenewalIncentiveOffer,
         updates["renewalIncentiveExpiresAt"] = parse_date_utc(payload.expiresAt)
 
     result = await leases_col.find_one_and_update(
-        {"_id": ObjectId(lease_id)}, {"$set": updates}, return_document=True
+        _lease_query(lease_id, user["orgId"]), {"$set": updates}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Lease not found")
@@ -440,11 +465,12 @@ async def respond_to_renewal_incentive(lease_id: str, payload: RenewalIncentiveR
     lease is looked up by lease_id AND cross-checked against this
     authenticated tenant's own propertyId/unitId, so a resident can
     never respond to (or even discover the existence of) an incentive
-    offered on a different unit's lease, even by guessing lease IDs."""
+    offered on a different unit's lease, even by guessing lease IDs.
+    orgId included alongside for defense in depth."""
     if not ObjectId.is_valid(lease_id):
         raise HTTPException(status_code=400, detail="Invalid lease ID")
 
-    lease = await leases_col.find_one({"_id": ObjectId(lease_id)})
+    lease = await leases_col.find_one({"_id": ObjectId(lease_id), "orgId": user.get("orgId")})
     if not lease:
         raise HTTPException(status_code=404, detail="Lease not found")
 
@@ -479,9 +505,7 @@ async def get_lease_renewal_risk(lease_id: str, user: dict = Depends(require_sta
     reasoning and honesty caveats. Computed fresh on every call, not
     cached, so it always reflects this unit's current real payment/
     maintenance state."""
-    if not ObjectId.is_valid(lease_id):
-        raise HTTPException(status_code=400, detail="Invalid lease ID")
-    lease = await leases_col.find_one({"_id": ObjectId(lease_id)})
+    lease = await leases_col.find_one(_lease_query(lease_id, user["orgId"]))
     if not lease:
         raise HTTPException(status_code=404, detail="Lease not found")
     risk = await renewal_risk_service.compute_renewal_risk(lease)
@@ -501,6 +525,7 @@ async def list_renewal_risk(propertyId: str | None = None, windowDays: int = 90,
     query: dict = {
         "endDate": {"$gte": now, "$lte": cutoff},
         "renewalStatus": {"$ne": "signed"},
+        "orgId": user["orgId"],
     }
     if propertyId:
         query["propertyId"] = propertyId
@@ -532,12 +557,14 @@ async def submit_renewal_checkin(lease_id: str, payload: RenewalCheckInSubmit, u
     is verified to actually belong to THIS tenant's own propertyId/
     unitId before accepting a response for it, exactly like /mine
     above - a tenant can't submit a check-in response for a lease
-    that isn't theirs, even by guessing a valid lease_id."""
+    that isn't theirs, even by guessing a valid lease_id. The
+    check-in itself is stamped with the same orgId as the lease, so
+    list_renewal_checkins below can scope by it too."""
     if user["role"] != "tenant":
         raise HTTPException(status_code=403, detail="Only tenants can submit a renewal check-in.")
     if not ObjectId.is_valid(lease_id):
         raise HTTPException(status_code=400, detail="Invalid lease ID")
-    lease = await leases_col.find_one({"_id": ObjectId(lease_id)})
+    lease = await leases_col.find_one({"_id": ObjectId(lease_id), "orgId": user.get("orgId")})
     if not lease:
         raise HTTPException(status_code=404, detail="Lease not found")
     if lease.get("propertyId") != user.get("propertyId") or lease.get("unitId") != user.get("unitId"):
@@ -545,6 +572,7 @@ async def submit_renewal_checkin(lease_id: str, payload: RenewalCheckInSubmit, u
 
     doc = {
         "leaseId": lease_id,
+        "orgId": user.get("orgId"),
         "propertyId": lease.get("propertyId"),
         "unitId": lease.get("unitId"),
         "response": payload.response,
@@ -569,7 +597,14 @@ async def submit_renewal_checkin(lease_id: str, payload: RenewalCheckInSubmit, u
 async def list_renewal_checkins(lease_id: str, user: dict = Depends(require_staff)):
     """Staff-facing view of a lease's real check-in responses, newest
     first - the actual place staff read what a resident said in their
-    own words, not just the numeric risk score."""
+    own words, not just the numeric risk score. Now genuinely verifies
+    the lease itself belongs to the caller's org before returning
+    anything - the previous version trusted lease_id from the URL with
+    no ownership check at all, a real gap independent of multi-tenancy
+    that this pass also closes."""
+    lease = await leases_col.find_one(_lease_query(lease_id, user["orgId"]))
+    if not lease:
+        raise HTTPException(status_code=404, detail="Lease not found")
     cursor = renewal_checkins_col.find({"leaseId": lease_id}).sort("respondedAt", -1)
     checkins = await cursor.to_list(length=50)
     for c in checkins:
