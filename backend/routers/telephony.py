@@ -214,6 +214,7 @@ async def voice_webhook(request: Request):
     await voice_triage_col.insert_one({
         "callSid": call_sid,
         "propertyId": property_id,
+        "orgId": property_doc.get("orgId"),
         "callerNumber": caller_number,
         "knownUnit": known_unit,
         "matchedResidentName": matched_lease.get("residentName") if matched_lease else None,
@@ -309,7 +310,14 @@ async def voice_ai_turn(request: Request):
         "priority": "urgent" if pre_severity["tier"] in ("emergency", "urgent") else "normal",
         "source": "resident",
     }
-    ticket_result = await create_ticket_document(ticket_doc)
+    # Multi-tenancy: the property this call routed to already carries a
+    # real orgId (see routers/properties.py) - looked up fresh here
+    # since this webhook has no authenticated user of its own to read
+    # an orgId off of the way every other real caller of
+    # create_ticket_document does.
+    property_query_id = ObjectId(triage_doc["propertyId"]) if ObjectId.is_valid(triage_doc["propertyId"]) else triage_doc["propertyId"]
+    property_doc_for_org = await properties_col.find_one({"_id": property_query_id}, {"orgId": 1})
+    ticket_result = await create_ticket_document(ticket_doc, property_doc_for_org.get("orgId") if property_doc_for_org else None)
     severity_tier = ticket_result.get("severityTier", "routine")
 
     await voice_triage_col.update_one(
@@ -442,8 +450,19 @@ async def transcription_status_callback(request: Request):
 async def list_call_log(user: dict = Depends(require_staff)):
     """Manager-facing view of real, past after-hours calls - the
     other real half of this feature beyond the raw recording/
-    transcript capture itself."""
-    logs = await on_call_log_col.find({}).sort("createdAt", -1).to_list(length=200)
+    transcript capture itself. on_call_log_col itself has no orgId or
+    propertyId of its own (it's keyed by Twilio's callSid/recordingSid,
+    written from a webhook with no authenticated org context) - scoped
+    here by first finding which callSids actually belong to this org's
+    own voice_triage_col conversations, then filtering the recording
+    log to just those. A real join, not a guess, and the only correct
+    way to scope a collection that was never given its own orgId at
+    write time."""
+    org_call_sids = {
+        d["callSid"] for d in await voice_triage_col.find({"orgId": user["orgId"]}, {"callSid": 1}).to_list(length=5000)
+        if d.get("callSid")
+    }
+    logs = await on_call_log_col.find({"callSid": {"$in": list(org_call_sids)}}).sort("createdAt", -1).to_list(length=200)
     for log in logs:
         log["id"] = str(log.pop("_id"))
     return {"callLog": logs}
@@ -457,8 +476,11 @@ async def list_triage_log(user: dict = Depends(require_staff)):
     the human portion of the call (after a tech picks up), not the
     structured Q&A the AI ran beforehand. This was real, stored data
     (voice_triage_col) with no staff-facing view before this - the
-    only way to see it was a direct database query."""
-    docs = await voice_triage_col.find({}).sort("createdAt", -1).to_list(length=200)
+    only way to see it was a direct database query. Now genuinely
+    scoped to the caller's own org - the previous version returned
+    every conversation across every organization with no filtering at
+    all, a real gap this pass also closes."""
+    docs = await voice_triage_col.find({"orgId": user["orgId"]}).sort("createdAt", -1).to_list(length=200)
     property_ids = {d.get("propertyId") for d in docs if d.get("propertyId")}
     properties = {}
     for pid in property_ids:
