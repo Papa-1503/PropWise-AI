@@ -21,6 +21,16 @@ money through Stripe ACH Direct Debit once STRIPE_SECRET_KEY and
 STRIPE_WEBHOOK_SECRET are configured (see stripe_service.py). Until
 then, /checkout and /setup-intent fail with an honest 503, not a
 silent no-op.
+
+MULTI-TENANCY: every charge carries a real orgId, stamped server-side
+at creation from the creating staff member's own orgId - never client-
+submitted. Every staff- or tenant-scoped query below is filtered by
+orgId. /stripe-webhook is the one deliberate exception - it has no
+authenticated user of its own (Stripe calls it directly) and finds its
+charge via stripePaymentIntentId, a real, globally-unique Stripe
+identifier that's already an unambiguous pointer to exactly one real
+charge regardless of organization, so no additional org filter is
+needed or possible there.
 """
 from datetime import datetime, timezone
 import os
@@ -93,6 +103,7 @@ def serialize(charge: dict) -> dict:
 @router.post("")
 async def create_charge(payload: ChargeCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["dueDate"] = parse_date_utc(doc["dueDate"])
     doc["amountPaid"] = 0.0
     doc["paidDate"] = None
@@ -108,7 +119,7 @@ async def list_charges(
     paidMonth: str | None = None,
     user: dict = Depends(get_current_user),
 ):
-    query = {}
+    query = {"orgId": user.get("orgId")}
     if user["role"] == "tenant":
         query["propertyId"] = user.get("propertyId")
         query["unitId"] = user.get("unitId")
@@ -142,7 +153,9 @@ async def list_charges(
 
 @router.get("/delinquent")
 async def list_delinquent(propertyId: str | None = None, user: dict = Depends(require_staff)):
-    query = {"propertyId": propertyId} if propertyId else {}
+    query = {"orgId": user["orgId"]}
+    if propertyId:
+        query["propertyId"] = propertyId
     now = datetime.now(timezone.utc)
     cursor = payments_col.find({**query, "dueDate": {"$lt": now}})
     all_past_due = await cursor.to_list(length=1000)
@@ -166,7 +179,7 @@ async def send_reminder_now(charge_id: str, user: dict = Depends(require_staff))
     if not ObjectId.is_valid(charge_id):
         raise HTTPException(status_code=400, detail="Invalid charge ID")
 
-    charge = await payments_col.find_one({"_id": ObjectId(charge_id)})
+    charge = await payments_col.find_one({"_id": ObjectId(charge_id), "orgId": user["orgId"]})
     if not charge:
         raise HTTPException(status_code=404, detail="Charge not found")
 
@@ -199,7 +212,7 @@ async def record_payment(charge_id: str, payload: PaymentRecord, user: dict = De
     if not ObjectId.is_valid(charge_id):
         raise HTTPException(status_code=400, detail="Invalid charge ID")
 
-    charge = await payments_col.find_one({"_id": ObjectId(charge_id)})
+    charge = await payments_col.find_one({"_id": ObjectId(charge_id), "orgId": user["orgId"]})
     if not charge:
         raise HTTPException(status_code=404, detail="Charge not found")
 
@@ -255,7 +268,7 @@ async def return_payment(charge_id: str, payload: PaymentReturn, user: dict = De
     if not ObjectId.is_valid(charge_id):
         raise HTTPException(status_code=400, detail="Invalid charge ID")
 
-    charge = await payments_col.find_one({"_id": ObjectId(charge_id)})
+    charge = await payments_col.find_one({"_id": ObjectId(charge_id), "orgId": user["orgId"]})
     if not charge:
         raise HTTPException(status_code=404, detail="Charge not found")
 
@@ -299,7 +312,7 @@ async def return_payment(charge_id: str, payload: PaymentReturn, user: dict = De
 async def create_checkout_session(request: Request, charge_id: str, payload: CheckoutSessionCreate, user: dict = Depends(get_current_user)):
     if not ObjectId.is_valid(charge_id):
         raise HTTPException(status_code=400, detail="Invalid charge ID")
-    charge = await payments_col.find_one({"_id": ObjectId(charge_id)})
+    charge = await payments_col.find_one({"_id": ObjectId(charge_id), "orgId": user.get("orgId")})
     if not charge:
         raise HTTPException(status_code=404, detail="Charge not found")
 
@@ -418,7 +431,12 @@ async def stripe_webhook(request: Request):
     Public (no user auth possible here, same as Twilio's voice webhook
     in routers/telephony.py), so this signature check is the only thing
     standing between this endpoint and someone POSTing a fake "payment
-    succeeded" event at it."""
+    succeeded" event at it.
+
+    No org filter needed here - stripePaymentIntentId is a real,
+    globally-unique Stripe identifier that already points to exactly
+    one real charge regardless of organization, unlike a client-
+    submitted ID that would need real verification."""
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature", "")
     try:
@@ -465,7 +483,7 @@ async def list_late_notices(propertyId: str | None = None, unitId: str | None = 
     unit's notices, scoped from their own server-verified record, same
     pattern used throughout this session; staff can filter by any
     property/unit."""
-    query = {}
+    query = {"orgId": user.get("orgId")}
     if user.get("role") == "tenant":
         query["propertyId"] = user.get("propertyId")
         query["unitId"] = user.get("unitId")
@@ -499,7 +517,7 @@ async def generate_invoice_pdf(charge_id: str, user: dict = Depends(get_current_
     """
     if not ObjectId.is_valid(charge_id):
         raise HTTPException(status_code=400, detail="Invalid charge ID")
-    charge = await payments_col.find_one({"_id": ObjectId(charge_id)})
+    charge = await payments_col.find_one({"_id": ObjectId(charge_id), "orgId": user.get("orgId")})
     if not charge:
         raise HTTPException(status_code=404, detail="Charge not found")
 
