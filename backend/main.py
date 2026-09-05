@@ -16,7 +16,7 @@ import os
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from db import ensure_indexes, users_col, properties_col, organizations_col, leases_col
+from db import ensure_indexes, users_col, properties_col, organizations_col, leases_col, tickets_col, vendors_col
 from routers import inspections, maintenance, ai_copilot, properties, leases, dashboard, auth, ai_actions, vendors, email_test, payments, notifications, social
 from rate_limiter import limiter
 from routers import condition_reports
@@ -273,10 +273,36 @@ async def _migrate_legacy_data_to_default_org():
             await leases_col.update_one({"_id": lease["_id"]}, {"$set": {"orgId": prop["orgId"]}})
             leases_updated += 1
 
-    if user_result.modified_count or property_result.modified_count or leases_updated:
+    # Same real per-property lookup as leases above, for the same real
+    # reason - a ticket's org is derived from its own real property,
+    # not assumed from the single default org, so this stays correct
+    # even in a hypothetical future with more than one real org.
+    tickets_missing_org = await tickets_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=50000)
+    tickets_updated = 0
+    for ticket in tickets_missing_org:
+        property_id = ticket.get("propertyId")
+        if not property_id:
+            continue
+        query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+        prop = await properties_col.find_one({"_id": query_id}, {"orgId": 1})
+        if prop and prop.get("orgId"):
+            await tickets_col.update_one({"_id": ticket["_id"]}, {"$set": {"orgId": prop["orgId"]}})
+            tickets_updated += 1
+
+    # Vendors have no propertyId of their own to derive an org from
+    # (a vendor can serve several properties) - unlike leases/tickets,
+    # this is a flat stamp into the SAME default org as users/
+    # properties above, not a per-record lookup. Correct for this
+    # app's real current state (exactly one organization exists);
+    # would need real per-vendor org attribution if this ever ran
+    # against a database that already had more than one.
+    vendor_result = await vendors_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
+
+    if user_result.modified_count or property_result.modified_count or leases_updated or tickets_updated or vendor_result.modified_count:
         logger.info(
             f"[migration] Backfilled {user_result.modified_count} users, "
-            f"{property_result.modified_count} properties, and {leases_updated} leases "
+            f"{property_result.modified_count} properties, {leases_updated} leases, "
+            f"{tickets_updated} tickets, and {vendor_result.modified_count} vendors "
             f"into default org {org_id}"
         )
 
