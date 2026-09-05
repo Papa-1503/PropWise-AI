@@ -176,6 +176,10 @@ export default function LoginScreen() {
             ? mode === "signin" ? "Signing in…" : "Activating…"
             : mode === "signin" ? "Sign in" : "Activate account"}
         </button>
+
+        <p className="text-[11px] text-slate-400 mt-4 text-center">
+          Property manager? <a href="/signup" className="text-indigo-600 underline">Create your organization</a>
+        </p>
       </form>
     </div>
   );
