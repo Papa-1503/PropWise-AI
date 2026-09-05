@@ -9,13 +9,14 @@ load_dotenv()
 import asyncio
 import logging
 from fastapi import FastAPI
+from bson import ObjectId
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 import os
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from db import ensure_indexes, users_col, properties_col, organizations_col
+from db import ensure_indexes, users_col, properties_col, organizations_col, leases_col
 from routers import inspections, maintenance, ai_copilot, properties, leases, dashboard, auth, ai_actions, vendors, email_test, payments, notifications, social
 from rate_limiter import limiter
 from routers import condition_reports
@@ -243,9 +244,32 @@ async def _migrate_legacy_data_to_default_org():
 
     user_result = await users_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
     property_result = await properties_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
+
+    # Leases don't get the flat org_id stamp - they get backfilled from
+    # THEIR OWN property's real orgId (looked up per property, since a
+    # multi-org install could in principle have leases spanning more
+    # than one - correct even though this app currently only has the
+    # one default org). Any lease whose property can't be found or has
+    # no orgId (a real, if rare, data-integrity gap) is left alone
+    # rather than guessed at - it stays invisible to the org-scoped
+    # queries until that's fixed directly, which is safer than
+    # silently assigning it to the wrong organization.
+    leases_missing_org = await leases_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=10000)
+    leases_updated = 0
+    for lease in leases_missing_org:
+        property_id = lease.get("propertyId")
+        if not property_id:
+            continue
+        query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+        prop = await properties_col.find_one({"_id": query_id}, {"orgId": 1})
+        if prop and prop.get("orgId"):
+            await leases_col.update_one({"_id": lease["_id"]}, {"$set": {"orgId": prop["orgId"]}})
+            leases_updated += 1
+
     logger.info(
-        f"[migration] Backfilled {user_result.modified_count} users and "
-        f"{property_result.modified_count} properties into default org {org_id}"
+        f"[migration] Backfilled {user_result.modified_count} users, "
+        f"{property_result.modified_count} properties, and {leases_updated} leases "
+        f"into default org {org_id}"
     )
 
 
