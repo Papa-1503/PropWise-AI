@@ -46,13 +46,19 @@ RENEWAL_HORIZON_DAYS = 120
 MOVE_OUT_LOOKBACK_DAYS = 180
 
 
-async def get_upcoming_deadlines(property_ids: list[str] | None = None) -> list[dict]:
+async def get_upcoming_deadlines(org_id: str, property_ids: list[str] | None = None) -> list[dict]:
     """Every real, currently-relevant compliance deadline across the
-    given properties (or all properties), sorted soonest-first.
-    Properties with no compliance rules configured yet simply
-    contribute nothing - never a fabricated or default deadline."""
+    given properties (or all properties in this org), sorted
+    soonest-first. Properties with no compliance rules configured yet
+    simply contribute nothing - never a fabricated or default
+    deadline. org_id is required and always scopes the underlying
+    property query - this was a real, live cross-tenant gap before
+    this pass: any staff member of any organization could see every
+    other organization's compliance deadlines."""
     now = datetime.now(timezone.utc)
-    prop_query = {"_id": {"$in": property_ids}} if property_ids else {}
+    prop_query: dict = {"orgId": org_id}
+    if property_ids:
+        prop_query["_id"] = {"$in": property_ids}
     properties = await properties_col.find(prop_query).to_list(length=500)
     props_by_id = {str(p["_id"]): p for p in properties}
     if not props_by_id:
