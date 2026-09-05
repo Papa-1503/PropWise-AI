@@ -51,6 +51,7 @@ on_call_log_col = db["on_call_log"]
 voice_triage_col = db["voice_triage"]
 sms_triage_col = db["sms_triage"]
 photo_upload_tokens_col = db["photo_upload_tokens"]
+organizations_col = db["organizations"]
 audit_log_col = db["audit_log"]
 budgets_col = db["budgets"]
 kb_articles_col = db["kb_articles"]
@@ -116,6 +117,12 @@ async def ensure_indexes():
     # upload endpoints below just treat "token not found" as "expired
     # or invalid," which is honestly true either way.
     await photo_upload_tokens_col.create_index("expiresAt", expireAfterSeconds=0)
+    # Multi-tenant foundation - every user and property belongs to
+    # exactly one organization (see routers/auth.py's signup-
+    # organization endpoint). Indexed since this is now the FIRST
+    # filter on almost every list query across the app.
+    await users_col.create_index("orgId")
+    await properties_col.create_index("orgId")
     # Two indexes for audit log: the common "show me everything on this
     # record" lookup, and the common "show me everything this person
     # did" lookup. Both sorted newest-first since that's how an audit
