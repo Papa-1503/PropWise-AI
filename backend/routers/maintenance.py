@@ -17,6 +17,15 @@ Time logging is intentionally simple — hours entered directly, not a
 running timer. No payroll, tax, or workers' comp logic; this is purely
 for internal labor-cost accuracy, feeding the estimate-vs-actual
 comparison planned in the damage cost estimates feature.
+
+MULTI-TENANCY: every ticket carries a real orgId. create_ticket_document
+below is the single real choke point every ticket-creation path in this
+app goes through (this file's own HTTP handler, routers/telephony.py's
+AI phone triage, routers/sms_inbound.py's text-in triage) - org_id is
+now a REQUIRED, explicit parameter on that function (not just a dict
+key a caller could forget to set), so a new caller literally cannot
+compile without deciding whose org a ticket belongs to. Every other
+query below is scoped through user["orgId"] directly.
 """
 from datetime import datetime, timezone
 
@@ -53,7 +62,7 @@ async def list_tickets(
     status: str | None = None,
     user: dict = Depends(get_current_user),
 ):
-    query = {}
+    query = {"orgId": user.get("orgId")}
     if user["role"] == "tenant":
         query["propertyId"] = user.get("propertyId")
         query["unitId"] = user.get("unitId")
@@ -73,21 +82,26 @@ async def create_ticket(payload: TicketCreate, user: dict = Depends(get_current_
         doc["propertyId"] = user.get("propertyId")
         doc["unitId"] = user.get("unitId")
         doc["source"] = "resident"
-    return await create_ticket_document(doc)
+    return await create_ticket_document(doc, user["orgId"])
 
 
-async def create_ticket_document(doc: dict) -> dict:
+async def create_ticket_document(doc: dict, org_id: str) -> dict:
     """The real, full ticket-creation pipeline (dedup check, real
     deterministic severity scoring, auto-assignment to a property's
     tech, low/routine-tier vendor auto-dispatch, real notifications) -
-    extracted from the HTTP handler above so a second real caller
-    (routers/telephony.py's AI phone triage) gets the exact same
-    pipeline a normal ticket submission gets, not a smaller
-    reimplementation of a subset of it. `doc` must already have
-    propertyId/unitId/title/description/category/priority/source set;
-    status and createdAt are set here."""
+    extracted from the HTTP handler above so other real callers
+    (routers/telephony.py's AI phone triage, routers/sms_inbound.py's
+    text-in triage) get the exact same pipeline a normal ticket
+    submission gets, not a smaller reimplementation of a subset of it.
+    `doc` must already have propertyId/unitId/title/description/
+    category/priority/source set; status, createdAt, and orgId are set
+    here. org_id is a required, explicit parameter (not folded into
+    doc) so every call site has to consciously decide whose
+    organization a ticket belongs to - it can never be silently
+    missing the way a forgotten dict key could be."""
     doc["status"] = "open"
     doc["createdAt"] = datetime.now(timezone.utc)
+    doc["orgId"] = org_id
 
     existing_duplicate = await find_existing_open_duplicate(
         doc.get("propertyId"), doc.get("unitId"), doc.get("title")
@@ -189,7 +203,7 @@ async def update_ticket(ticket_id: str, payload: TicketUpdate, user: dict = Depe
         # separately). Never allowed to silently close with nothing
         # explaining what was actually done - that's the entire point
         # of this feature, not an optional nice-to-have.
-        existing = await tickets_col.find_one({"_id": ObjectId(ticket_id)}, {"resolutionNotes": 1})
+        existing = await tickets_col.find_one({"_id": ObjectId(ticket_id), "orgId": user["orgId"]}, {"resolutionNotes": 1})
         has_existing_notes = bool(existing and existing.get("resolutionNotes"))
         if not updates.get("resolutionNotes") and not has_existing_notes:
             raise HTTPException(
@@ -199,7 +213,7 @@ async def update_ticket(ticket_id: str, payload: TicketUpdate, user: dict = Depe
 
     updates["updatedAt"] = datetime.now(timezone.utc)
     result = await tickets_col.find_one_and_update(
-        {"_id": ObjectId(ticket_id)},
+        {"_id": ObjectId(ticket_id), "orgId": user["orgId"]},
         {"$set": updates},
         return_document=True,
     )
@@ -255,7 +269,7 @@ async def log_time(ticket_id: str, payload: TimeEntryCreate, user: dict = Depend
     }
 
     result = await tickets_col.find_one_and_update(
-        {"_id": ObjectId(ticket_id)},
+        {"_id": ObjectId(ticket_id), "orgId": user["orgId"]},
         {
             "$push": {"timeEntries": entry},
             "$inc": {"totalHours": payload.hours},
@@ -273,10 +287,11 @@ async def submit_satisfaction(ticket_id: str, payload: TicketSatisfactionSubmit,
     never-trust-client-submitted-scope pattern used throughout this
     session - the ticket is cross-checked against the authenticated
     tenant's OWN propertyId/unitId, so a resident can't rate (or even
-    confirm the existence of) a ticket that isn't theirs."""
+    confirm the existence of) a ticket that isn't theirs. orgId
+    included alongside for defense in depth."""
     if not ObjectId.is_valid(ticket_id):
         raise HTTPException(status_code=400, detail="Invalid ticket ID")
-    ticket = await tickets_col.find_one({"_id": ObjectId(ticket_id)})
+    ticket = await tickets_col.find_one({"_id": ObjectId(ticket_id), "orgId": user.get("orgId")})
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
 
@@ -320,7 +335,7 @@ async def list_flagged_satisfaction(propertyId: str | None = None, user: dict = 
     1-2), the other real half of this feature - somewhere staff can
     actually go look, not just react to the real-time notification
     above."""
-    query = {"satisfactionRating": {"$lte": 2}}
+    query = {"satisfactionRating": {"$lte": 2}, "orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
     cursor = tickets_col.find(query).sort("satisfactionSubmittedAt", -1).limit(200)
