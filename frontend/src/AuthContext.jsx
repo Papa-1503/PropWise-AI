@@ -167,6 +167,23 @@ export function AuthProvider({ children }) {
     return data.user;
   }
 
+  async function signupOrganization(payload) {
+    const res = await fetch(`${API_BASE}/auth/signup-organization`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Couldn't create your organization.");
+    }
+    const data = await res.json();
+    localStorage.setItem(TOKEN_KEY, data.accessToken);
+    setToken(data.accessToken);
+    setUser(data.user);
+    return data.user;
+  }
+
   function logout() {
     // The real HttpOnly cookie (backend/auth.py, this session) can't be
     // cleared from JavaScript at all - that's the entire point of
@@ -192,6 +209,7 @@ export function AuthProvider({ children }) {
         loading,
         login,
         register,
+        signupOrganization,
         logout,
         authFetch,
         properties,
