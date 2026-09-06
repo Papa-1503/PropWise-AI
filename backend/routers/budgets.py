@@ -48,6 +48,7 @@ def serialize(doc: dict) -> dict:
 @router.post("")
 async def create_budget(payload: BudgetCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["createdAt"] = datetime.now(timezone.utc)
     try:
         result = await budgets_col.insert_one(doc)
@@ -75,7 +76,7 @@ async def create_budget(payload: BudgetCreate, user: dict = Depends(require_staf
 
 @router.get("")
 async def list_budgets(propertyId: str | None = None, period: str | None = None, user: dict = Depends(require_staff)):
-    query = {}
+    query: dict = {"orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
     if period:
@@ -94,7 +95,7 @@ async def update_budget(budget_id: str, payload: BudgetUpdate, user: dict = Depe
         raise HTTPException(status_code=400, detail="No fields to update")
 
     result = await budgets_col.find_one_and_update(
-        {"_id": ObjectId(budget_id)}, {"$set": updates}, return_document=True
+        {"_id": ObjectId(budget_id), "orgId": user["orgId"]}, {"$set": updates}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Budget not found")
@@ -114,7 +115,7 @@ async def budget_vs_actual_report(propertyId: str, period: str, user: dict = Dep
     spending from real bank lines dated within that calendar month,
     for that property. variance = budgeted - actual (positive means
     under budget, negative means over)."""
-    budgets = await budgets_col.find({"propertyId": propertyId, "period": period}).to_list(length=200)
+    budgets = await budgets_col.find({"propertyId": propertyId, "period": period, "orgId": user["orgId"]}).to_list(length=200)
 
     year, month = period.split("-")
     month_start = datetime(int(year), int(month), 1, tzinfo=timezone.utc)
@@ -122,6 +123,7 @@ async def budget_vs_actual_report(propertyId: str, period: str, user: dict = Dep
 
     bank_lines = await bank_lines_col.find({
         "propertyId": propertyId,
+        "orgId": user["orgId"],
         "date": {"$gte": month_start, "$lt": month_end},
         "category": {"$ne": None},
     }).to_list(length=2000)
