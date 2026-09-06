@@ -20,6 +20,12 @@ GET /api/trust-accounting/balance      -> real trust-fund balance per
 GET /api/trust-accounting/commingling-check
                                         -> flags apparent commingling
                                            patterns for human review
+
+MULTI-TENANCY: both real gaps this pass closes - previously, viewing
+either endpoint with no propertyId filter (the natural "show me
+everything" default) aggregated trust-fund balances across every
+organization in the database combined, a genuine cross-tenant
+financial data leak given these are real trust/escrow fund figures.
 """
 from fastapi import APIRouter, Depends
 
@@ -37,7 +43,7 @@ DISCLAIMER = (
 
 @router.get("/balance")
 async def trust_balance(propertyId: str | None = None, user: dict = Depends(require_staff)):
-    query = {"fundType": "trust"}
+    query: dict = {"fundType": "trust", "orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
 
@@ -61,7 +67,7 @@ async def commingling_check(propertyId: str | None = None, user: dict = Depends(
     coming in, which is either a real problem or a real
     misclassification - either way, worth a human looking at
     specifically, not something to silently let sit."""
-    query = {"fundType": "trust"}
+    query: dict = {"fundType": "trust", "orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
 
