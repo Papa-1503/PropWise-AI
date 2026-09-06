@@ -17,6 +17,13 @@ staff member with no custom role assigned keeps today's real default
 behavior (full access); assigning one scopes them to exactly that
 role's real permission list, checked only by NEW endpoints that
 explicitly opt into require_permission going forward.
+
+MULTI-TENANCY: every custom role carries a real orgId. Assigning a
+role to a staff member now verifies that staff member actually
+belongs to the assigning staff member's own org - a real, previously
+live gap: without this check, staff could assign or clear a custom
+role on a DIFFERENT organization's staff account simply by supplying
+that user's real user ID.
 """
 from datetime import datetime, timezone
 
@@ -40,6 +47,7 @@ def serialize(doc: dict) -> dict:
 @router.post("")
 async def create_custom_role(payload: CustomRoleCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["createdAt"] = datetime.now(timezone.utc)
     result = await custom_roles_col.insert_one(doc)
     doc["_id"] = result.inserted_id
@@ -55,7 +63,7 @@ async def create_custom_role(payload: CustomRoleCreate, user: dict = Depends(req
 
 @router.get("")
 async def list_custom_roles(user: dict = Depends(require_staff)):
-    roles = await custom_roles_col.find({}).sort("name", 1).to_list(length=200)
+    roles = await custom_roles_col.find({"orgId": user["orgId"]}).sort("name", 1).to_list(length=200)
     return {"roles": [serialize(r) for r in roles]}
 
 
@@ -67,7 +75,7 @@ async def update_custom_role(role_id: str, payload: CustomRoleUpdate, user: dict
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     result = await custom_roles_col.find_one_and_update(
-        {"_id": ObjectId(role_id)}, {"$set": updates}, return_document=True
+        {"_id": ObjectId(role_id), "orgId": user["orgId"]}, {"$set": updates}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Role not found")
@@ -94,13 +102,13 @@ async def delete_custom_role(role_id: str, user: dict = Depends(require_staff)):
     inconsistency."""
     if not ObjectId.is_valid(role_id):
         raise HTTPException(status_code=400, detail="Invalid role ID")
-    still_assigned = await users_col.count_documents({"customRoleId": role_id})
+    still_assigned = await users_col.count_documents({"customRoleId": role_id, "orgId": user["orgId"]})
     if still_assigned > 0:
         raise HTTPException(
             status_code=400,
             detail=f"This role is still assigned to {still_assigned} staff member(s). Reassign them first.",
         )
-    result = await custom_roles_col.delete_one({"_id": ObjectId(role_id)})
+    result = await custom_roles_col.delete_one({"_id": ObjectId(role_id), "orgId": user["orgId"]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Role not found")
 
@@ -119,12 +127,16 @@ async def assign_custom_role(user_id: str, payload: StaffCustomRoleAssign, user:
     if payload.customRoleId and not ObjectId.is_valid(payload.customRoleId):
         raise HTTPException(status_code=400, detail="Invalid role ID")
     if payload.customRoleId:
-        role_exists = await custom_roles_col.find_one({"_id": ObjectId(payload.customRoleId)})
+        role_exists = await custom_roles_col.find_one({"_id": ObjectId(payload.customRoleId), "orgId": user["orgId"]})
         if not role_exists:
             raise HTTPException(status_code=404, detail="Role not found")
 
+    # Real ownership check, not just scoping: without orgId here, a
+    # staff member could assign (or clear) a custom role on a
+    # DIFFERENT organization's staff account simply by supplying that
+    # user's real user ID.
     result = await users_col.find_one_and_update(
-        {"_id": ObjectId(user_id), "role": "staff"},
+        {"_id": ObjectId(user_id), "role": "staff", "orgId": user["orgId"]},
         {"$set": {"customRoleId": payload.customRoleId}},
         return_document=True,
     )
