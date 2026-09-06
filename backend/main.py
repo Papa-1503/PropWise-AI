@@ -16,7 +16,7 @@ import os
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from db import ensure_indexes, users_col, properties_col, organizations_col, leases_col, tickets_col, vendors_col, payments_col, bank_lines_col, inspections_col, documents_col, leads_col, screening_col, communications_col
+from db import ensure_indexes, users_col, properties_col, organizations_col, leases_col, tickets_col, vendors_col, payments_col, bank_lines_col, inspections_col, documents_col, leads_col, screening_col, communications_col, packages_col
 from routers import inspections, maintenance, ai_copilot, properties, leases, dashboard, auth, ai_actions, vendors, email_test, payments, notifications, social
 from rate_limiter import limiter
 from routers import condition_reports
@@ -408,15 +408,30 @@ async def _migrate_legacy_data_to_default_org():
             await communications_col.update_one({"_id": comm["_id"]}, {"$set": {"orgId": prop["orgId"]}})
             communications_updated += 1
 
-    if user_result.modified_count or property_result.modified_count or leases_updated or tickets_updated or vendor_result.modified_count or payments_updated or bank_lines_updated or inspections_updated or documents_updated or leads_updated or screening_updated or communications_updated:
+    # Same real per-property lookup as leases/tickets above - a
+    # logged package's org is derived from its own real property.
+    packages_missing_org = await packages_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=50000)
+    packages_updated = 0
+    for pkg in packages_missing_org:
+        property_id = pkg.get("propertyId")
+        if not property_id:
+            continue
+        query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+        prop = await properties_col.find_one({"_id": query_id}, {"orgId": 1})
+        if prop and prop.get("orgId"):
+            await packages_col.update_one({"_id": pkg["_id"]}, {"$set": {"orgId": prop["orgId"]}})
+            packages_updated += 1
+
+    if user_result.modified_count or property_result.modified_count or leases_updated or tickets_updated or vendor_result.modified_count or payments_updated or bank_lines_updated or inspections_updated or documents_updated or leads_updated or screening_updated or communications_updated or packages_updated:
         logger.info(
             f"[migration] Backfilled {user_result.modified_count} users, "
             f"{property_result.modified_count} properties, {leases_updated} leases, "
             f"{tickets_updated} tickets, {vendor_result.modified_count} vendors, "
             f"{payments_updated} payment charges, {bank_lines_updated} bank lines, "
             f"{inspections_updated} inspections, {documents_updated} documents, "
-            f"{leads_updated} leads, {screening_updated} screening requests, and "
-            f"{communications_updated} communications into default org {org_id}"
+            f"{leads_updated} leads, {screening_updated} screening requests, "
+            f"{communications_updated} communications, and {packages_updated} packages "
+            f"into default org {org_id}"
         )
 
 
