@@ -144,7 +144,22 @@ async def ensure_indexes():
     await labor_rates_col.create_index([("category", 1)], unique=True)
     await fixed_assets_col.create_index([("propertyId", 1)])
     await capital_projects_col.create_index([("propertyId", 1), ("targetDate", 1)])
-    await custom_field_definitions_col.create_index([("entityType", 1), ("fieldName", 1)], unique=True)
+    # orgId included in the unique key - without it, this index would
+    # block a SECOND organization from ever defining a field with the
+    # same name for the same entity type (e.g. two different orgs both
+    # wanting a "petDeposit" field on leases), a real cross-tenant
+    # conflict this app would otherwise hit the moment a second real
+    # org existed. The OLD index (entityType, fieldName) without orgId
+    # is explicitly dropped first - MongoDB does not replace an
+    # existing index just because create_index is called with a
+    # different key spec, so without this the old, more restrictive
+    # index would keep silently blocking cross-org duplicates even
+    # after this new one exists.
+    try:
+        await custom_field_definitions_col.drop_index("entityType_1_fieldName_1")
+    except Exception:
+        pass  # already dropped, or never existed on a fresh install
+    await custom_field_definitions_col.create_index([("orgId", 1), ("entityType", 1), ("fieldName", 1)], unique=True)
     await custom_field_values_col.create_index([("entityType", 1), ("entityId", 1), ("fieldName", 1)], unique=True)
     await community_posts_col.create_index([("propertyId", 1), ("createdAt", -1)])
     await late_notices_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])
