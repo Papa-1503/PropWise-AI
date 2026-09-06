@@ -11,6 +11,13 @@ member doing it manually. Nothing else in the app needs to change.
 Screening reports involve consumer credit data protected by the FCRA —
 do not connect this to a real provider or use it on real applicants
 without the required business agreement and compliance paperwork in place.
+
+MULTI-TENANCY: every screening request carries a real orgId, stamped
+server-side at creation from the creating staff member's own orgId -
+never client-submitted. Every query below is scoped by orgId - this
+was a genuinely live cross-tenant gap before this pass, exposing
+applicant credit/background data (protected by the FCRA) across
+organizations with no scoping at all.
 """
 from datetime import datetime, timezone
 import os
@@ -53,6 +60,7 @@ def serialize(doc: dict) -> dict:
 @router.post("")
 async def create_screening_request(payload: ScreeningRequestCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["status"] = "pending"
     doc["notes"] = None
     doc["createdAt"] = datetime.now(timezone.utc)
@@ -67,7 +75,7 @@ async def list_screening_requests(
     status: str | None = None,
     user: dict = Depends(require_staff),
 ):
-    query = {}
+    query: dict = {"orgId": user["orgId"]}
     if leadId:
         query["leadId"] = leadId
     if status:
@@ -81,7 +89,7 @@ async def list_screening_requests(
 async def get_screening_request(screening_id: str, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(screening_id):
         raise HTTPException(status_code=400, detail="Invalid screening request ID")
-    doc = await screening_col.find_one({"_id": ObjectId(screening_id)})
+    doc = await screening_col.find_one({"_id": ObjectId(screening_id), "orgId": user["orgId"]})
     if not doc:
         raise HTTPException(status_code=404, detail="Screening request not found")
     return serialize(doc)
@@ -98,7 +106,7 @@ async def update_screening_status(screening_id: str, payload: ScreeningStatusUpd
     if payload.notes is not None:
         updates["notes"] = payload.notes
     result = await screening_col.find_one_and_update(
-        {"_id": ObjectId(screening_id)}, {"$set": updates}, return_document=True
+        {"_id": ObjectId(screening_id), "orgId": user["orgId"]}, {"$set": updates}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Screening request not found")
@@ -157,7 +165,7 @@ async def score_applicant(screening_id: str, payload: ApplicantScoreUpdate, user
         updates["notes"] = payload.notes
 
     result = await screening_col.find_one_and_update(
-        {"_id": ObjectId(screening_id)}, {"$set": updates}, return_document=True
+        {"_id": ObjectId(screening_id), "orgId": user["orgId"]}, {"$set": updates}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Screening request not found")
@@ -177,7 +185,7 @@ async def upload_screening_document(
     the same reason - these are very commonly PDFs, not photos."""
     if not ObjectId.is_valid(screening_id):
         raise HTTPException(status_code=400, detail="Invalid screening ID")
-    screening = await screening_col.find_one({"_id": ObjectId(screening_id)})
+    screening = await screening_col.find_one({"_id": ObjectId(screening_id), "orgId": user["orgId"]})
     if not screening:
         raise HTTPException(status_code=404, detail="Screening request not found")
 
@@ -242,7 +250,7 @@ async def analyze_screening_documents(screening_id: str, user: dict = Depends(re
     text shown to staff, not just in this docstring)."""
     if not ObjectId.is_valid(screening_id):
         raise HTTPException(status_code=400, detail="Invalid screening ID")
-    screening = await screening_col.find_one({"_id": ObjectId(screening_id)})
+    screening = await screening_col.find_one({"_id": ObjectId(screening_id), "orgId": user["orgId"]})
     if not screening:
         raise HTTPException(status_code=404, detail="Screening request not found")
 
@@ -301,7 +309,7 @@ An empty flags list is a valid, expected, and good outcome."""
         updates["status"] = "manual_review"
 
     result = await screening_col.find_one_and_update(
-        {"_id": ObjectId(screening_id)}, {"$set": updates}, return_document=True
+        {"_id": ObjectId(screening_id), "orgId": user["orgId"]}, {"$set": updates}, return_document=True
     )
 
     await log_action(
