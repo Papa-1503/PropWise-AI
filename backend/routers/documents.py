@@ -18,6 +18,13 @@ first place - see Documents.jsx's own new lease-picker for the other half
 of this fix. Resolved live (via leaseId -> lease -> property), not stored
 as a snapshot at creation time, so a later property rename is reflected
 correctly rather than needing every existing document backfilled.
+
+MULTI-TENANCY: every document carries a real orgId, stamped server-side
+at creation from the creating staff member's own orgId - never client-
+submitted. Every query below is scoped by orgId, alongside the existing
+tenantEmail ownership check for resident-facing endpoints (defense in
+depth - the two checks can never disagree in practice, but neither
+alone is redundant to keep).
 """
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends
@@ -63,6 +70,7 @@ async def _resolve_building_name(lease_id: str | None) -> str | None:
 @router.post("")
 async def create_document(payload: DocumentCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["status"] = "pending"
     doc["signedByName"] = None
     doc["signedAt"] = None
@@ -73,7 +81,9 @@ async def create_document(payload: DocumentCreate, user: dict = Depends(require_
 
 @router.get("")
 async def list_documents(user: dict = Depends(get_current_user)):
-    query = {} if user["role"] == "staff" else {"tenantEmail": user["email"]}
+    query = {"orgId": user.get("orgId")}
+    if user["role"] != "staff":
+        query["tenantEmail"] = user["email"]
     cursor = documents_col.find(query).sort("createdAt", -1).limit(200)
     results = await cursor.to_list(length=200)
     for r in results:
@@ -86,7 +96,7 @@ async def list_documents(user: dict = Depends(get_current_user)):
 async def get_document(document_id: str, user: dict = Depends(get_current_user)):
     if not ObjectId.is_valid(document_id):
         raise HTTPException(status_code=400, detail="Invalid document ID")
-    doc = await documents_col.find_one({"_id": ObjectId(document_id)})
+    doc = await documents_col.find_one({"_id": ObjectId(document_id), "orgId": user.get("orgId")})
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     if user["role"] != "staff" and doc.get("tenantEmail") != user["email"]:
@@ -100,7 +110,7 @@ async def get_document(document_id: str, user: dict = Depends(get_current_user))
 async def sign_document(document_id: str, payload: DocumentSign, user: dict = Depends(get_current_user)):
     if not ObjectId.is_valid(document_id):
         raise HTTPException(status_code=400, detail="Invalid document ID")
-    doc = await documents_col.find_one({"_id": ObjectId(document_id)})
+    doc = await documents_col.find_one({"_id": ObjectId(document_id), "orgId": user.get("orgId")})
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     if doc.get("tenantEmail") != user["email"]:
@@ -133,7 +143,7 @@ async def sign_document(document_id: str, payload: DocumentSign, user: dict = De
 async def document_pdf(document_id: str, user: dict = Depends(get_current_user)):
     if not ObjectId.is_valid(document_id):
         raise HTTPException(status_code=400, detail="Invalid document ID")
-    doc = await documents_col.find_one({"_id": ObjectId(document_id)})
+    doc = await documents_col.find_one({"_id": ObjectId(document_id), "orgId": user.get("orgId")})
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     if user["role"] != "staff" and doc.get("tenantEmail") != user["email"]:
