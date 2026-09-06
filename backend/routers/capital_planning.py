@@ -46,6 +46,7 @@ def serialize(doc: dict) -> dict:
 @router.post("/api/fixed-assets")
 async def create_fixed_asset(payload: FixedAssetCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["installDate"] = parse_date_utc(doc["installDate"])
     doc["createdAt"] = datetime.now(timezone.utc)
     result = await fixed_assets_col.insert_one(doc)
@@ -55,7 +56,7 @@ async def create_fixed_asset(payload: FixedAssetCreate, user: dict = Depends(req
 
 @router.get("/api/fixed-assets")
 async def list_fixed_assets(propertyId: str | None = None, user: dict = Depends(require_staff)):
-    query = {}
+    query: dict = {"orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
     assets = await fixed_assets_col.find(query).sort("installDate", 1).to_list(length=1000)
@@ -70,7 +71,7 @@ async def update_fixed_asset(asset_id: str, payload: FixedAssetUpdate, user: dic
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     result = await fixed_assets_col.find_one_and_update(
-        {"_id": ObjectId(asset_id)}, {"$set": updates}, return_document=True
+        {"_id": ObjectId(asset_id), "orgId": user["orgId"]}, {"$set": updates}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Asset not found")
@@ -86,7 +87,7 @@ async def assets_approaching_end_of_life(withinYears: float = 2.0, propertyId: s
     from the two real stored fields, not a separate stored
     "end of life date" field that could drift out of sync if either
     input ever changed."""
-    query = {}
+    query: dict = {"orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
     assets = await fixed_assets_col.find(query).to_list(length=1000)
@@ -118,6 +119,7 @@ async def assets_approaching_end_of_life(withinYears: float = 2.0, propertyId: s
 @router.post("/api/capital-projects")
 async def create_capital_project(payload: CapitalProjectCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["targetDate"] = parse_date_utc(doc["targetDate"])
     doc["createdAt"] = datetime.now(timezone.utc)
     result = await capital_projects_col.insert_one(doc)
@@ -127,7 +129,7 @@ async def create_capital_project(payload: CapitalProjectCreate, user: dict = Dep
 
 @router.get("/api/capital-projects")
 async def list_capital_projects(propertyId: str | None = None, status: str | None = None, user: dict = Depends(require_staff)):
-    query = {}
+    query: dict = {"orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
     if status:
@@ -146,7 +148,7 @@ async def update_capital_project(project_id: str, payload: CapitalProjectUpdate,
     if "targetDate" in updates:
         updates["targetDate"] = parse_date_utc(updates["targetDate"])
     result = await capital_projects_col.find_one_and_update(
-        {"_id": ObjectId(project_id)}, {"$set": updates}, return_document=True
+        {"_id": ObjectId(project_id), "orgId": user["orgId"]}, {"$set": updates}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Project not found")
