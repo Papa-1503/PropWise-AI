@@ -18,6 +18,10 @@ legible) before the record is actually created via the standard
 POST /api/packages endpoint. This matches the same "AI drafts, human
 confirms" principle used for bill scan, write-with-AI, and DIY
 troubleshooting elsewhere in this app.
+
+MULTI-TENANCY: every package carries a real orgId, stamped server-side
+from the creating staff member's own orgId - never client-submitted.
+Every query below is scoped by orgId.
 """
 import os
 from datetime import datetime, timezone
@@ -104,6 +108,7 @@ honest null is far better than a guessed value."""
 @router.post("")
 async def log_package(payload: PackageLogCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["pickedUp"] = False
     doc["pickedUpBy"] = None
     doc["pickedUpAt"] = None
@@ -125,7 +130,7 @@ async def log_package(payload: PackageLogCreate, user: dict = Depends(require_st
 
 @router.get("")
 async def list_packages(propertyId: str | None = None, pickedUp: bool | None = None, user: dict = Depends(require_staff)):
-    query = {}
+    query: dict = {"orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
     if pickedUp is not None:
@@ -139,7 +144,7 @@ async def mark_picked_up(package_id: str, payload: PackagePickup, user: dict = D
     if not ObjectId.is_valid(package_id):
         raise HTTPException(status_code=400, detail="Invalid package ID")
     result = await packages_col.find_one_and_update(
-        {"_id": ObjectId(package_id)},
+        {"_id": ObjectId(package_id), "orgId": user["orgId"]},
         {"$set": {"pickedUp": True, "pickedUpBy": payload.pickedUpBy, "pickedUpAt": datetime.now(timezone.utc)}},
         return_document=True,
     )
