@@ -16,7 +16,7 @@ import os
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from db import ensure_indexes, users_col, properties_col, organizations_col, leases_col, tickets_col, vendors_col, payments_col, bank_lines_col, inspections_col, documents_col
+from db import ensure_indexes, users_col, properties_col, organizations_col, leases_col, tickets_col, vendors_col, payments_col, bank_lines_col, inspections_col, documents_col, leads_col, screening_col
 from routers import inspections, maintenance, ai_copilot, properties, leases, dashboard, auth, ai_actions, vendors, email_test, payments, notifications, social
 from rate_limiter import limiter
 from routers import condition_reports
@@ -360,13 +360,48 @@ async def _migrate_legacy_data_to_default_org():
             await documents_col.update_one({"_id": document["_id"]}, {"$set": {"orgId": lease["orgId"]}})
             documents_updated += 1
 
-    if user_result.modified_count or property_result.modified_count or leases_updated or tickets_updated or vendor_result.modified_count or payments_updated or bank_lines_updated or inspections_updated or documents_updated:
+    # Leads reference propertyId, but it can legitimately be absent (a
+    # general inquiry not tied to any specific building - see routers/
+    # leads.py's own module docstring for why that's a real, honest
+    # state, not a data-integrity gap). Only leads WITH a resolvable
+    # property get backfilled here; general-inquiry leads correctly
+    # stay orgId=None, matching the real behavior new leads of that
+    # same kind get going forward.
+    leads_missing_org = await leads_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=50000)
+    leads_updated = 0
+    for lead in leads_missing_org:
+        property_id = lead.get("propertyId")
+        if not property_id:
+            await leads_col.update_one({"_id": lead["_id"]}, {"$set": {"orgId": None}})
+            continue
+        query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+        prop = await properties_col.find_one({"_id": query_id}, {"orgId": 1})
+        if prop and prop.get("orgId"):
+            await leads_col.update_one({"_id": lead["_id"]}, {"$set": {"orgId": prop["orgId"]}})
+            leads_updated += 1
+
+    # Same real per-property lookup as leads above - a screening
+    # request's org is derived from its own real property when set.
+    screening_missing_org = await screening_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=50000)
+    screening_updated = 0
+    for req in screening_missing_org:
+        property_id = req.get("propertyId")
+        if not property_id:
+            continue
+        query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+        prop = await properties_col.find_one({"_id": query_id}, {"orgId": 1})
+        if prop and prop.get("orgId"):
+            await screening_col.update_one({"_id": req["_id"]}, {"$set": {"orgId": prop["orgId"]}})
+            screening_updated += 1
+
+    if user_result.modified_count or property_result.modified_count or leases_updated or tickets_updated or vendor_result.modified_count or payments_updated or bank_lines_updated or inspections_updated or documents_updated or leads_updated or screening_updated:
         logger.info(
             f"[migration] Backfilled {user_result.modified_count} users, "
             f"{property_result.modified_count} properties, {leases_updated} leases, "
             f"{tickets_updated} tickets, {vendor_result.modified_count} vendors, "
             f"{payments_updated} payment charges, {bank_lines_updated} bank lines, "
-            f"{inspections_updated} inspections, and {documents_updated} documents "
+            f"{inspections_updated} inspections, {documents_updated} documents, "
+            f"{leads_updated} leads, and {screening_updated} screening requests "
             f"into default org {org_id}"
         )
 
