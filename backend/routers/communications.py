@@ -22,6 +22,15 @@ second, redundant email system. Inbound replies (a tenant emailing back
 and it appearing here automatically) are deliberately deferred — that
 needs an inbound webhook (e.g. SendGrid Inbound Parse) which requires
 DNS changes and a public endpoint, out of scope for this step.
+
+MULTI-TENANCY: every communication carries a real orgId, stamped
+server-side from the creating staff member's own orgId - never client-
+submitted. send-group additionally verifies the given propertyId
+actually belongs to the caller's own org before sending anything - a
+real, necessary check, not just defense in depth: propertyId values
+are globally unique real IDs, so without this check a staff member
+could have sent a real group message to a DIFFERENT organization's
+residents simply by knowing (or guessing) their property ID.
 """
 from datetime import datetime, timezone
 
@@ -47,7 +56,7 @@ def serialize(comm: dict) -> dict:
 
 @router.get("")
 async def list_communications(propertyId: str | None = None, unitId: str | None = None, user: dict = Depends(require_staff)):
-    query = {}
+    query: dict = {"orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
     if unitId:
@@ -60,6 +69,7 @@ async def list_communications(propertyId: str | None = None, unitId: str | None 
 @router.post("")
 async def create_communication(payload: CommunicationCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["loggedBy"] = user.get("email")
     doc["createdAt"] = datetime.now(timezone.utc)
     result = await communications_col.insert_one(doc)
@@ -72,6 +82,7 @@ async def send_email_communication(payload: SendEmailCommunication, user: dict =
     doc = {
         "propertyId": payload.propertyId,
         "unitId": payload.unitId,
+        "orgId": user["orgId"],
         "channel": "email",
         "direction": "outbound",
         "subject": payload.subject,
@@ -103,6 +114,7 @@ async def send_sms_communication(payload: SendSmsCommunication, user: dict = Dep
     doc = {
         "propertyId": payload.propertyId,
         "unitId": payload.unitId,
+        "orgId": user["orgId"],
         "channel": "sms",
         "direction": "outbound",
         "body": payload.body,
@@ -150,20 +162,29 @@ async def send_group_message(payload: GroupMessageSend, user: dict = Depends(req
     real per-recipient outcomes, return an honest summary rather than
     an all-or-nothing result. A resident with a malformed or missing
     contact field is skipped and reported, not silently dropped or
-    allowed to fail the whole send."""
+    allowed to fail the whole send.
+
+    Real ownership check, not just scoping: propertyId is verified to
+    belong to the caller's own org BEFORE any lease is queried or any
+    message is sent - without this, a staff member could send a real
+    group message to a different organization's residents simply by
+    supplying that org's real property ID."""
     if payload.channel == "email" and not payload.subject:
         raise HTTPException(status_code=400, detail="subject is required for email group messages.")
 
-    lease_query = {"propertyId": payload.propertyId}
+    property_query_id = ObjectId(payload.propertyId) if ObjectId.is_valid(payload.propertyId) else payload.propertyId
+    property_doc = await properties_col.find_one({"_id": property_query_id, "orgId": user["orgId"]})
+    if not property_doc:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    lease_query: dict = {"propertyId": payload.propertyId, "orgId": user["orgId"]}
     if payload.renewalStatus:
         lease_query["renewalStatus"] = payload.renewalStatus
     leases = await leases_col.find(lease_query).to_list(length=1000)
 
     if payload.occupancyStatus:
-        query_id = ObjectId(payload.propertyId) if ObjectId.is_valid(payload.propertyId) else payload.propertyId
-        property_doc = await properties_col.find_one({"_id": query_id})
         matching_unit_ids = {
-            u["unitId"] for u in (property_doc.get("units", []) if property_doc else [])
+            u["unitId"] for u in property_doc.get("units", [])
             if u.get("status") == payload.occupancyStatus
         }
         leases = [l for l in leases if l.get("unitId") in matching_unit_ids]
@@ -182,6 +203,7 @@ async def send_group_message(payload: GroupMessageSend, user: dict = Depends(req
         doc = {
             "propertyId": payload.propertyId,
             "unitId": unit_id,
+            "orgId": user["orgId"],
             "channel": payload.channel,
             "direction": "outbound",
             "subject": payload.subject if payload.channel == "email" else None,
