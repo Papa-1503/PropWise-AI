@@ -18,6 +18,13 @@ alongside it. The tradeoff, stated honestly: reading an entity's
 custom fields is a second query, not embedded in the same document -
 a real cost, but a much smaller one than touching every existing
 create/update endpoint across 4 different routers.
+
+MULTI-TENANCY: field definitions carry a real orgId, and the
+underlying uniqueness constraint (entityType, fieldName) is now
+scoped per-org at the database level - two different organizations
+can each define their own field with the same name without
+conflicting. Field values inherit the same orgId as the definition
+they're set against.
 """
 from datetime import datetime, timezone
 
@@ -39,12 +46,13 @@ def serialize(doc: dict) -> dict:
 @router.post("/definitions")
 async def create_field_definition(payload: CustomFieldDefinitionCreate, user: dict = Depends(require_staff)):
     existing = await custom_field_definitions_col.find_one({
-        "entityType": payload.entityType, "fieldName": payload.fieldName,
+        "entityType": payload.entityType, "fieldName": payload.fieldName, "orgId": user["orgId"],
     })
     if existing:
         raise HTTPException(status_code=409, detail=f"A field named '{payload.fieldName}' already exists for {payload.entityType}.")
 
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["createdAt"] = datetime.now(timezone.utc)
     result = await custom_field_definitions_col.insert_one(doc)
     doc["_id"] = result.inserted_id
@@ -53,7 +61,9 @@ async def create_field_definition(payload: CustomFieldDefinitionCreate, user: di
 
 @router.get("/definitions")
 async def list_field_definitions(entityType: str | None = None, user: dict = Depends(require_staff)):
-    query = {"entityType": entityType} if entityType else {}
+    query: dict = {"orgId": user["orgId"]}
+    if entityType:
+        query["entityType"] = entityType
     defs = await custom_field_definitions_col.find(query).sort("fieldName", 1).to_list(length=200)
     return {"definitions": [serialize(d) for d in defs]}
 
@@ -71,7 +81,7 @@ def _validate_value(field_type: str, value) -> None:
 
 @router.post("/{entity_type}/{entity_id}")
 async def set_field_value(entity_type: str, entity_id: str, payload: CustomFieldValueSet, user: dict = Depends(require_staff)):
-    field_def = await custom_field_definitions_col.find_one({"entityType": entity_type, "fieldName": payload.fieldName})
+    field_def = await custom_field_definitions_col.find_one({"entityType": entity_type, "fieldName": payload.fieldName, "orgId": user["orgId"]})
     if not field_def:
         raise HTTPException(status_code=404, detail=f"No custom field named '{payload.fieldName}' is defined for {entity_type}.")
 
@@ -81,7 +91,7 @@ async def set_field_value(entity_type: str, entity_id: str, payload: CustomField
 
     await custom_field_values_col.update_one(
         {"entityType": entity_type, "entityId": entity_id, "fieldName": payload.fieldName},
-        {"$set": {"value": payload.value, "updatedAt": datetime.now(timezone.utc)}},
+        {"$set": {"value": payload.value, "orgId": user["orgId"], "updatedAt": datetime.now(timezone.utc)}},
         upsert=True,
     )
     return {"entityType": entity_type, "entityId": entity_id, "fieldName": payload.fieldName, "value": payload.value}
@@ -89,5 +99,5 @@ async def set_field_value(entity_type: str, entity_id: str, payload: CustomField
 
 @router.get("/{entity_type}/{entity_id}")
 async def get_entity_field_values(entity_type: str, entity_id: str, user: dict = Depends(require_staff)):
-    values = await custom_field_values_col.find({"entityType": entity_type, "entityId": entity_id}).to_list(length=200)
+    values = await custom_field_values_col.find({"entityType": entity_type, "entityId": entity_id, "orgId": user["orgId"]}).to_list(length=200)
     return {"values": {v["fieldName"]: v["value"] for v in values}}
