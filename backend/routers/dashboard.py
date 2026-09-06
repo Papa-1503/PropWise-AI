@@ -6,6 +6,11 @@ GET /api/dashboard/stats?propertyId=
 Runs real aggregation queries against properties/leases/tickets/inspections
 instead of returning hardcoded numbers — mirrors the stat cards in the
 Dashboard screen (occupancy, revenue, vacancies, open tickets, inspections due).
+
+MULTI-TENANCY: every query below is scoped to user["orgId"]. This was a
+real, live cross-tenant gap before this pass - every stat, trend, and
+activity feed on this dashboard aggregated across every organization in
+the database with no filtering at all, not just the caller's own.
 """
 from datetime import datetime, timedelta, timezone
 
@@ -25,7 +30,9 @@ async def get_portfolio_health(propertyId: str | None = None, user: dict = Depen
     Unlike the AI Actions confidence scores, everything here is plain
     arithmetic over live data — no LLM involved, so it's fully reproducible.
     """
-    prop_filter = {"_id": propertyId} if propertyId else {}
+    prop_filter = {"orgId": user["orgId"]}
+    if propertyId:
+        prop_filter["_id"] = propertyId
     properties = await properties_col.find(prop_filter).to_list(length=500)
 
     total_units = 0
@@ -39,7 +46,9 @@ async def get_portfolio_health(propertyId: str | None = None, user: dict = Depen
                 vacant_units += 1
                 revenue_at_risk += u.get("rent", 0)
 
-    ticket_query = {"propertyId": propertyId} if propertyId else {}
+    ticket_query = {"orgId": user["orgId"]}
+    if propertyId:
+        ticket_query["propertyId"] = propertyId
     critical_work_orders = await tickets_col.count_documents(
         {**ticket_query, "status": {"$ne": "done"}, "priority": "urgent"}
     )
@@ -108,7 +117,9 @@ async def get_workforce_stats(propertyId: str | None = None, days: int = 30, use
     Wire up a leasing CRM and a payments/collections module before these
     two can report real numbers — don't backfill them with guesses.
     """
-    prop_filter = {"propertyId": propertyId} if propertyId else {}
+    prop_filter = {"orgId": user["orgId"]}
+    if propertyId:
+        prop_filter["propertyId"] = propertyId
     since = datetime.now(timezone.utc) - timedelta(days=days)
 
     tickets_created = await tickets_col.count_documents(
@@ -204,7 +215,9 @@ async def get_maintenance_trends(propertyId: str | None = None, user: dict = Dep
     Increasing") with one computed from real ticket data instead of a
     scripted example.
     """
-    prop_filter = {"propertyId": propertyId} if propertyId else {}
+    prop_filter = {"orgId": user["orgId"]}
+    if propertyId:
+        prop_filter["propertyId"] = propertyId
     now = datetime.now(timezone.utc)
     recent_start = now - timedelta(days=30)
     prior_start = now - timedelta(days=60)
@@ -245,7 +258,9 @@ async def schedule_preventive_inspection(category: str, propertyId: str | None =
     No LLM call here — the trigger and confidence are both computed
     directly from the trend data itself.
     """
-    prop_filter = {"propertyId": propertyId} if propertyId else {}
+    prop_filter = {"orgId": user["orgId"]}
+    if propertyId:
+        prop_filter["propertyId"] = propertyId
     now = datetime.now(timezone.utc)
     recent_start = now - timedelta(days=30)
     recent_count = await tickets_col.count_documents(
@@ -256,6 +271,7 @@ async def schedule_preventive_inspection(category: str, propertyId: str | None =
 
     doc = {
         "propertyId": propertyId,
+        "orgId": user["orgId"],
         "type": "maintenance_followup",
         "title": f"Schedule preventive inspection sweep — {category}",
         "priority": "medium",
@@ -286,7 +302,9 @@ async def recent_activity(propertyId: str | None = None, limit: int = 10, user: 
     relevant collection, tags each with a type and a plain-language
     description, merges and sorts by real timestamp. No new collection —
     this is a read-only aggregation over data that already exists."""
-    query = {"propertyId": propertyId} if propertyId else {}
+    query = {"orgId": user["orgId"]}
+    if propertyId:
+        query["propertyId"] = propertyId
     events = []
 
     async for p in payments_col.find({**query, "paidDate": {"$exists": True}}).sort("paidDate", -1).limit(limit):
@@ -319,7 +337,9 @@ async def recent_activity(propertyId: str | None = None, limit: int = 10, user: 
 
 @router.get("/stats")
 async def get_dashboard_stats(propertyId: str | None = None, user: dict = Depends(require_staff)):
-    prop_filter = {"_id": propertyId} if propertyId else {}
+    prop_filter = {"orgId": user["orgId"]}
+    if propertyId:
+        prop_filter["_id"] = propertyId
 
     properties = await properties_col.find(prop_filter).to_list(length=500)
 
@@ -342,7 +362,9 @@ async def get_dashboard_stats(propertyId: str | None = None, user: dict = Depend
 
     occupancy_pct = round((occupied_units / total_units) * 100, 1) if total_units else 0
 
-    ticket_query = {"propertyId": propertyId} if propertyId else {}
+    ticket_query = {"orgId": user["orgId"]}
+    if propertyId:
+        ticket_query["propertyId"] = propertyId
     open_tickets = await tickets_col.count_documents({**ticket_query, "status": {"$ne": "done"}})
     urgent_tickets = await tickets_col.count_documents(
         {**ticket_query, "status": {"$ne": "done"}, "priority": "urgent"}
@@ -381,7 +403,7 @@ async def revenue_trend(propertyId: str | None = None, months: int = 6, user: di
     Filters paidDate explicitly non-null: some payment records have the
     field present but set to null, which would otherwise group into a
     bogus zero-revenue bucket."""
-    query = {"paidDate": {"$ne": None}}
+    query = {"paidDate": {"$ne": None}, "orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
     cutoff = datetime.now(timezone.utc) - timedelta(days=months * 31)
@@ -406,7 +428,7 @@ async def cash_flow_trend_endpoint(propertyId: str | None = None, months: int = 
     new: income-vs-expense was never combined into one figure anywhere
     in this app before this."""
     property_ids = [propertyId] if propertyId else None
-    months_data = await cash_flow_service.cash_flow_trend(property_ids, months)
+    months_data = await cash_flow_service.cash_flow_trend(user["orgId"], property_ids, months)
     return {"months": months_data}
 
 
