@@ -16,7 +16,7 @@ import os
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from db import ensure_indexes, users_col, properties_col, organizations_col, leases_col, tickets_col, vendors_col, payments_col, bank_lines_col, inspections_col, documents_col, leads_col, screening_col, communications_col, packages_col
+from db import ensure_indexes, users_col, properties_col, organizations_col, leases_col, tickets_col, vendors_col, payments_col, bank_lines_col, inspections_col, documents_col, leads_col, screening_col, communications_col, packages_col, custom_field_definitions_col, custom_field_values_col, custom_roles_col, custom_reports_col
 from routers import inspections, maintenance, ai_copilot, properties, leases, dashboard, auth, ai_actions, vendors, email_test, payments, notifications, social
 from rate_limiter import limiter
 from routers import condition_reports
@@ -422,7 +422,17 @@ async def _migrate_legacy_data_to_default_org():
             await packages_col.update_one({"_id": pkg["_id"]}, {"$set": {"orgId": prop["orgId"]}})
             packages_updated += 1
 
-    if user_result.modified_count or property_result.modified_count or leases_updated or tickets_updated or vendor_result.modified_count or payments_updated or bank_lines_updated or inspections_updated or documents_updated or leads_updated or screening_updated or communications_updated or packages_updated:
+    # Custom field definitions/values, custom roles, and saved reports
+    # have no propertyId of their own (they're not tied to a specific
+    # building) - same flat stamp into the default org as vendors
+    # above, correct for this app's real current state of exactly one
+    # organization.
+    custom_field_defs_result = await custom_field_definitions_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
+    custom_field_values_result = await custom_field_values_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
+    custom_roles_result = await custom_roles_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
+    custom_reports_result = await custom_reports_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
+
+    if user_result.modified_count or property_result.modified_count or leases_updated or tickets_updated or vendor_result.modified_count or payments_updated or bank_lines_updated or inspections_updated or documents_updated or leads_updated or screening_updated or communications_updated or packages_updated or custom_field_defs_result.modified_count or custom_field_values_result.modified_count or custom_roles_result.modified_count or custom_reports_result.modified_count:
         logger.info(
             f"[migration] Backfilled {user_result.modified_count} users, "
             f"{property_result.modified_count} properties, {leases_updated} leases, "
@@ -430,8 +440,11 @@ async def _migrate_legacy_data_to_default_org():
             f"{payments_updated} payment charges, {bank_lines_updated} bank lines, "
             f"{inspections_updated} inspections, {documents_updated} documents, "
             f"{leads_updated} leads, {screening_updated} screening requests, "
-            f"{communications_updated} communications, and {packages_updated} packages "
-            f"into default org {org_id}"
+            f"{communications_updated} communications, {packages_updated} packages, "
+            f"{custom_field_defs_result.modified_count} custom field definitions, "
+            f"{custom_field_values_result.modified_count} custom field values, "
+            f"{custom_roles_result.modified_count} custom roles, and "
+            f"{custom_reports_result.modified_count} custom reports into default org {org_id}"
         )
 
 
