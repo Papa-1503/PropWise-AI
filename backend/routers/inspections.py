@@ -124,7 +124,7 @@ async def generate_inspection_pdf(inspection_id: str, user: dict = Depends(requi
     if not ObjectId.is_valid(inspection_id):
         raise HTTPException(status_code=400, detail="Invalid inspection ID")
 
-    inspection = await inspections_col.find_one({"_id": ObjectId(inspection_id)})
+    inspection = await inspections_col.find_one({"_id": ObjectId(inspection_id), "orgId": user["orgId"]})
     if not inspection:
         raise HTTPException(status_code=404, detail="Inspection not found")
 
@@ -330,6 +330,7 @@ Respond with ONLY JSON (no prose, no markdown fences) in this shape:
 @router.post("")
 async def create_inspection(payload: InspectionCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["createdAt"] = datetime.now(timezone.utc)
     doc["photoIds"] = []
     result = await inspections_col.insert_one(doc)
@@ -348,7 +349,7 @@ async def upload_inspection_photo(
     if not ObjectId.is_valid(inspection_id):
         raise HTTPException(status_code=400, detail="Invalid inspection ID")
 
-    inspection = await inspections_col.find_one({"_id": ObjectId(inspection_id)})
+    inspection = await inspections_col.find_one({"_id": ObjectId(inspection_id), "orgId": user["orgId"]})
     if not inspection:
         raise HTTPException(status_code=404, detail="Inspection not found")
 
@@ -409,7 +410,7 @@ async def get_inspection(inspection_id: str, role: str | None = None, user: dict
     by role."""
     if not ObjectId.is_valid(inspection_id):
         raise HTTPException(status_code=400, detail="Invalid inspection ID")
-    inspection = await inspections_col.find_one({"_id": ObjectId(inspection_id)})
+    inspection = await inspections_col.find_one({"_id": ObjectId(inspection_id), "orgId": user["orgId"]})
     if not inspection:
         raise HTTPException(status_code=404, detail="Inspection not found")
     inspection["_id"] = str(inspection["_id"])
@@ -426,7 +427,7 @@ async def get_inspection(inspection_id: str, role: str | None = None, user: dict
 
 @router.get("")
 async def list_inspections(propertyId: str | None = None, unitId: str | None = None, user: dict = Depends(require_staff)):
-    query = {}
+    query = {"orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
     if unitId:
@@ -442,7 +443,7 @@ async def update_inspection_item(inspection_id: str, item_id: str, payload: Item
     if not ObjectId.is_valid(inspection_id):
         raise HTTPException(status_code=400, detail="Invalid inspection ID")
 
-    inspection = await inspections_col.find_one({"_id": ObjectId(inspection_id)})
+    inspection = await inspections_col.find_one({"_id": ObjectId(inspection_id), "orgId": user["orgId"]})
     if not inspection:
         raise HTTPException(status_code=404, detail="Inspection not found")
 
@@ -463,6 +464,7 @@ async def update_inspection_item(inspection_id: str, item_id: str, payload: Item
         ticket = {
             "propertyId": inspection.get("propertyId"),
             "unitId": inspection.get("unitId"),
+            "orgId": inspection.get("orgId"),
             "title": effective_description or f"{item.get('room', 'Unit')} issue flagged during inspection",
             "priority": "urgent" if payload.status == "fail" else "normal",
             "source": "inspection",
