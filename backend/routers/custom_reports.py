@@ -11,6 +11,13 @@ docstring in models.py for why. Each real reportType below has its own
 real, hand-written, bounded aggregation, reusing logic already proven
 elsewhere this session (budgets.py's report, make_ready.py's
 aggregation) rather than a generic pipeline accepting arbitrary input.
+
+MULTI-TENANCY: every saved report carries a real orgId, and - the
+real, more serious gap this pass closes - every report RUNNER now
+filters its own aggregation by orgId too. Before this, running any
+report (even with no propertyId filter set) aggregated revenue and
+maintenance data across every organization in the database combined,
+not just the caller's own.
 """
 from datetime import datetime, timezone
 
@@ -34,6 +41,7 @@ def serialize(doc: dict) -> dict:
 @router.post("")
 async def create_report(payload: CustomReportCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["createdAt"] = datetime.now(timezone.utc)
     result = await custom_reports_col.insert_one(doc)
     doc["_id"] = result.inserted_id
@@ -42,7 +50,7 @@ async def create_report(payload: CustomReportCreate, user: dict = Depends(requir
 
 @router.get("")
 async def list_reports(user: dict = Depends(require_staff)):
-    reports = await custom_reports_col.find({}).sort("name", 1).to_list(length=200)
+    reports = await custom_reports_col.find({"orgId": user["orgId"]}).sort("name", 1).to_list(length=200)
     return {"reports": [serialize(r) for r in reports]}
 
 
@@ -50,14 +58,14 @@ async def list_reports(user: dict = Depends(require_staff)):
 async def delete_report(report_id: str, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(report_id):
         raise HTTPException(status_code=400, detail="Invalid report ID")
-    result = await custom_reports_col.delete_one({"_id": ObjectId(report_id)})
+    result = await custom_reports_col.delete_one({"_id": ObjectId(report_id), "orgId": user["orgId"]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Report not found")
     return {"deleted": True}
 
 
-async def _run_revenue_by_property(report: dict) -> dict:
-    query = {"paidDate": {"$ne": None}}
+async def _run_revenue_by_property(report: dict, org_id: str) -> dict:
+    query: dict = {"paidDate": {"$ne": None}, "orgId": org_id}
     if report.get("propertyId"):
         query["propertyId"] = report["propertyId"]
     if report.get("startDate"):
@@ -74,8 +82,8 @@ async def _run_revenue_by_property(report: dict) -> dict:
     return {"rows": [{"propertyId": r["_id"], "totalRevenue": round(r["totalRevenue"], 2), "chargeCount": r["chargeCount"]} for r in results]}
 
 
-async def _run_maintenance_by_category(report: dict) -> dict:
-    query = {}
+async def _run_maintenance_by_category(report: dict, org_id: str) -> dict:
+    query: dict = {"orgId": org_id}
     if report.get("propertyId"):
         query["propertyId"] = report["propertyId"]
     if report.get("startDate") or report.get("endDate"):
@@ -95,13 +103,15 @@ async def _run_maintenance_by_category(report: dict) -> dict:
     return {"rows": [{"category": r["_id"], "ticketCount": r["ticketCount"], "totalHours": round(r["totalHours"], 1)} for r in results]}
 
 
-async def _run_occupancy_trend(report: dict) -> dict:
+async def _run_occupancy_trend(report: dict, org_id: str) -> dict:
     """Real, current occupancy snapshot per property - a genuine
     historical trend over time would need periodic status snapshots
     this app doesn't currently store, so this is honestly a
     point-in-time report, not a trend line, and named accordingly in
     its output rather than implying history that doesn't exist."""
-    query = {"_id": report["propertyId"]} if report.get("propertyId") else {}
+    query: dict = {"orgId": org_id}
+    if report.get("propertyId"):
+        query["_id"] = report["propertyId"]
     properties = await properties_col.find(query).to_list(length=200)
     rows = []
     for p in properties:
@@ -127,10 +137,10 @@ REPORT_RUNNERS = {
 async def run_report(report_id: str, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(report_id):
         raise HTTPException(status_code=400, detail="Invalid report ID")
-    report = await custom_reports_col.find_one({"_id": ObjectId(report_id)})
+    report = await custom_reports_col.find_one({"_id": ObjectId(report_id), "orgId": user["orgId"]})
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
 
     runner = REPORT_RUNNERS[report["reportType"]]
-    result = await runner(report)
+    result = await runner(report, user["orgId"])
     return {"reportType": report["reportType"], "name": report["name"], **result}
