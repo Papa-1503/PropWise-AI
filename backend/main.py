@@ -16,7 +16,7 @@ import os
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from db import ensure_indexes, users_col, properties_col, organizations_col, leases_col, tickets_col, vendors_col, payments_col, bank_lines_col, inspections_col
+from db import ensure_indexes, users_col, properties_col, organizations_col, leases_col, tickets_col, vendors_col, payments_col, bank_lines_col, inspections_col, documents_col
 from routers import inspections, maintenance, ai_copilot, properties, leases, dashboard, auth, ai_actions, vendors, email_test, payments, notifications, social
 from rate_limiter import limiter
 from routers import condition_reports
@@ -343,13 +343,31 @@ async def _migrate_legacy_data_to_default_org():
             await inspections_col.update_one({"_id": insp["_id"]}, {"$set": {"orgId": prop["orgId"]}})
             inspections_updated += 1
 
-    if user_result.modified_count or property_result.modified_count or leases_updated or tickets_updated or vendor_result.modified_count or payments_updated or bank_lines_updated or inspections_updated:
+    # Documents have no propertyId of their own - unlike every other
+    # collection above, this one derives orgId via leaseId -> lease's
+    # own (already-migrated) orgId. A document genuinely can have no
+    # leaseId at all (see routers/documents.py's own module docstring)
+    # - those are left alone rather than guessed at, same principle as
+    # every other collection's unresolvable records above.
+    documents_missing_org = await documents_col.find({"orgId": {"$exists": False}}, {"_id": 1, "leaseId": 1}).to_list(length=50000)
+    documents_updated = 0
+    for document in documents_missing_org:
+        lease_id = document.get("leaseId")
+        if not lease_id or not ObjectId.is_valid(lease_id):
+            continue
+        lease = await leases_col.find_one({"_id": ObjectId(lease_id)}, {"orgId": 1})
+        if lease and lease.get("orgId"):
+            await documents_col.update_one({"_id": document["_id"]}, {"$set": {"orgId": lease["orgId"]}})
+            documents_updated += 1
+
+    if user_result.modified_count or property_result.modified_count or leases_updated or tickets_updated or vendor_result.modified_count or payments_updated or bank_lines_updated or inspections_updated or documents_updated:
         logger.info(
             f"[migration] Backfilled {user_result.modified_count} users, "
             f"{property_result.modified_count} properties, {leases_updated} leases, "
             f"{tickets_updated} tickets, {vendor_result.modified_count} vendors, "
-            f"{payments_updated} payment charges, {bank_lines_updated} bank lines, and "
-            f"{inspections_updated} inspections into default org {org_id}"
+            f"{payments_updated} payment charges, {bank_lines_updated} bank lines, "
+            f"{inspections_updated} inspections, and {documents_updated} documents "
+            f"into default org {org_id}"
         )
 
 
