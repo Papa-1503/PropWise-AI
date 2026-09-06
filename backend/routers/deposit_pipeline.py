@@ -135,17 +135,17 @@ async def _compute_line_item(item: dict, lease_start: datetime, now: datetime) -
     }
 
 
-async def _compute_pipeline(inspection_id: str) -> dict:
+async def _compute_pipeline(inspection_id: str, org_id: str) -> dict:
     if not ObjectId.is_valid(inspection_id):
         raise HTTPException(status_code=400, detail="Invalid inspection ID")
-    inspection = await inspections_col.find_one({"_id": ObjectId(inspection_id)})
+    inspection = await inspections_col.find_one({"_id": ObjectId(inspection_id), "orgId": org_id})
     if not inspection:
         raise HTTPException(status_code=404, detail="Inspection not found")
     if inspection.get("type") != "move-out":
         raise HTTPException(status_code=400, detail="This pipeline only applies to move-out inspections.")
 
     lease = await leases_col.find_one({
-        "propertyId": inspection.get("propertyId"), "unitId": inspection.get("unitId"),
+        "propertyId": inspection.get("propertyId"), "unitId": inspection.get("unitId"), "orgId": org_id,
     })
     if not lease:
         raise HTTPException(status_code=404, detail="No lease found for this unit to net a deposit against.")
@@ -203,10 +203,10 @@ async def _compute_pipeline(inspection_id: str) -> dict:
 
 @router.get("/{inspection_id}/preview")
 async def preview_deposit_pipeline(inspection_id: str, user: dict = Depends(require_staff)):
-    return await _compute_pipeline(inspection_id)
+    return await _compute_pipeline(inspection_id, user["orgId"])
 
 
-async def _do_generate_deposit_statement(inspection_id: str, actor_id: str, actor_email: str, status: str) -> dict:
+async def _do_generate_deposit_statement(inspection_id: str, actor_id: str, actor_email: str, status: str, org_id: str) -> dict:
     """The actual generation logic, split out so it can be called two
     ways: the existing manual endpoint below (status="sent", staff
     explicitly generating AND sending in one deliberate action, exactly
@@ -221,7 +221,7 @@ async def _do_generate_deposit_statement(inspection_id: str, actor_id: str, acto
     requirements); removing the human checkpoint entirely, not just the
     manual data-entry work, would trade a real safeguard for convenience
     this feature was never asked to give up."""
-    computed = await _compute_pipeline(inspection_id)
+    computed = await _compute_pipeline(inspection_id, org_id)
     lease = await leases_col.find_one({"_id": ObjectId(computed["leaseId"])})
     if not lease.get("residentEmail"):
         raise HTTPException(status_code=400, detail="Lease has no resident email on file to send this to.")
@@ -261,6 +261,7 @@ async def _do_generate_deposit_statement(inspection_id: str, actor_id: str, acto
     doc = {
         "tenantEmail": lease["residentEmail"],
         "leaseId": computed["leaseId"],
+        "orgId": org_id,
         "inspectionId": inspection_id,
         "title": f"Deposit Return Statement - Unit {computed['unitId']}",
         "content": content,
@@ -290,7 +291,7 @@ async def has_existing_deposit_statement(inspection_id: str) -> bool:
     return existing is not None
 
 
-async def maybe_auto_generate_deposit_draft(inspection_id: str) -> None:
+async def maybe_auto_generate_deposit_draft(inspection_id: str, org_id: str) -> None:
     """Called from inspections.py after any item status update. Checks
     whether THIS update was the one that resolved the last pending item
     on a move-out inspection, and if so, auto-generates a draft deposit
@@ -301,10 +302,13 @@ async def maybe_auto_generate_deposit_draft(inspection_id: str) -> None:
     (e.g. no lease found, no resident email on file) rather than
     blocking the item-status update itself — the inspection update is
     the real action being performed here; a failed auto-draft attempt
-    is a missed convenience, not a reason to break the actual request."""
+    is a missed convenience, not a reason to break the actual request.
+    org_id comes from the staff member updating the inspection item -
+    inspections.py already verified that inspection belongs to their
+    own org before this is ever called."""
     if not ObjectId.is_valid(inspection_id):
         return
-    inspection = await inspections_col.find_one({"_id": ObjectId(inspection_id)})
+    inspection = await inspections_col.find_one({"_id": ObjectId(inspection_id), "orgId": org_id})
     if not inspection or inspection.get("type") != "move-out":
         return
     items = inspection.get("items", [])
@@ -315,7 +319,7 @@ async def maybe_auto_generate_deposit_draft(inspection_id: str) -> None:
 
     try:
         await _do_generate_deposit_statement(
-            inspection_id, actor_id="system_auto_generate", actor_email="", status="draft",
+            inspection_id, actor_id="system_auto_generate", actor_email="", status="draft", org_id=org_id,
         )
     except Exception as e:
         print(f"Auto deposit-statement draft generation failed for inspection {inspection_id}: {e}")
@@ -333,7 +337,7 @@ async def generate_deposit_statement(inspection_id: str, user: dict = Depends(re
     exactly as before; the new draft/finalize flow only applies to the
     automatic trigger in inspections.py."""
     return await _do_generate_deposit_statement(
-        inspection_id, actor_id=str(user["id"]), actor_email=user.get("email", ""), status="sent",
+        inspection_id, actor_id=str(user["id"]), actor_email=user.get("email", ""), status="sent", org_id=user["orgId"],
     )
 
 
@@ -348,7 +352,7 @@ async def finalize_deposit_statement(document_id: str, user: dict = Depends(requ
     statement at all, is rejected rather than silently accepted."""
     if not ObjectId.is_valid(document_id):
         raise HTTPException(status_code=400, detail="Invalid document ID")
-    doc = await documents_col.find_one({"_id": ObjectId(document_id)})
+    doc = await documents_col.find_one({"_id": ObjectId(document_id), "orgId": user["orgId"]})
     if not doc or doc.get("documentType") != "deposit_statement":
         raise HTTPException(status_code=404, detail="Deposit statement not found")
     if doc.get("status") != "draft":
