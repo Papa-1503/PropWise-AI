@@ -24,6 +24,13 @@ what a property actually wants:
   - equalSplit: total / number of occupied units. Needs no per-unit
     data at all - the honest fallback for a property that hasn't
     recorded square footage.
+
+MULTI-TENANCY: real ownership check on the property before any
+allocation is computed or any charge is created - see
+_compute_allocation's own comment for why this matters here
+specifically (propertyId comes straight from the request body).
+Generated charges carry a real orgId, stamped from the requesting
+staff member.
 """
 from datetime import datetime, timezone
 
@@ -39,9 +46,13 @@ from audit_service import log_action
 router = APIRouter(prefix="/api/rubs", tags=["rubs"])
 
 
-async def _compute_allocation(payload: RubsBillCreate) -> dict:
+async def _compute_allocation(payload: RubsBillCreate, org_id: str) -> dict:
+    # Real ownership check, not just scoping: propertyId comes straight
+    # from the request body, so without this a staff member could
+    # allocate - and via /generate, actually CHARGE - a different
+    # organization's property simply by supplying its real property ID.
     query_id = ObjectId(payload.propertyId) if ObjectId.is_valid(payload.propertyId) else payload.propertyId
-    property_doc = await properties_col.find_one({"_id": query_id})
+    property_doc = await properties_col.find_one({"_id": query_id, "orgId": org_id})
     if not property_doc:
         raise HTTPException(status_code=404, detail="Property not found")
 
@@ -91,7 +102,7 @@ async def _compute_allocation(payload: RubsBillCreate) -> dict:
 
 @router.post("/preview")
 async def preview_rubs_bill(payload: RubsBillCreate, user: dict = Depends(require_staff)):
-    return await _compute_allocation(payload)
+    return await _compute_allocation(payload, user["orgId"])
 
 
 @router.post("/generate")
@@ -102,7 +113,7 @@ async def generate_rubs_charges(payload: RubsBillCreate, user: dict = Depends(re
     real charge in the same ledger as rent, not a separate, siloed
     utility-billing system a resident would need to check somewhere
     else."""
-    computed = await _compute_allocation(payload)
+    computed = await _compute_allocation(payload, user["orgId"])
     due_date = parse_date_utc(payload.dueDate)
     now = datetime.now(timezone.utc)
 
@@ -111,6 +122,7 @@ async def generate_rubs_charges(payload: RubsBillCreate, user: dict = Depends(re
         doc = {
             "propertyId": payload.propertyId,
             "unitId": alloc["unitId"],
+            "orgId": user["orgId"],
             "leaseId": None,
             "amountDue": alloc["amount"],
             "amountPaid": 0.0,
