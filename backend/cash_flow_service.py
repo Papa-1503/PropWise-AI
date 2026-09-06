@@ -38,20 +38,27 @@ from datetime import datetime, timezone, timedelta
 from db import payments_col, bank_lines_col
 
 
-async def cash_flow_trend(property_ids: list[str] | None, months: int = 6) -> list[dict]:
+async def cash_flow_trend(org_id: str, property_ids: list[str] | None, months: int = 6) -> list[dict]:
     """Real month-by-month net cash flow across the given properties (or
-    every property if property_ids is None/empty), most recent `months`
-    calendar months. Returns one row per month that has EITHER income or
-    expense activity - a month with no real transactions on either side
-    doesn't appear, rather than a misleading zero bar for a month before
-    the property was even under management."""
+    every property in this org if property_ids is None/empty), most
+    recent `months` calendar months. Returns one row per month that has
+    EITHER income or expense activity - a month with no real
+    transactions on either side doesn't appear, rather than a
+    misleading zero bar for a month before the property was even under
+    management.
+
+    org_id is required and always applied - without it, the "every
+    property" case (no specific building selected) would aggregate
+    income/expense data across every organization in the database
+    combined, a real cross-tenant leak this app had before this pass."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=months * 31)
 
-    income_query: dict = {"paidDate": {"$ne": None, "$gte": cutoff}}
+    income_query: dict = {"paidDate": {"$ne": None, "$gte": cutoff}, "orgId": org_id}
     expense_query: dict = {
         "category": {"$ne": None},
         "fundType": "operating",
         "date": {"$gte": cutoff},
+        "orgId": org_id,
     }
     if property_ids:
         income_query["propertyId"] = {"$in": property_ids}
