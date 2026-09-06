@@ -8,6 +8,12 @@ PATCH  /api/workflows/:id             -> update a workflow
 DELETE /api/workflows/:id             -> delete a workflow
 POST   /api/workflows/:id/publish     -> publish a draft workflow
 GET    /api/workflows/:id/runs        -> view recent run history
+
+MULTI-TENANCY: every workflow carries a real orgId. This was a
+genuinely serious gap before this pass - any staff member of any
+organization could view, edit, delete, or publish ANY other
+organization's workflow automation simply by knowing its ID, and
+those automations can send real email/SMS on the org's behalf.
 """
 from datetime import datetime, timezone
 
@@ -29,7 +35,7 @@ def serialize(workflow: dict) -> dict:
 
 @router.get("")
 async def list_workflows(user: dict = Depends(require_staff)):
-    cursor = workflows_col.find({}).sort("createdAt", -1)
+    cursor = workflows_col.find({"orgId": user["orgId"]}).sort("createdAt", -1)
     workflows = await cursor.to_list(length=200)
     return {"workflows": [serialize(w) for w in workflows]}
 
@@ -37,6 +43,7 @@ async def list_workflows(user: dict = Depends(require_staff)):
 @router.post("")
 async def create_workflow(payload: WorkflowCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["status"] = "draft"
     doc["createdAt"] = datetime.now(timezone.utc)
     doc["updatedAt"] = datetime.now(timezone.utc)
@@ -49,7 +56,7 @@ async def create_workflow(payload: WorkflowCreate, user: dict = Depends(require_
 async def get_workflow(workflow_id: str, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(workflow_id):
         raise HTTPException(status_code=400, detail="Invalid workflow ID")
-    workflow = await workflows_col.find_one({"_id": ObjectId(workflow_id)})
+    workflow = await workflows_col.find_one({"_id": ObjectId(workflow_id), "orgId": user["orgId"]})
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
     return serialize(workflow)
@@ -64,7 +71,7 @@ async def update_workflow(workflow_id: str, payload: WorkflowUpdate, user: dict 
         raise HTTPException(status_code=400, detail="No fields to update")
     updates["updatedAt"] = datetime.now(timezone.utc)
     result = await workflows_col.find_one_and_update(
-        {"_id": ObjectId(workflow_id)}, {"$set": updates}, return_document=True
+        {"_id": ObjectId(workflow_id), "orgId": user["orgId"]}, {"$set": updates}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Workflow not found")
@@ -75,7 +82,7 @@ async def update_workflow(workflow_id: str, payload: WorkflowUpdate, user: dict 
 async def delete_workflow(workflow_id: str, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(workflow_id):
         raise HTTPException(status_code=400, detail="Invalid workflow ID")
-    result = await workflows_col.delete_one({"_id": ObjectId(workflow_id)})
+    result = await workflows_col.delete_one({"_id": ObjectId(workflow_id), "orgId": user["orgId"]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Workflow not found")
     return {"deleted": True}
@@ -86,7 +93,7 @@ async def publish_workflow(workflow_id: str, user: dict = Depends(require_staff)
     if not ObjectId.is_valid(workflow_id):
         raise HTTPException(status_code=400, detail="Invalid workflow ID")
     result = await workflows_col.find_one_and_update(
-        {"_id": ObjectId(workflow_id)},
+        {"_id": ObjectId(workflow_id), "orgId": user["orgId"]},
         {"$set": {"status": "published", "updatedAt": datetime.now(timezone.utc)}},
         return_document=True,
     )
@@ -95,8 +102,20 @@ async def publish_workflow(workflow_id: str, user: dict = Depends(require_staff)
     return serialize(result)
 
 
+async def _verify_workflow_ownership(workflow_id: str, org_id: str) -> None:
+    """Shared ownership check for the two read-only endpoints below -
+    without this, run history and health metrics for a DIFFERENT
+    organization's workflow could be read simply by knowing its ID."""
+    if not ObjectId.is_valid(workflow_id):
+        raise HTTPException(status_code=400, detail="Invalid workflow ID")
+    workflow = await workflows_col.find_one({"_id": ObjectId(workflow_id), "orgId": org_id}, {"_id": 1})
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+
 @router.get("/{workflow_id}/runs")
 async def get_workflow_runs(workflow_id: str, user: dict = Depends(require_staff)):
+    await _verify_workflow_ownership(workflow_id, user["orgId"])
     cursor = workflow_runs_col.find({"workflowId": workflow_id}).sort("startedAt", -1)
     runs = await cursor.to_list(length=20)
     for run in runs:
@@ -111,6 +130,7 @@ async def get_workflow_health(workflow_id: str, user: dict = Depends(require_sta
     workflow_runs documents don't track any cost data at all, so a "cost
     per run" metric would have to be fabricated. Only building what's
     genuinely computable from what's actually stored."""
+    await _verify_workflow_ownership(workflow_id, user["orgId"])
     cursor = workflow_runs_col.find({"workflowId": workflow_id}).sort("startedAt", -1)
     runs = await cursor.to_list(length=500)
 
