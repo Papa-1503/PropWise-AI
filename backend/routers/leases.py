@@ -225,6 +225,7 @@ async def generate_lease_document(lease_id: str, user: dict = Depends(require_st
     doc = {
         "tenantEmail": lease["residentEmail"],
         "leaseId": lease_id,
+        "orgId": lease.get("orgId"),
         "title": f"Lease Agreement - Unit {lease.get('unitId')}",
         "content": content,
         "status": "pending",
@@ -300,6 +301,7 @@ async def request_lease_renewal(lease_id: str, user: dict = Depends(get_current_
     doc = {
         "tenantEmail": lease["residentEmail"],
         "leaseId": lease_id,
+        "orgId": lease.get("orgId"),
         "title": f"Lease Renewal - Unit {lease.get('unitId')}",
         "content": content,
         "documentType": "renewal",
