@@ -33,6 +33,14 @@ current-on-call lookup only. Call recording/transcription, Twilio Voice
 webhook routing, and a separate on_call_log collection for after-hours
 call history are follow-on work once this foundation is confirmed
 correct, not included here.
+
+MULTI-TENANCY: every shift carries a real orgId. Assigning a shift to
+a staff member now verifies that staff member actually belongs to the
+assigning staff member's own org - a real, previously live gap:
+without this check, an on-call shift (and the real after-hours call
+routing built on top of it in routers/telephony.py) could be assigned
+to a DIFFERENT organization's staff account simply by supplying that
+user's real user ID.
 """
 from datetime import datetime, timezone
 
@@ -78,7 +86,7 @@ async def list_shifts(
     startBefore: str | None = None,
     user: dict = Depends(require_staff),
 ):
-    query = {}
+    query: dict = {"orgId": user["orgId"]}
     if propertyId:
         query["propertyIds"] = propertyId
     if startAfter or startBefore:
@@ -99,11 +107,16 @@ async def list_shifts(
 async def create_shift(payload: OnCallShiftCreate, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(payload.userId):
         raise HTTPException(status_code=400, detail="Invalid user ID")
-    assigned_user = await users_col.find_one({"_id": ObjectId(payload.userId), "role": "staff"})
+    # Real ownership check, not just scoping: without orgId here, a
+    # staff member could assign an on-call shift to a DIFFERENT
+    # organization's staff account simply by supplying that user's
+    # real user ID.
+    assigned_user = await users_col.find_one({"_id": ObjectId(payload.userId), "role": "staff", "orgId": user["orgId"]})
     if not assigned_user:
         raise HTTPException(status_code=404, detail="Staff user not found")
 
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["startTime"] = parse_date_utc(doc["startTime"])
     doc["endTime"] = parse_date_utc(doc["endTime"])
     if doc["endTime"] <= doc["startTime"]:
@@ -134,7 +147,7 @@ async def update_shift(shift_id: str, payload: OnCallShiftUpdate, user: dict = D
     if "userId" in updates:
         if not ObjectId.is_valid(updates["userId"]):
             raise HTTPException(status_code=400, detail="Invalid user ID")
-        assigned_user = await users_col.find_one({"_id": ObjectId(updates["userId"]), "role": "staff"})
+        assigned_user = await users_col.find_one({"_id": ObjectId(updates["userId"]), "role": "staff", "orgId": user["orgId"]})
         if not assigned_user:
             raise HTTPException(status_code=404, detail="Staff user not found")
     if "startTime" in updates:
@@ -145,7 +158,7 @@ async def update_shift(shift_id: str, payload: OnCallShiftUpdate, user: dict = D
     # If only one of start/end is being changed, still validate the
     # resulting pair makes sense rather than only checking the two
     # fields when both happen to be edited together.
-    existing = await on_call_shifts_col.find_one({"_id": ObjectId(shift_id)})
+    existing = await on_call_shifts_col.find_one({"_id": ObjectId(shift_id), "orgId": user["orgId"]})
     if not existing:
         raise HTTPException(status_code=404, detail="Shift not found")
     new_start = updates.get("startTime", existing["startTime"])
@@ -154,7 +167,7 @@ async def update_shift(shift_id: str, payload: OnCallShiftUpdate, user: dict = D
         raise HTTPException(status_code=400, detail="endTime must be after startTime")
 
     result = await on_call_shifts_col.find_one_and_update(
-        {"_id": ObjectId(shift_id)}, {"$set": updates}, return_document=True
+        {"_id": ObjectId(shift_id), "orgId": user["orgId"]}, {"$set": updates}, return_document=True
     )
     return await _attach_staff_name(serialize(result))
 
@@ -163,7 +176,7 @@ async def update_shift(shift_id: str, payload: OnCallShiftUpdate, user: dict = D
 async def delete_shift(shift_id: str, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(shift_id):
         raise HTTPException(status_code=400, detail="Invalid shift ID")
-    result = await on_call_shifts_col.delete_one({"_id": ObjectId(shift_id)})
+    result = await on_call_shifts_col.delete_one({"_id": ObjectId(shift_id), "orgId": user["orgId"]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Shift not found")
 
@@ -186,6 +199,7 @@ async def current_on_call(propertyId: str, user: dict = Depends(require_staff)):
     now = datetime.now(timezone.utc)
     shift = await on_call_shifts_col.find_one({
         "propertyIds": propertyId,
+        "orgId": user["orgId"],
         "startTime": {"$lte": now},
         "endTime": {"$gte": now},
     })
