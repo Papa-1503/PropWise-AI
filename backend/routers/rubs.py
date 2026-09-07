@@ -135,7 +135,7 @@ async def generate_rubs_charges(payload: RubsBillCreate, user: dict = Depends(re
         created_ids.append(str(result.inserted_id))
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="rubs_bill_generated", target_type="property", target_id=payload.propertyId,
         details={"utilityType": payload.utilityType, "totalAmount": payload.totalAmount, "chargeCount": len(created_ids)},
     )
