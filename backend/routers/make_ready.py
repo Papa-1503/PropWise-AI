@@ -29,6 +29,9 @@ resolved) turnover inspection - once readyToList flips true, later
 runs of this endpoint will still show it under "Ready to list" for
 one pass, then it naturally drops off once staff have moved on and no
 new turnover inspection exists for that unit.
+
+MULTI-TENANCY: scoped by orgId - previously aggregated turnover
+inspections across every organization in the database.
 """
 from fastapi import APIRouter, Depends
 
@@ -49,7 +52,7 @@ def _unit_stage(inspection: dict) -> str:
 
 @router.get("/board")
 async def make_ready_board(propertyId: str | None = None, user: dict = Depends(require_staff)):
-    query = {"type": "turnover"}
+    query: dict = {"type": "turnover", "orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
     inspections = await inspections_col.find(query).sort("createdAt", -1).to_list(length=1000)
