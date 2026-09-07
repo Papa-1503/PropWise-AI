@@ -16,6 +16,10 @@ substring match, not a full-text search engine. Consistent with that
 router's own stated reasoning: simple and instant is the right choice
 at this app's real scale, not a mismatched second search mechanism for
 one feature.
+
+MULTI-TENANCY: every article carries a real orgId. Previously any
+staff member of any organization could read, edit, or delete another
+organization's internal knowledge base articles.
 """
 from datetime import datetime, timezone
 
@@ -42,6 +46,7 @@ def serialize(article: dict) -> dict:
 @router.post("")
 async def create_article(payload: KbArticleCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["authorEmail"] = user.get("email")
     doc["createdAt"] = datetime.now(timezone.utc)
     doc["updatedAt"] = doc["createdAt"]
@@ -59,7 +64,7 @@ async def create_article(payload: KbArticleCreate, user: dict = Depends(require_
 
 @router.get("")
 async def list_articles(q: str | None = None, category: str | None = None, user: dict = Depends(require_staff)):
-    query = {}
+    query: dict = {"orgId": user["orgId"]}
     if category:
         query["category"] = category
     if q and len(q.strip()) >= 2:
@@ -75,7 +80,7 @@ async def list_articles(q: str | None = None, category: str | None = None, user:
 async def get_article(article_id: str, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(article_id):
         raise HTTPException(status_code=400, detail="Invalid article ID")
-    article = await kb_articles_col.find_one({"_id": ObjectId(article_id)})
+    article = await kb_articles_col.find_one({"_id": ObjectId(article_id), "orgId": user["orgId"]})
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
     return serialize(article)
@@ -91,7 +96,7 @@ async def update_article(article_id: str, payload: KbArticleUpdate, user: dict =
     updates["updatedAt"] = datetime.now(timezone.utc)
 
     result = await kb_articles_col.find_one_and_update(
-        {"_id": ObjectId(article_id)}, {"$set": updates}, return_document=True
+        {"_id": ObjectId(article_id), "orgId": user["orgId"]}, {"$set": updates}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Article not found")
@@ -109,7 +114,7 @@ async def update_article(article_id: str, payload: KbArticleUpdate, user: dict =
 async def delete_article(article_id: str, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(article_id):
         raise HTTPException(status_code=400, detail="Invalid article ID")
-    result = await kb_articles_col.delete_one({"_id": ObjectId(article_id)})
+    result = await kb_articles_col.delete_one({"_id": ObjectId(article_id), "orgId": user["orgId"]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Article not found")
 
