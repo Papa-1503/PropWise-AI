@@ -69,7 +69,7 @@ async def update_unit_status(property_id: str, unit_id: str, payload: UnitStatus
         raise HTTPException(status_code=404, detail="Property or unit not found")
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="unit_status_changed", target_type="unit", target_id=f"{property_id}/{unit_id}",
         details={"newStatus": payload.status},
     )
@@ -133,7 +133,7 @@ async def update_rent_rules(property_id: str, payload: RentRulesUpdate, user: di
         raise HTTPException(status_code=404, detail="Property not found")
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="rent_rules_updated", target_type="property", target_id=property_id,
         details=updates,
     )
@@ -159,7 +159,7 @@ async def update_compliance_rules(property_id: str, payload: ComplianceRulesUpda
         raise HTTPException(status_code=404, detail="Property not found")
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="compliance_rules_updated", target_type="property", target_id=property_id,
         details=updates,
     )
