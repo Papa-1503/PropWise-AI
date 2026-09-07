@@ -17,6 +17,9 @@ Genuinely reuses custom_fields.py's real _validate_value function
 rather than a second, parallel type-checking implementation - the
 same real value-type rules (number/boolean/text/date) apply here,
 imported directly, not copied.
+
+MULTI-TENANCY: every question carries a real orgId. Every query below
+is scoped by it.
 """
 from datetime import datetime, timezone
 
@@ -40,6 +43,7 @@ def serialize(doc: dict) -> dict:
 @router.post("/api/application-questions")
 async def create_question(payload: ApplicationQuestionCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["createdAt"] = datetime.now(timezone.utc)
     result = await application_questions_col.insert_one(doc)
     doc["_id"] = result.inserted_id
@@ -48,7 +52,7 @@ async def create_question(payload: ApplicationQuestionCreate, user: dict = Depen
 
 @router.get("/api/application-questions")
 async def list_questions(propertyId: str, user: dict = Depends(get_current_user)):
-    questions = await application_questions_col.find({"propertyId": propertyId}).sort("order", 1).to_list(length=100)
+    questions = await application_questions_col.find({"propertyId": propertyId, "orgId": user.get("orgId")}).sort("order", 1).to_list(length=100)
     return {"questions": [serialize(q) for q in questions]}
 
 
@@ -56,7 +60,7 @@ async def list_questions(propertyId: str, user: dict = Depends(get_current_user)
 async def delete_question(question_id: str, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(question_id):
         raise HTTPException(status_code=400, detail="Invalid question ID")
-    result = await application_questions_col.delete_one({"_id": ObjectId(question_id)})
+    result = await application_questions_col.delete_one({"_id": ObjectId(question_id), "orgId": user["orgId"]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Question not found")
     return {"deleted": True}
@@ -66,12 +70,12 @@ async def delete_question(question_id: str, user: dict = Depends(require_staff))
 async def submit_application_answers(screening_id: str, payload: ApplicationAnswerSubmit, user: dict = Depends(get_current_user)):
     if not ObjectId.is_valid(screening_id):
         raise HTTPException(status_code=400, detail="Invalid screening ID")
-    screening = await screening_col.find_one({"_id": ObjectId(screening_id)})
+    screening = await screening_col.find_one({"_id": ObjectId(screening_id), "orgId": user.get("orgId")})
     if not screening:
         raise HTTPException(status_code=404, detail="Screening request not found")
 
     property_id = screening.get("propertyId")
-    questions = await application_questions_col.find({"propertyId": property_id}).to_list(length=100)
+    questions = await application_questions_col.find({"propertyId": property_id, "orgId": user.get("orgId")}).to_list(length=100)
     questions_by_id = {str(q["_id"]): q for q in questions}
 
     validated_answers = {}
@@ -90,7 +94,7 @@ async def submit_application_answers(screening_id: str, payload: ApplicationAnsw
         raise HTTPException(status_code=400, detail=f"Missing required answers: {', '.join(missing_required)}")
 
     await screening_col.update_one(
-        {"_id": ObjectId(screening_id)},
+        {"_id": ObjectId(screening_id), "orgId": user.get("orgId")},
         {"$set": {"applicationAnswers": validated_answers, "applicationAnsweredAt": datetime.now(timezone.utc)}},
     )
     return {"screeningId": screening_id, "answers": validated_answers}
