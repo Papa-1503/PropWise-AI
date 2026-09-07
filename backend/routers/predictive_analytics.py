@@ -12,6 +12,11 @@ used for every other score in this app (applicant screening, vendor
 recommendation, ticket severity, tenant reliability) - never a
 black-box statistical model, and every score comes with the real
 factors that produced it, not just a bare number.
+
+MULTI-TENANCY: a real, previously-live gap closed here - the churn-
+risk and vacancy-forecast queries had no org filter at all, meaning
+either endpoint aggregated lease data across every organization in
+the database, not just the caller's own.
 """
 from datetime import datetime, timezone
 from collections import defaultdict
@@ -25,8 +30,8 @@ from routers.resident_360 import compute_reliability
 router = APIRouter(prefix="/api/predictive", tags=["predictive-analytics"])
 
 
-async def _churn_risk_for_lease(lease: dict, now: datetime) -> dict:
-    payments = await payments_col.find({"leaseId": str(lease["_id"])}).to_list(length=500)
+async def _churn_risk_for_lease(lease: dict, now: datetime, org_id: str) -> dict:
+    payments = await payments_col.find({"leaseId": str(lease["_id"]), "orgId": org_id}).to_list(length=500)
     reliability = compute_reliability(payments)
     reliability_score = reliability["score"] if reliability else 100
 
@@ -44,7 +49,7 @@ async def _churn_risk_for_lease(lease: dict, now: datetime) -> dict:
             expiry_risk = 0
 
     open_tickets = await tickets_col.count_documents({
-        "propertyId": lease.get("propertyId"), "unitId": lease.get("unitId"), "status": {"$ne": "done"},
+        "propertyId": lease.get("propertyId"), "unitId": lease.get("unitId"), "status": {"$ne": "done"}, "orgId": org_id,
     })
     ticket_risk = min(30, open_tickets * 10)
 
@@ -68,13 +73,13 @@ async def _churn_risk_for_lease(lease: dict, now: datetime) -> dict:
 
 @router.get("/churn-risk")
 async def churn_risk(propertyId: str | None = None, user: dict = Depends(require_staff)):
-    query = {"renewalStatus": {"$ne": "signed"}}
+    query: dict = {"renewalStatus": {"$ne": "signed"}, "orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
     leases = await leases_col.find(query).to_list(length=1000)
 
     now = datetime.now(timezone.utc)
-    results = [await _churn_risk_for_lease(lease, now) for lease in leases]
+    results = [await _churn_risk_for_lease(lease, now, user["orgId"]) for lease in leases]
     results.sort(key=lambda r: r["churnRiskScore"], reverse=True)
 
     return {"leases": results}
@@ -82,7 +87,7 @@ async def churn_risk(propertyId: str | None = None, user: dict = Depends(require
 
 @router.get("/vacancy-forecast")
 async def vacancy_forecast(propertyId: str | None = None, user: dict = Depends(require_staff)):
-    query = {}
+    query: dict = {"orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
     leases = await leases_col.find(query).to_list(length=5000)
