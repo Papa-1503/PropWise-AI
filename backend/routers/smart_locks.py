@@ -77,7 +77,7 @@ async def lock_unit(property_id: str, unit_id: str, user: dict = Depends(require
         raise HTTPException(status_code=502, detail=str(exc))
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="smart_lock_locked", target_type="unit", target_id=f"{property_id}/{unit_id}",
         details={},
     )
@@ -95,7 +95,7 @@ async def unlock_unit(property_id: str, unit_id: str, user: dict = Depends(requi
         raise HTTPException(status_code=502, detail=str(exc))
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="smart_lock_unlocked", target_type="unit", target_id=f"{property_id}/{unit_id}",
         details={},
     )
@@ -134,7 +134,7 @@ async def issue_access_code(property_id: str, unit_id: str, payload: AccessCodeC
     await smart_lock_access_log_col.insert_one(log_doc)
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="smart_lock_access_code_issued", target_type="unit", target_id=f"{property_id}/{unit_id}",
         details={"name": payload.name, "endsAt": payload.endsAt},
     )
@@ -174,7 +174,7 @@ async def revoke_access_code(access_code_id: str, user: dict = Depends(require_s
     )
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="smart_lock_access_code_revoked", target_type="access_code", target_id=access_code_id,
         details={},
     )
