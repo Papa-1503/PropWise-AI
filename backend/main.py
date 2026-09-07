@@ -16,7 +16,7 @@ import os
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from db import ensure_indexes, users_col, properties_col, organizations_col, leases_col, tickets_col, vendors_col, payments_col, bank_lines_col, inspections_col, documents_col, leads_col, screening_col, communications_col, packages_col, custom_field_definitions_col, custom_field_values_col, custom_roles_col, custom_reports_col, fixed_assets_col, capital_projects_col, budgets_col, workflows_col, on_call_shifts_col
+from db import ensure_indexes, users_col, properties_col, organizations_col, leases_col, tickets_col, vendors_col, payments_col, bank_lines_col, inspections_col, documents_col, leads_col, screening_col, communications_col, packages_col, custom_field_definitions_col, custom_field_values_col, custom_roles_col, custom_reports_col, fixed_assets_col, capital_projects_col, budgets_col, workflows_col, on_call_shifts_col, kb_articles_col, supplies_col, supply_orders_col, community_posts_col, repair_items_col, labor_rates_col
 from routers import inspections, maintenance, ai_copilot, properties, leases, dashboard, auth, ai_actions, vendors, email_test, payments, notifications, social
 from rate_limiter import limiter
 from routers import condition_reports
@@ -250,17 +250,6 @@ async def _migrate_legacy_data_to_default_org():
     user_result = await users_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
     property_result = await properties_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
 
-    # Leases don't get the flat org_id stamp - they get backfilled from
-    # THEIR OWN property's real orgId (looked up per property, since a
-    # multi-org install could in principle have leases spanning more
-    # than one - correct even though this app currently only has the
-    # one default org). Any lease whose property can't be found or has
-    # no orgId (a real, if rare, data-integrity gap) is left alone
-    # rather than guessed at - it stays invisible to the org-scoped
-    # queries until that's fixed directly, which is safer than
-    # silently assigning it to the wrong organization. This part now
-    # runs independently every startup regardless of whether the
-    # user/property backfill above found anything to do.
     leases_missing_org = await leases_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=10000)
     leases_updated = 0
     for lease in leases_missing_org:
@@ -273,10 +262,6 @@ async def _migrate_legacy_data_to_default_org():
             await leases_col.update_one({"_id": lease["_id"]}, {"$set": {"orgId": prop["orgId"]}})
             leases_updated += 1
 
-    # Same real per-property lookup as leases above, for the same real
-    # reason - a ticket's org is derived from its own real property,
-    # not assumed from the single default org, so this stays correct
-    # even in a hypothetical future with more than one real org.
     tickets_missing_org = await tickets_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=50000)
     tickets_updated = 0
     for ticket in tickets_missing_org:
@@ -289,18 +274,8 @@ async def _migrate_legacy_data_to_default_org():
             await tickets_col.update_one({"_id": ticket["_id"]}, {"$set": {"orgId": prop["orgId"]}})
             tickets_updated += 1
 
-    # Vendors have no propertyId of their own to derive an org from
-    # (a vendor can serve several properties) - unlike leases/tickets,
-    # this is a flat stamp into the SAME default org as users/
-    # properties above, not a per-record lookup. Correct for this
-    # app's real current state (exactly one organization exists);
-    # would need real per-vendor org attribution if this ever ran
-    # against a database that already had more than one.
     vendor_result = await vendors_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
 
-    # Same real per-property lookup as leases/tickets above - a
-    # charge's org is derived from its own real property, not assumed
-    # from the single default org.
     payments_missing_org = await payments_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=50000)
     payments_updated = 0
     for charge in payments_missing_org:
@@ -313,9 +288,6 @@ async def _migrate_legacy_data_to_default_org():
             await payments_col.update_one({"_id": charge["_id"]}, {"$set": {"orgId": prop["orgId"]}})
             payments_updated += 1
 
-    # Same real per-property lookup - a bank statement line's org is
-    # derived from its own real property, needed now that
-    # cash_flow_service.py's expense side filters by orgId.
     bank_lines_missing_org = await bank_lines_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=50000)
     bank_lines_updated = 0
     for line in bank_lines_missing_org:
@@ -328,9 +300,6 @@ async def _migrate_legacy_data_to_default_org():
             await bank_lines_col.update_one({"_id": line["_id"]}, {"$set": {"orgId": prop["orgId"]}})
             bank_lines_updated += 1
 
-    # Same real per-property lookup - an inspection's org is derived
-    # from its own real property, needed now that routers/
-    # inspections.py filters every query by orgId.
     inspections_missing_org = await inspections_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=50000)
     inspections_updated = 0
     for insp in inspections_missing_org:
@@ -343,12 +312,6 @@ async def _migrate_legacy_data_to_default_org():
             await inspections_col.update_one({"_id": insp["_id"]}, {"$set": {"orgId": prop["orgId"]}})
             inspections_updated += 1
 
-    # Documents have no propertyId of their own - unlike every other
-    # collection above, this one derives orgId via leaseId -> lease's
-    # own (already-migrated) orgId. A document genuinely can have no
-    # leaseId at all (see routers/documents.py's own module docstring)
-    # - those are left alone rather than guessed at, same principle as
-    # every other collection's unresolvable records above.
     documents_missing_org = await documents_col.find({"orgId": {"$exists": False}}, {"_id": 1, "leaseId": 1}).to_list(length=50000)
     documents_updated = 0
     for document in documents_missing_org:
@@ -360,13 +323,6 @@ async def _migrate_legacy_data_to_default_org():
             await documents_col.update_one({"_id": document["_id"]}, {"$set": {"orgId": lease["orgId"]}})
             documents_updated += 1
 
-    # Leads reference propertyId, but it can legitimately be absent (a
-    # general inquiry not tied to any specific building - see routers/
-    # leads.py's own module docstring for why that's a real, honest
-    # state, not a data-integrity gap). Only leads WITH a resolvable
-    # property get backfilled here; general-inquiry leads correctly
-    # stay orgId=None, matching the real behavior new leads of that
-    # same kind get going forward.
     leads_missing_org = await leads_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=50000)
     leads_updated = 0
     for lead in leads_missing_org:
@@ -380,8 +336,6 @@ async def _migrate_legacy_data_to_default_org():
             await leads_col.update_one({"_id": lead["_id"]}, {"$set": {"orgId": prop["orgId"]}})
             leads_updated += 1
 
-    # Same real per-property lookup as leads above - a screening
-    # request's org is derived from its own real property when set.
     screening_missing_org = await screening_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=50000)
     screening_updated = 0
     for req in screening_missing_org:
@@ -394,8 +348,6 @@ async def _migrate_legacy_data_to_default_org():
             await screening_col.update_one({"_id": req["_id"]}, {"$set": {"orgId": prop["orgId"]}})
             screening_updated += 1
 
-    # Same real per-property lookup as leases/tickets above - a logged
-    # communication's org is derived from its own real property.
     communications_missing_org = await communications_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=50000)
     communications_updated = 0
     for comm in communications_missing_org:
@@ -408,8 +360,6 @@ async def _migrate_legacy_data_to_default_org():
             await communications_col.update_one({"_id": comm["_id"]}, {"$set": {"orgId": prop["orgId"]}})
             communications_updated += 1
 
-    # Same real per-property lookup as leases/tickets above - a
-    # logged package's org is derived from its own real property.
     packages_missing_org = await packages_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=50000)
     packages_updated = 0
     for pkg in packages_missing_org:
@@ -422,18 +372,11 @@ async def _migrate_legacy_data_to_default_org():
             await packages_col.update_one({"_id": pkg["_id"]}, {"$set": {"orgId": prop["orgId"]}})
             packages_updated += 1
 
-    # Custom field definitions/values, custom roles, and saved reports
-    # have no propertyId of their own (they're not tied to a specific
-    # building) - same flat stamp into the default org as vendors
-    # above, correct for this app's real current state of exactly one
-    # organization.
     custom_field_defs_result = await custom_field_definitions_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
     custom_field_values_result = await custom_field_values_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
     custom_roles_result = await custom_roles_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
     custom_reports_result = await custom_reports_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
 
-    # Same real per-property lookup as leases/tickets above - a fixed
-    # asset's org is derived from its own real property.
     fixed_assets_missing_org = await fixed_assets_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=50000)
     fixed_assets_updated = 0
     for asset in fixed_assets_missing_org:
@@ -446,8 +389,6 @@ async def _migrate_legacy_data_to_default_org():
             await fixed_assets_col.update_one({"_id": asset["_id"]}, {"$set": {"orgId": prop["orgId"]}})
             fixed_assets_updated += 1
 
-    # Same real per-property lookup - a capital project's org is
-    # derived from its own real property.
     capital_projects_missing_org = await capital_projects_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=50000)
     capital_projects_updated = 0
     for project in capital_projects_missing_org:
@@ -460,8 +401,6 @@ async def _migrate_legacy_data_to_default_org():
             await capital_projects_col.update_one({"_id": project["_id"]}, {"$set": {"orgId": prop["orgId"]}})
             capital_projects_updated += 1
 
-    # Same real per-property lookup - a budget line's org is derived
-    # from its own real property.
     budgets_missing_org = await budgets_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=50000)
     budgets_updated = 0
     for budget in budgets_missing_org:
@@ -474,17 +413,8 @@ async def _migrate_legacy_data_to_default_org():
             await budgets_col.update_one({"_id": budget["_id"]}, {"$set": {"orgId": prop["orgId"]}})
             budgets_updated += 1
 
-    # Workflows have no propertyId of their own (a trigger isn't
-    # necessarily tied to one property) - same flat stamp into the
-    # default org as vendors/custom roles above.
     workflows_result = await workflows_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
 
-    # On-call shifts store propertyIds as a LIST, not a single
-    # propertyId - derives org from the first property in that list
-    # that actually resolves to one. Correct for this app's real
-    # current state (every property shares the same single org); a
-    # shift spanning properties in genuinely different orgs isn't a
-    # real scenario this app's data model expects.
     shifts_missing_org = await on_call_shifts_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyIds": 1}).to_list(length=50000)
     shifts_updated = 0
     for shift in shifts_missing_org:
@@ -496,7 +426,47 @@ async def _migrate_legacy_data_to_default_org():
                 shifts_updated += 1
                 break
 
-    if user_result.modified_count or property_result.modified_count or leases_updated or tickets_updated or vendor_result.modified_count or payments_updated or bank_lines_updated or inspections_updated or documents_updated or leads_updated or screening_updated or communications_updated or packages_updated or custom_field_defs_result.modified_count or custom_field_values_result.modified_count or custom_roles_result.modified_count or custom_reports_result.modified_count or fixed_assets_updated or capital_projects_updated or budgets_updated or workflows_result.modified_count or shifts_updated:
+    kb_result = await kb_articles_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
+    repair_items_result = await repair_items_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
+    labor_rates_result = await labor_rates_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
+
+    supplies_missing_org = await supplies_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=50000)
+    supplies_updated = 0
+    for supply in supplies_missing_org:
+        property_id = supply.get("propertyId")
+        if not property_id:
+            continue
+        query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+        prop = await properties_col.find_one({"_id": query_id}, {"orgId": 1})
+        if prop and prop.get("orgId"):
+            await supplies_col.update_one({"_id": supply["_id"]}, {"$set": {"orgId": prop["orgId"]}})
+            supplies_updated += 1
+
+    supply_orders_missing_org = await supply_orders_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=50000)
+    supply_orders_updated = 0
+    for order in supply_orders_missing_org:
+        property_id = order.get("propertyId")
+        if not property_id:
+            continue
+        query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+        prop = await properties_col.find_one({"_id": query_id}, {"orgId": 1})
+        if prop and prop.get("orgId"):
+            await supply_orders_col.update_one({"_id": order["_id"]}, {"$set": {"orgId": prop["orgId"]}})
+            supply_orders_updated += 1
+
+    community_posts_missing_org = await community_posts_col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=50000)
+    community_posts_updated = 0
+    for post in community_posts_missing_org:
+        property_id = post.get("propertyId")
+        if not property_id:
+            continue
+        query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+        prop = await properties_col.find_one({"_id": query_id}, {"orgId": 1})
+        if prop and prop.get("orgId"):
+            await community_posts_col.update_one({"_id": post["_id"]}, {"$set": {"orgId": prop["orgId"]}})
+            community_posts_updated += 1
+
+    if user_result.modified_count or property_result.modified_count or leases_updated or tickets_updated or vendor_result.modified_count or payments_updated or bank_lines_updated or inspections_updated or documents_updated or leads_updated or screening_updated or communications_updated or packages_updated or custom_field_defs_result.modified_count or custom_field_values_result.modified_count or custom_roles_result.modified_count or custom_reports_result.modified_count or fixed_assets_updated or capital_projects_updated or budgets_updated or workflows_result.modified_count or shifts_updated or kb_result.modified_count or repair_items_result.modified_count or labor_rates_result.modified_count or supplies_updated or supply_orders_updated or community_posts_updated:
         logger.info(
             f"[migration] Backfilled {user_result.modified_count} users, "
             f"{property_result.modified_count} properties, {leases_updated} leases, "
@@ -510,8 +480,11 @@ async def _migrate_legacy_data_to_default_org():
             f"{custom_roles_result.modified_count} custom roles, "
             f"{custom_reports_result.modified_count} custom reports, "
             f"{fixed_assets_updated} fixed assets, {capital_projects_updated} capital projects, "
-            f"{budgets_updated} budgets, {workflows_result.modified_count} workflows, and "
-            f"{shifts_updated} on-call shifts into default org {org_id}"
+            f"{budgets_updated} budgets, {workflows_result.modified_count} workflows, "
+            f"{shifts_updated} on-call shifts, {kb_result.modified_count} KB articles, "
+            f"{repair_items_result.modified_count} repair items, {labor_rates_result.modified_count} labor rates, "
+            f"{supplies_updated} supplies, {supply_orders_updated} supply orders, and "
+            f"{community_posts_updated} community posts into default org {org_id}"
         )
 
 
