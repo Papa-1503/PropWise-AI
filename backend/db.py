@@ -141,7 +141,17 @@ async def ensure_indexes():
     await supplies_col.create_index([("propertyId", 1), ("category", 1)])
     await supply_orders_col.create_index([("propertyId", 1), ("createdAt", -1)])
     await repair_items_col.create_index([("damageType", 1)])
-    await labor_rates_col.create_index([("category", 1)], unique=True)
+    # orgId included in the unique key, same real reason as
+    # custom_field_definitions_col's index above - without it, two
+    # different organizations could never both set a rate for the
+    # same category name (e.g. "plumbing"). Old index dropped first
+    # since MongoDB doesn't replace an index just because create_index
+    # is called with a different key spec.
+    try:
+        await labor_rates_col.drop_index("category_1")
+    except Exception:
+        pass
+    await labor_rates_col.create_index([("orgId", 1), ("category", 1)], unique=True)
     await fixed_assets_col.create_index([("propertyId", 1)])
     await capital_projects_col.create_index([("propertyId", 1), ("targetDate", 1)])
     # orgId included in the unique key - without it, this index would
