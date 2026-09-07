@@ -53,7 +53,7 @@ async def create_custom_role(payload: CustomRoleCreate, user: dict = Depends(req
     doc["_id"] = result.inserted_id
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="custom_role_created", target_type="custom_role", target_id=str(result.inserted_id),
         details={"name": payload.name, "permissions": payload.permissions},
     )
@@ -81,7 +81,7 @@ async def update_custom_role(role_id: str, payload: CustomRoleUpdate, user: dict
         raise HTTPException(status_code=404, detail="Role not found")
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="custom_role_updated", target_type="custom_role", target_id=role_id,
         details=updates,
     )
@@ -113,7 +113,7 @@ async def delete_custom_role(role_id: str, user: dict = Depends(require_staff)):
         raise HTTPException(status_code=404, detail="Role not found")
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="custom_role_deleted", target_type="custom_role", target_id=role_id,
     )
 
@@ -144,7 +144,7 @@ async def assign_custom_role(user_id: str, payload: StaffCustomRoleAssign, user:
         raise HTTPException(status_code=404, detail="Staff user not found")
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="staff_custom_role_assigned", target_type="user", target_id=user_id,
         details={"customRoleId": payload.customRoleId},
     )
