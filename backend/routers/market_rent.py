@@ -16,6 +16,11 @@ already applied elsewhere in this codebase to Twilio Voice/SMS.
 
 Staff-only. Never touches resident/tenant identity — same fair-housing-
 safe grounding pattern already used in routers/ai_actions.py.
+
+MULTI-TENANCY: every analysis carries a real orgId, and the property
+lookup is now scoped by it too - previously any propertyId (even one
+belonging to a different organization) would return real address/unit
+data.
 """
 import statistics
 import json
@@ -89,7 +94,7 @@ async def generate_recommendation_reasoning(stats: dict, current_rent: float | N
 async def market_rent_analysis(propertyId: str, unitId: str, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(propertyId):
         raise HTTPException(status_code=400, detail="Invalid property ID")
-    property_doc = await properties_col.find_one({"_id": ObjectId(propertyId)})
+    property_doc = await properties_col.find_one({"_id": ObjectId(propertyId), "orgId": user["orgId"]})
     if not property_doc:
         raise HTTPException(status_code=404, detail="Property not found")
     if not property_doc.get("address"):
@@ -133,7 +138,7 @@ async def market_rent_analysis(propertyId: str, unitId: str, user: dict = Depend
     recommended_rent, reasoning = await generate_recommendation_reasoning(stats, current_rent, len(comps))
 
     doc = {
-        "propertyId": propertyId, "unitId": unitId,
+        "propertyId": propertyId, "unitId": unitId, "orgId": user["orgId"],
         "compCount": len(comps), **stats,
         "currentRent": current_rent, "recommendedRent": recommended_rent,
         "recommendationReasoning": reasoning,
@@ -148,7 +153,7 @@ async def market_rent_analysis(propertyId: str, unitId: str, user: dict = Depend
 
 @router.get("/history")
 async def market_rent_history(propertyId: str, unitId: str, user: dict = Depends(require_staff)):
-    cursor = market_rent_analyses_col.find({"propertyId": propertyId, "unitId": unitId}).sort(
+    cursor = market_rent_analyses_col.find({"propertyId": propertyId, "unitId": unitId, "orgId": user["orgId"]}).sort(
         [("createdAt", -1), ("_id", -1)]
     ).limit(50)
     analyses = await cursor.to_list(length=50)
