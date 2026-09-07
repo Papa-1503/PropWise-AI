@@ -2,6 +2,17 @@
 Owner portal endpoints — read-only views scoped to properties an owner
 actually owns. Every query filters on ownerId == current user's id,
 not just role-gated, so one owner can never see another owner's data.
+Since an owner's own properties are already real-org-scoped (see
+routers/properties.py), this ownerId-based scoping is already
+multi-tenant-safe with no further changes needed for most endpoints
+here.
+
+BUG FIX: owner_cash_flow called cash_flow_service.cash_flow_trend()
+with its OLD signature (property_ids, months) - that function's
+signature changed earlier in the multi-tenancy pass to require org_id
+as its first parameter, and this call site was never updated,
+meaning every real call here was silently broken (passing property_ids
+where org_id was expected). Fixed to pass user["orgId"].
 """
 from fastapi import APIRouter, Depends
 from datetime import datetime, timezone
@@ -107,7 +118,7 @@ async def owner_cash_flow(months: int = 6, user: dict = Depends(require_owner)):
     endpoint here is (ownerId-filtered property_ids, never trusting a
     client-supplied property list)."""
     property_ids = await _owned_property_ids(user["id"])
-    months_data = await cash_flow_service.cash_flow_trend(property_ids, months)
+    months_data = await cash_flow_service.cash_flow_trend(user["orgId"], property_ids, months)
     return {"months": months_data}
 
 
