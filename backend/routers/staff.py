@@ -7,6 +7,11 @@ PATCH /api/staff/:id/properties            -> set which properties a staff membe
 
 Used to power auto-assignment of resident-submitted maintenance requests
 to the right tech for that building (see routers/maintenance.py).
+
+MULTI-TENANCY: this was a genuinely severe gap before this pass - any
+staff member of any organization could list, reassign properties for,
+or even set the phone number of ANY other organization's staff
+member, since none of these endpoints checked orgId at all.
 """
 from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
@@ -27,7 +32,7 @@ def serialize(user: dict) -> dict:
 
 @router.get("")
 async def list_staff(user: dict = Depends(require_staff)):
-    cursor = users_col.find({"role": "staff"})
+    cursor = users_col.find({"role": "staff", "orgId": user["orgId"]})
     staff = await cursor.to_list(length=200)
     return {"staff": [serialize(s) for s in staff]}
 
@@ -38,7 +43,7 @@ async def set_staff_properties(user_id: str, payload: StaffPropertyAssignment, u
         raise HTTPException(status_code=400, detail="Invalid user ID")
 
     result = await users_col.find_one_and_update(
-        {"_id": ObjectId(user_id), "role": "staff"},
+        {"_id": ObjectId(user_id), "role": "staff", "orgId": user["orgId"]},
         {"$set": {"assignedProperties": payload.assignedProperties}},
         return_document=True,
     )
@@ -66,7 +71,7 @@ async def set_staff_phone(user_id: str, payload: StaffPhoneUpdate, user: dict = 
         raise HTTPException(status_code=400, detail="Invalid user ID")
 
     result = await users_col.find_one_and_update(
-        {"_id": ObjectId(user_id), "role": "staff"},
+        {"_id": ObjectId(user_id), "role": "staff", "orgId": user["orgId"]},
         {"$set": {"phone": payload.phone}},
         return_document=True,
     )
