@@ -10,6 +10,12 @@ POST   /api/smart-locks/{property_id}/units/{unit_id}/unlock        -> unlock th
 POST   /api/smart-locks/{property_id}/units/{unit_id}/access-code   -> issue a real, time-bounded PIN
 GET    /api/smart-locks/{property_id}/units/{unit_id}/access-log    -> real audit trail of codes issued
 DELETE /api/smart-locks/access-codes/{access_code_id}                -> revoke a code early
+
+MULTI-TENANCY: a real, physical-security-relevant gap closed here -
+_find_unit_device_id now requires and checks orgId before returning
+any device, so staff can never lock, unlock, or issue an access code
+on a DIFFERENT organization's real smart lock by supplying its real
+property/unit IDs. The access log is scoped by orgId too.
 """
 from datetime import datetime, timezone
 
@@ -26,11 +32,15 @@ from seam_service import SeamNotConfigured, SeamApiError
 router = APIRouter(prefix="/api/smart-locks", tags=["smart-locks"])
 
 
-async def _find_unit_device_id(property_id: str, unit_id: str) -> str:
+async def _find_unit_device_id(property_id: str, unit_id: str, org_id: str) -> str:
     """Looks up the real Seam device_id linked to a unit, or raises a
-    clear, honest error — never silently proceeds with no device."""
+    clear, honest error — never silently proceeds with no device.
+    org_id is required and checked against the property - a real,
+    physical-security-relevant gap otherwise: without it, staff could
+    lock, unlock, or issue an access code on a DIFFERENT organization's
+    unit simply by supplying its real property/unit IDs."""
     query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
-    property_doc = await properties_col.find_one({"_id": query_id})
+    property_doc = await properties_col.find_one({"_id": query_id, "orgId": org_id})
     if not property_doc:
         raise HTTPException(status_code=404, detail="Property not found")
     unit = next((u for u in property_doc.get("units", []) if u.get("unitId") == unit_id), None)
@@ -58,7 +68,7 @@ async def list_devices(user: dict = Depends(require_staff)):
 
 @router.post("/{property_id}/units/{unit_id}/lock")
 async def lock_unit(property_id: str, unit_id: str, user: dict = Depends(require_staff)):
-    device_id = await _find_unit_device_id(property_id, unit_id)
+    device_id = await _find_unit_device_id(property_id, unit_id, user["orgId"])
     try:
         result = await seam_service.lock_door_async(device_id)
     except SeamNotConfigured as exc:
@@ -76,7 +86,7 @@ async def lock_unit(property_id: str, unit_id: str, user: dict = Depends(require
 
 @router.post("/{property_id}/units/{unit_id}/unlock")
 async def unlock_unit(property_id: str, unit_id: str, user: dict = Depends(require_staff)):
-    device_id = await _find_unit_device_id(property_id, unit_id)
+    device_id = await _find_unit_device_id(property_id, unit_id, user["orgId"])
     try:
         result = await seam_service.unlock_door_async(device_id)
     except SeamNotConfigured as exc:
@@ -100,7 +110,7 @@ async def issue_access_code(property_id: str, unit_id: str, payload: AccessCodeC
     on failure: a rejected Seam call raises before anything is
     recorded, so the log only ever reflects codes that actually made
     it onto a real lock."""
-    device_id = await _find_unit_device_id(property_id, unit_id)
+    device_id = await _find_unit_device_id(property_id, unit_id, user["orgId"])
     try:
         result = await seam_service.create_access_code_async(
             device_id, payload.name, payload.code, payload.startsAt, payload.endsAt,
@@ -112,7 +122,7 @@ async def issue_access_code(property_id: str, unit_id: str, payload: AccessCodeC
 
     access_code = result.get("access_code", {})
     log_doc = {
-        "propertyId": property_id, "unitId": unit_id,
+        "propertyId": property_id, "unitId": unit_id, "orgId": user["orgId"],
         "deviceId": device_id,
         "seamAccessCodeId": access_code.get("access_code_id"),
         "name": payload.name,
@@ -135,7 +145,7 @@ async def issue_access_code(property_id: str, unit_id: str, payload: AccessCodeC
 @router.get("/{property_id}/units/{unit_id}/access-log")
 async def get_access_log(property_id: str, unit_id: str, user: dict = Depends(require_staff)):
     cursor = smart_lock_access_log_col.find(
-        {"propertyId": property_id, "unitId": unit_id}
+        {"propertyId": property_id, "unitId": unit_id, "orgId": user["orgId"]}
     ).sort("createdAt", -1).limit(100)
     entries = await cursor.to_list(length=100)
     for e in entries:
@@ -159,7 +169,7 @@ async def revoke_access_code(access_code_id: str, user: dict = Depends(require_s
         raise HTTPException(status_code=502, detail=str(exc))
 
     await smart_lock_access_log_col.update_one(
-        {"seamAccessCodeId": access_code_id},
+        {"seamAccessCodeId": access_code_id, "orgId": user["orgId"]},
         {"$set": {"revoked": True, "revokedAt": datetime.now(timezone.utc), "revokedBy": user.get("email")}},
     )
 
