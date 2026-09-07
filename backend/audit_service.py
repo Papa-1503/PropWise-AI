@@ -31,6 +31,7 @@ async def log_action(
     target_type: str,
     target_id: str | None = None,
     details: dict | None = None,
+    org_id: str | None = None,
 ):
     """Records one audit entry. Never raises - a logging failure should
     never break the actual operation it's describing (same principle as
@@ -38,7 +39,19 @@ async def log_action(
     the action that triggered it). If the audit write itself fails,
     that's a real problem worth knowing about, but it belongs in
     server logs, not as a 500 surfaced to whoever just, say,
-    successfully deleted a lease."""
+    successfully deleted a lease.
+
+    org_id is a new, optional parameter (multi-tenancy pass) - callers
+    should pass user["orgId"] going forward so entries can be scoped
+    per-organization in routers/audit.py. NOT YET RETROFITTED to every
+    existing call site (37 calls across 16 routers as of this pass) -
+    stated honestly rather than claimed done: those older calls still
+    write orgId=None, and routers/audit.py's query only ever matches
+    entries that DO have a real orgId, so those older, unretrofitted
+    entries simply won't appear in the org-scoped view until their
+    call sites are updated too. Safer to have some real history
+    temporarily invisible than to guess at which org an unstamped
+    entry belongs to."""
     try:
         await audit_log_col.insert_one({
             "actorId": actor_id,
@@ -47,6 +60,7 @@ async def log_action(
             "targetType": target_type,
             "targetId": target_id,
             "details": details or {},
+            "orgId": org_id,
             "createdAt": datetime.now(timezone.utc),
         })
     except Exception as exc:
