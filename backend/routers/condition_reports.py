@@ -17,6 +17,9 @@ comparison-specific prompt.
 Fails honest, not silent: if no baseline photo exists for a room yet, the
 tenant's photo is still stored (so staff has it), but no score is
 fabricated — the response says plainly that no baseline is set.
+
+MULTI-TENANCY: every baseline photo and condition report carries a
+real orgId. Every query below is scoped by it.
 """
 import os
 import json
@@ -90,8 +93,8 @@ async def set_baseline_photo(
     url = _save_photo(f"rentflow/baseline/{propertyId}/{unitId}", file)
 
     result = await unit_baseline_photos_col.find_one_and_update(
-        {"propertyId": propertyId, "unitId": unitId, "room": room},
-        {"$set": {"propertyId": propertyId, "unitId": unitId, "room": room,
+        {"propertyId": propertyId, "unitId": unitId, "room": room, "orgId": user["orgId"]},
+        {"$set": {"propertyId": propertyId, "unitId": unitId, "room": room, "orgId": user["orgId"],
                    "url": url, "setAt": datetime.now(timezone.utc), "setBy": user.get("email")}},
         upsert=True, return_document=True,
     )
@@ -120,10 +123,10 @@ async def submit_condition_report(
 
     current_url = _save_photo(f"rentflow/condition-reports/{property_id}/{unit_id}", file)
 
-    baseline = await unit_baseline_photos_col.find_one({"propertyId": property_id, "unitId": unit_id, "room": room})
+    baseline = await unit_baseline_photos_col.find_one({"propertyId": property_id, "unitId": unit_id, "room": room, "orgId": user["orgId"]})
     if not baseline:
         doc = {
-            "propertyId": property_id, "unitId": unit_id, "room": room,
+            "propertyId": property_id, "unitId": unit_id, "room": room, "orgId": user["orgId"],
             "currentPhotoUrl": current_url, "baselinePhotoUrl": None,
             "conditionScore": None, "summary": "No move-in baseline photo is set for this room yet — "
                                                  "photo saved for staff review, but no comparison could be made.",
@@ -144,7 +147,7 @@ async def submit_condition_report(
 
     if not current_encoded or not baseline_encoded or not os.getenv("ANTHROPIC_API_KEY"):
         doc = {
-            "propertyId": property_id, "unitId": unit_id, "room": room,
+            "propertyId": property_id, "unitId": unit_id, "room": room, "orgId": user["orgId"],
             "currentPhotoUrl": current_url, "baselinePhotoUrl": baseline["url"],
             "conditionScore": None,
             "summary": "Photo saved, but automatic comparison isn't available right now — a staff member will review manually.",
@@ -195,7 +198,7 @@ If nothing has changed, return conditionScore: 100 and an empty changes list."""
         changes = []
 
     doc = {
-        "propertyId": property_id, "unitId": unit_id, "room": room,
+        "propertyId": property_id, "unitId": unit_id, "room": room, "orgId": user["orgId"],
         "currentPhotoUrl": current_url, "baselinePhotoUrl": baseline["url"],
         "conditionScore": condition_score, "summary": summary, "changes": changes,
         "createdAt": datetime.now(timezone.utc),
@@ -208,7 +211,7 @@ If nothing has changed, return conditionScore: 100 and an empty changes list."""
 
 @router.get("")
 async def list_condition_reports(propertyId: str | None = None, unitId: str | None = None, user: dict = Depends(require_staff)):
-    query: dict = {}
+    query: dict = {"orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
     if unitId:
@@ -279,7 +282,7 @@ async def unit_health_score(propertyId: str, unitId: str, user: dict = Depends(r
     setup, unlike the market rent tool which is naturally an occasional-
     use lookup."""
     cursor = condition_reports_col.find(
-        {"propertyId": propertyId, "unitId": unitId, "conditionScore": {"$ne": None}}
+        {"propertyId": propertyId, "unitId": unitId, "conditionScore": {"$ne": None}, "orgId": user["orgId"]}
     ).sort("createdAt", -1).limit(500)
     reports = await cursor.to_list(length=500)
     result = compute_health_score(reports)
@@ -300,7 +303,7 @@ async def property_health_score(propertyId: str, user: dict = Depends(require_st
     5-room unit shouldn't get 5x the influence of a 1-room unit on the
     property number."""
     cursor = condition_reports_col.find(
-        {"propertyId": propertyId, "conditionScore": {"$ne": None}}
+        {"propertyId": propertyId, "conditionScore": {"$ne": None}, "orgId": user["orgId"]}
     ).sort("createdAt", -1).limit(5000)
     reports = await cursor.to_list(length=5000)
 
