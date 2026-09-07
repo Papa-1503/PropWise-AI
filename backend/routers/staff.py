@@ -51,7 +51,7 @@ async def set_staff_properties(user_id: str, payload: StaffPropertyAssignment, u
         raise HTTPException(status_code=404, detail="Staff user not found")
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="staff_properties_assigned", target_type="user", target_id=user_id,
         details={"assignedProperties": payload.assignedProperties},
     )
