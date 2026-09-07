@@ -209,7 +209,7 @@ async def upload_screening_document(
     )
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="screening_document_uploaded", target_type="screening_request", target_id=screening_id,
         details={"docType": docType},
     )
@@ -313,7 +313,7 @@ An empty flags list is a valid, expected, and good outcome."""
     )
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="screening_documents_analyzed", target_type="screening_request", target_id=screening_id,
         details={"flagCount": len(flags)},
     )
