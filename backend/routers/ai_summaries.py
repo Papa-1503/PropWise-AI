@@ -12,6 +12,8 @@ all real, already-stored fields, not fabricated. Grounded the same way
 every other AI feature in this app is: the real data is handed to the
 model as context, with an explicit instruction never to invent a fact
 not present in it.
+
+MULTI-TENANCY: the ticket lookup is scoped by orgId.
 """
 import os
 
@@ -32,7 +34,7 @@ MODEL = "claude-sonnet-4-6"
 async def summarize_ticket(ticket_id: str, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(ticket_id):
         raise HTTPException(status_code=400, detail="Invalid ticket ID")
-    ticket = await tickets_col.find_one({"_id": ObjectId(ticket_id)})
+    ticket = await tickets_col.find_one({"_id": ObjectId(ticket_id), "orgId": user["orgId"]})
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
 
