@@ -178,7 +178,17 @@ async def ensure_indexes():
     await market_rent_analyses_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])
     await tour_slots_col.create_index([("propertyId", 1), ("startTime", 1)])
     await smart_lock_access_log_col.create_index([("propertyId", 1), ("unitId", 1), ("createdAt", -1)])
-    await accounting_connections_col.create_index("provider", unique=True)
+    # orgId included in the unique key - without it, this index would
+    # allow only ONE organization total to ever connect QuickBooks
+    # across the entire deployment (a real, serious gap - see
+    # routers/accounting.py's own docstring). Old index dropped first
+    # since MongoDB doesn't replace an index just because create_index
+    # is called with a different key spec.
+    try:
+        await accounting_connections_col.drop_index("provider_1")
+    except Exception:
+        pass
+    await accounting_connections_col.create_index([("provider", 1), ("orgId", 1)], unique=True)
     await tour_bookings_col.create_index("slotId")
     await scheduler_health_col.create_index("scheduler", unique=True)
     await renewal_checkins_col.create_index([("leaseId", 1), ("promptedAt", -1)])
