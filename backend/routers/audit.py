@@ -23,12 +23,14 @@ not something this pass claims to have already done.
 
 MULTI-TENANCY: this query now filters by orgId - a real, previously-
 live gap this pass closes: any staff member of any organization could
-read every other organization's audit log. NOT YET COMPLETE:
-log_action's own org_id parameter (audit_service.py) is new and has
-not been retrofitted to most of its 37 existing call sites across 16
-routers, so most historical and even some current entries still write
-with no orgId at all and will not appear here until those call sites
-are updated - a real, honestly-stated remaining gap.
+read every other organization's audit log. RETROFIT COMPLETE:
+log_action's org_id parameter (audit_service.py) is now passed by
+every real call site across the app (leases.py, payments.py,
+properties.py, staff.py, oncall.py, kb.py, budgets.py, supplies.py,
+screening.py, custom_roles.py, rubs.py, smart_locks.py, accounting.py,
+deposit_pipeline.py, telephony.py, vendor_acceptance.py), so this
+query correctly reflects real audit history, not just entries logged
+after the parameter existed.
 """
 from datetime import datetime
 
