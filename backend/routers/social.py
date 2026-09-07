@@ -11,6 +11,13 @@ POST /api/social/posts/:id/comments       -> add a comment
 
 A "shoutout" post (taggedUserId set) also fires a real notification to
 the tagged colleague — see notifications_service.py.
+
+MULTI-TENANCY: a real, serious gap fixed here - this internal staff
+feed previously had NO org scoping anywhere. Any staff member of any
+organization could read every other organization's internal posts and
+comments, tag (and notify) a different organization's staff member in
+a shoutout, or react to/comment on posts that weren't theirs to see at
+all.
 """
 from datetime import datetime, timezone
 
@@ -40,14 +47,14 @@ async def serialize_post(p: dict, current_user_id: str) -> dict:
 async def list_colleagues(user: dict = Depends(require_staff)):
     """Lists staff accounts for the shoutout picker — id/name only, no
     sensitive fields."""
-    cursor = users_col.find({"role": "staff"}, {"name": 1})
+    cursor = users_col.find({"role": "staff", "orgId": user["orgId"]}, {"name": 1})
     colleagues = await cursor.to_list(length=200)
     return {"colleagues": [{"id": str(c["_id"]), "name": c["name"]} for c in colleagues if c["_id"] != ObjectId(user["id"])]}
 
 
 @router.get("")
 async def list_posts(category: str | None = None, user: dict = Depends(require_staff)):
-    query = {}
+    query: dict = {"orgId": user["orgId"]}
     if category:
         query["category"] = category
     cursor = posts_col.find(query).sort("createdAt", -1).limit(100)
@@ -64,12 +71,17 @@ async def create_post(payload: PostCreate, user: dict = Depends(require_staff)):
     if payload.taggedUserId:
         if not ObjectId.is_valid(payload.taggedUserId):
             raise HTTPException(status_code=400, detail="Invalid taggedUserId")
-        tagged = await users_col.find_one({"_id": ObjectId(payload.taggedUserId)})
+        # Real ownership check, not just scoping: without orgId here, a
+        # staff member could tag - and trigger a real notification to -
+        # a DIFFERENT organization's staff member simply by supplying
+        # that user's real user ID.
+        tagged = await users_col.find_one({"_id": ObjectId(payload.taggedUserId), "orgId": user["orgId"]})
         if not tagged:
             raise HTTPException(status_code=404, detail="Tagged user not found")
         tagged_user_name = tagged["name"]
 
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["authorId"] = user["id"]
     doc["authorName"] = user["name"]
     doc["taggedUserName"] = tagged_user_name
@@ -94,7 +106,7 @@ async def create_post(payload: PostCreate, user: dict = Depends(require_staff)):
 async def toggle_reaction(post_id: str, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(post_id):
         raise HTTPException(status_code=400, detail="Invalid post ID")
-    post = await posts_col.find_one({"_id": ObjectId(post_id)})
+    post = await posts_col.find_one({"_id": ObjectId(post_id), "orgId": user["orgId"]})
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
@@ -112,7 +124,7 @@ async def toggle_reaction(post_id: str, user: dict = Depends(require_staff)):
 async def list_comments(post_id: str, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(post_id):
         raise HTTPException(status_code=400, detail="Invalid post ID")
-    post = await posts_col.find_one({"_id": ObjectId(post_id)}, {"comments": 1})
+    post = await posts_col.find_one({"_id": ObjectId(post_id), "orgId": user["orgId"]}, {"comments": 1})
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
     comments = post.get("comments", [])
@@ -126,7 +138,7 @@ async def list_comments(post_id: str, user: dict = Depends(require_staff)):
 async def add_comment(post_id: str, payload: CommentCreate, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(post_id):
         raise HTTPException(status_code=400, detail="Invalid post ID")
-    post = await posts_col.find_one({"_id": ObjectId(post_id)})
+    post = await posts_col.find_one({"_id": ObjectId(post_id), "orgId": user["orgId"]})
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
