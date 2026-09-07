@@ -200,7 +200,7 @@ async def send_reminder_now(charge_id: str, user: dict = Depends(require_staff))
         {"$set": {"lastReminderSentAt": now, "reminderSent": True}},
     )
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="payment_reminder_sent_manually", target_type="payment", target_id=charge_id,
         details=result,
     )
@@ -235,7 +235,7 @@ async def record_payment(charge_id: str, payload: PaymentRecord, user: dict = De
     )
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="payment_recorded", target_type="payment", target_id=charge_id,
         details={"amountPaid": payload.amountPaid, "method": payload.method},
     )
