@@ -23,17 +23,29 @@ historical dataset to validate a prediction like that against yet
 (the same honest limitation renewal_risk_service.py's own docstring
 already states). These are "what does this change do to my numbers
 today," not "what will residents actually do."
+
+MULTI-TENANCY: org_id is now a required parameter on every function
+here - previously, the "whole portfolio" case (no specific building
+selected) queried every property across every organization in the
+database combined, a real cross-tenant leak this app had before this
+pass.
 """
 from datetime import datetime, timezone
 
 from db import properties_col, payments_col
 
 
-async def _get_units(property_ids: list[str] | None) -> list[dict]:
+async def _get_units(org_id: str, property_ids: list[str] | None) -> list[dict]:
     """Every real unit in scope, each tagged with its own propertyId/
     propertyName so results can report both portfolio totals and a
-    per-property breakdown."""
-    query = {"_id": {"$in": property_ids}} if property_ids else {}
+    per-property breakdown. org_id is required and always applied -
+    without it, the "whole portfolio" case (no specific building
+    selected, the natural way to ask a portfolio-wide what-if
+    question) would aggregate every organization's units combined, a
+    real cross-tenant leak this app had before this pass."""
+    query: dict = {"orgId": org_id}
+    if property_ids:
+        query["_id"] = {"$in": property_ids}
     props = await properties_col.find(query).to_list(length=500)
     units = []
     for p in props:
@@ -42,8 +54,8 @@ async def _get_units(property_ids: list[str] | None) -> list[dict]:
     return units
 
 
-async def _delinquent_balance(property_ids: list[str] | None) -> float:
-    query: dict = {"dueDate": {"$lt": datetime.now(timezone.utc)}}
+async def _delinquent_balance(org_id: str, property_ids: list[str] | None) -> float:
+    query: dict = {"dueDate": {"$lt": datetime.now(timezone.utc)}, "orgId": org_id}
     if property_ids:
         query["propertyId"] = {"$in": property_ids}
     charges = await payments_col.find(query).to_list(length=2000)
@@ -54,11 +66,11 @@ async def _delinquent_balance(property_ids: list[str] | None) -> float:
     ), 2)
 
 
-async def portfolio_snapshot(property_ids: list[str] | None = None) -> dict:
+async def portfolio_snapshot(org_id: str, property_ids: list[str] | None = None) -> dict:
     """Real current-state baseline: occupancy, rent roll, delinquency -
     for the AI to answer plain "what's my current state" questions, or
     as the "before" side of a what-if without a separate call."""
-    units = await _get_units(property_ids)
+    units = await _get_units(org_id, property_ids)
     occupied = [u for u in units if u.get("status") == "occupied"]
     vacant = [u for u in units if u.get("status") == "vacant"]
     hold = [u for u in units if u.get("status") == "maintenance_hold"]
@@ -74,18 +86,18 @@ async def portfolio_snapshot(property_ids: list[str] | None = None) -> dict:
         "occupancyPct": round(len(occupied) / len(units) * 100, 1) if units else 0,
         "currentMonthlyRentRoll": monthly_rent_roll,
         "averageOccupiedRent": avg_rent,
-        "currentDelinquentBalance": await _delinquent_balance(property_ids),
+        "currentDelinquentBalance": await _delinquent_balance(org_id, property_ids),
     }
 
 
-async def simulate_rent_increase(property_ids: list[str] | None, percent: float) -> dict:
+async def simulate_rent_increase(org_id: str, property_ids: list[str] | None, percent: float) -> dict:
     """Real per-unit math: new_rent = current_rent * (1 + percent/100)
     for every currently OCCUPIED unit in scope. Vacant units are
     reported separately, not included in the rent-roll delta — raising
     the asking rent on an empty unit doesn't change today's rent roll
     the way raising an occupied unit's rent does; it only affects
     future listing price, a different, separate decision."""
-    units = await _get_units(property_ids)
+    units = await _get_units(org_id, property_ids)
     occupied = [u for u in units if u.get("status") == "occupied"]
     vacant_count = sum(1 for u in units if u.get("status") == "vacant")
 
@@ -117,7 +129,7 @@ async def simulate_rent_increase(property_ids: list[str] | None, percent: float)
     }
 
 
-async def simulate_occupancy_change(property_ids: list[str] | None, unit_delta: int) -> dict:
+async def simulate_occupancy_change(org_id: str, property_ids: list[str] | None, unit_delta: int) -> dict:
     """Real revenue impact of unit_delta more (positive) or fewer
     (negative) occupied units, at the scope's real current average
     occupied rent - e.g. unit_delta=-3 answers "what if 3 more units
@@ -127,7 +139,7 @@ async def simulate_occupancy_change(property_ids: list[str] | None, unit_delta: 
     for a unit that isn't occupied yet (a vacant unit's own listed
     rent, if any, may be stale or not yet set - the average of what's
     actually being collected today is the more honest estimate)."""
-    units = await _get_units(property_ids)
+    units = await _get_units(org_id, property_ids)
     occupied = [u for u in units if u.get("status") == "occupied"]
     vacant_count = sum(1 for u in units if u.get("status") == "vacant")
 
