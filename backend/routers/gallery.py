@@ -2,6 +2,9 @@
 Property-wide photo gallery — units, amenities, common areas. Reuses the
 same Cloudinary upload pattern as inspection photos (see inspections.py)
 so storage stays durable across redeploys.
+
+MULTI-TENANCY: every photo carries a real orgId. Every query below is
+scoped by it.
 """
 import os
 import uuid
@@ -53,6 +56,7 @@ async def upload_gallery_photo(
 
     doc = {
         "propertyId": property_id,
+        "orgId": user["orgId"],
         "url": result["secure_url"],
         "caption": caption,
         "uploadedBy": user.get("name", "Staff"),
@@ -64,7 +68,7 @@ async def upload_gallery_photo(
 
 @router.get("/{property_id}/photos")
 async def list_gallery_photos(property_id: str, user: dict = Depends(get_current_user)):
-    cursor = gallery_photos_col.find({"propertyId": property_id}).sort("uploadedAt", -1).limit(200)
+    cursor = gallery_photos_col.find({"propertyId": property_id, "orgId": user.get("orgId")}).sort("uploadedAt", -1).limit(200)
     results = await cursor.to_list(length=200)
     for r in results:
         r["_id"] = str(r["_id"])
@@ -75,7 +79,7 @@ async def list_gallery_photos(property_id: str, user: dict = Depends(get_current
 async def delete_gallery_photo(photo_id: str, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(photo_id):
         raise HTTPException(status_code=400, detail="Invalid photo ID")
-    result = await gallery_photos_col.delete_one({"_id": ObjectId(photo_id)})
+    result = await gallery_photos_col.delete_one({"_id": ObjectId(photo_id), "orgId": user["orgId"]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Photo not found")
     return {"status": "deleted"}
