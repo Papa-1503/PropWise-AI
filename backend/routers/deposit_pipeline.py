@@ -274,7 +274,7 @@ async def _do_generate_deposit_statement(inspection_id: str, actor_id: str, acto
     result = await documents_col.insert_one(doc)
 
     await log_action(
-        actor_id=actor_id, actor_email=actor_email,
+        actor_id=actor_id, actor_email=actor_email, org_id=org_id,
         action="deposit_statement_generated" if status == "sent" else "deposit_statement_draft_auto_generated",
         target_type="lease", target_id=computed["leaseId"],
         details={"finalReturnAmount": computed["finalReturnAmount"], "totalBillable": computed["totalBillable"], "status": status},
@@ -371,7 +371,7 @@ async def finalize_deposit_statement(document_id: str, user: dict = Depends(requ
     )
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="deposit_statement_finalized", target_type="lease", target_id=doc.get("leaseId"),
         details={},
     )
