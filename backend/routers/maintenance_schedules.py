@@ -10,6 +10,9 @@ every 90 days") for a property (or a specific unit). The actual "check
 what's due and create tickets" logic lives separately (see the daily
 check endpoint added in a later step) — this router is just CRUD for
 defining what the recurring tasks are.
+
+MULTI-TENANCY: every schedule carries a real orgId. Every query below
+is scoped by it.
 """
 from datetime import datetime, timezone
 
@@ -34,7 +37,9 @@ def serialize(schedule: dict) -> dict:
 
 @router.get("")
 async def list_schedules(propertyId: str | None = None, user: dict = Depends(require_staff)):
-    query = {"propertyId": propertyId} if propertyId else {}
+    query: dict = {"orgId": user["orgId"]}
+    if propertyId:
+        query["propertyId"] = propertyId
     cursor = maintenance_schedules_col.find(query).sort("nextDueDate", 1)
     schedules = await cursor.to_list(length=500)
     return {"schedules": [serialize(s) for s in schedules]}
@@ -43,6 +48,7 @@ async def list_schedules(propertyId: str | None = None, user: dict = Depends(req
 @router.post("")
 async def create_schedule(payload: MaintenanceScheduleCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["nextDueDate"] = parse_date_utc(doc["nextDueDate"])
     doc["lastCompletedDate"] = None
     doc["active"] = True
@@ -62,7 +68,7 @@ async def update_schedule(schedule_id: str, payload: MaintenanceScheduleUpdate, 
     if "nextDueDate" in updates:
         updates["nextDueDate"] = parse_date_utc(updates["nextDueDate"])
     result = await maintenance_schedules_col.find_one_and_update(
-        {"_id": ObjectId(schedule_id)}, {"$set": updates}, return_document=True
+        {"_id": ObjectId(schedule_id), "orgId": user["orgId"]}, {"$set": updates}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Schedule not found")
