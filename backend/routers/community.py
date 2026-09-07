@@ -21,6 +21,11 @@ Only staff can post the 'announcement' category - a resident being
 able to post something that displays as an official building
 announcement would be a real, meaningful trust problem, not just a
 cosmetic one. Enforced in code below, not just documented.
+
+MULTI-TENANCY: every post carries a real orgId, checked alongside
+propertyId everywhere - a real gap otherwise, since staff can pass a
+propertyId explicitly and could have viewed or posted to a different
+organization's board with a real property ID.
 """
 from datetime import datetime, timezone
 
@@ -64,7 +69,11 @@ async def list_posts(propertyId: str | None = None, user: dict = Depends(get_cur
     property_id = _resolve_property_id(user, propertyId)
     if not property_id:
         raise HTTPException(status_code=400, detail="No property to show a board for.")
-    cursor = community_posts_col.find({"propertyId": property_id}).sort("createdAt", -1).limit(200)
+    # orgId included alongside propertyId - real defense, not just
+    # scoping: staff can pass a propertyId explicitly, so without this
+    # a staff member supplying a DIFFERENT organization's real
+    # propertyId would otherwise see that org's board.
+    cursor = community_posts_col.find({"propertyId": property_id, "orgId": user["orgId"]}).sort("createdAt", -1).limit(200)
     posts = await cursor.to_list(length=200)
     return {"posts": [await serialize_post(p, str(user["id"])) for p in posts]}
 
@@ -80,6 +89,7 @@ async def create_post(payload: CommunityPostCreate, propertyId: str | None = Non
 
     doc = {
         "propertyId": property_id,
+        "orgId": user["orgId"],
         "authorId": str(user["id"]),
         "authorName": user.get("name", "Resident"),
         "content": payload.content,
@@ -97,7 +107,7 @@ async def create_post(payload: CommunityPostCreate, propertyId: str | None = Non
 async def toggle_reaction(post_id: str, user: dict = Depends(get_current_user)):
     if not ObjectId.is_valid(post_id):
         raise HTTPException(status_code=400, detail="Invalid post ID")
-    post = await community_posts_col.find_one({"_id": ObjectId(post_id)})
+    post = await community_posts_col.find_one({"_id": ObjectId(post_id), "orgId": user["orgId"]})
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
@@ -116,7 +126,7 @@ async def toggle_reaction(post_id: str, user: dict = Depends(get_current_user)):
 async def list_comments(post_id: str, user: dict = Depends(get_current_user)):
     if not ObjectId.is_valid(post_id):
         raise HTTPException(status_code=400, detail="Invalid post ID")
-    post = await community_posts_col.find_one({"_id": ObjectId(post_id)}, {"comments": 1})
+    post = await community_posts_col.find_one({"_id": ObjectId(post_id), "orgId": user["orgId"]}, {"comments": 1})
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
     comments = post.get("comments", [])
@@ -130,7 +140,7 @@ async def list_comments(post_id: str, user: dict = Depends(get_current_user)):
 async def add_comment(post_id: str, payload: CommunityCommentCreate, user: dict = Depends(get_current_user)):
     if not ObjectId.is_valid(post_id):
         raise HTTPException(status_code=400, detail="Invalid post ID")
-    post = await community_posts_col.find_one({"_id": ObjectId(post_id)})
+    post = await community_posts_col.find_one({"_id": ObjectId(post_id), "orgId": user["orgId"]})
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
