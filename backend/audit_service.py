@@ -41,17 +41,14 @@ async def log_action(
     server logs, not as a 500 surfaced to whoever just, say,
     successfully deleted a lease.
 
-    org_id is a new, optional parameter (multi-tenancy pass) - callers
-    should pass user["orgId"] going forward so entries can be scoped
-    per-organization in routers/audit.py. NOT YET RETROFITTED to every
-    existing call site (37 calls across 16 routers as of this pass) -
-    stated honestly rather than claimed done: those older calls still
-    write orgId=None, and routers/audit.py's query only ever matches
-    entries that DO have a real orgId, so those older, unretrofitted
-    entries simply won't appear in the org-scoped view until their
-    call sites are updated too. Safer to have some real history
-    temporarily invisible than to guess at which org an unstamped
-    entry belongs to."""
+    org_id is a real, required-in-practice parameter (multi-tenancy
+    pass) - every real call site across the app (leases.py, payments.py,
+    properties.py, staff.py, oncall.py, kb.py, budgets.py, supplies.py,
+    screening.py, custom_roles.py, rubs.py, smart_locks.py,
+    accounting.py, deposit_pipeline.py, telephony.py,
+    vendor_acceptance.py) now passes it, so routers/audit.py's
+    org-scoped query correctly returns this app's real audit history,
+    not just entries created after this parameter was added."""
     try:
         await audit_log_col.insert_one({
             "actorId": actor_id,
