@@ -5,6 +5,9 @@ lines (manually today, bulk-import later) and match them against charges
 already recorded in payments.py. This surfaces discrepancies between what
 the bank shows and what the ledger shows, without pretending to have a
 live Plaid/bank-feed connection.
+
+MULTI-TENANCY: every bank line carries a real orgId. Every query below
+is scoped by it.
 """
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends
@@ -30,6 +33,7 @@ def serialize(doc: dict) -> dict:
 @router.post("/lines")
 async def create_bank_line(payload: BankLineCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["date"] = parse_date_utc(doc["date"])
     doc["createdAt"] = datetime.now(timezone.utc)
     result = await bank_lines_col.insert_one(doc)
@@ -43,7 +47,7 @@ async def list_bank_lines(
     matched: bool | None = None,
     user: dict = Depends(require_staff),
 ):
-    query = {}
+    query: dict = {"orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
     if matched is True:
@@ -60,7 +64,7 @@ async def list_bank_lines(
 async def suggest_matches(line_id: str, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(line_id):
         raise HTTPException(status_code=400, detail="Invalid bank line ID")
-    line = await bank_lines_col.find_one({"_id": ObjectId(line_id)})
+    line = await bank_lines_col.find_one({"_id": ObjectId(line_id), "orgId": user["orgId"]})
     if not line:
         raise HTTPException(status_code=404, detail="Bank line not found")
 
@@ -70,6 +74,7 @@ async def suggest_matches(line_id: str, user: dict = Depends(require_staff)):
     candidates = await payments_col.find({
         "propertyId": line["propertyId"],
         "amountDue": line["amount"],
+        "orgId": user["orgId"],
     }).to_list(length=100)
 
     results = []
@@ -92,12 +97,12 @@ async def match_bank_line(line_id: str, payload: BankLineMatch, user: dict = Dep
     if not ObjectId.is_valid(payload.chargeId):
         raise HTTPException(status_code=400, detail="Invalid charge ID")
 
-    charge = await payments_col.find_one({"_id": ObjectId(payload.chargeId)})
+    charge = await payments_col.find_one({"_id": ObjectId(payload.chargeId), "orgId": user["orgId"]})
     if not charge:
         raise HTTPException(status_code=404, detail="Charge not found")
 
     result = await bank_lines_col.find_one_and_update(
-        {"_id": ObjectId(line_id)},
+        {"_id": ObjectId(line_id), "orgId": user["orgId"]},
         {"$set": {"matchedChargeId": payload.chargeId}},
         return_document=True,
     )
@@ -111,7 +116,7 @@ async def unmatch_bank_line(line_id: str, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(line_id):
         raise HTTPException(status_code=400, detail="Invalid bank line ID")
     result = await bank_lines_col.find_one_and_update(
-        {"_id": ObjectId(line_id)},
+        {"_id": ObjectId(line_id), "orgId": user["orgId"]},
         {"$set": {"matchedChargeId": None}},
         return_document=True,
     )
