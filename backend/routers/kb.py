@@ -54,7 +54,7 @@ async def create_article(payload: KbArticleCreate, user: dict = Depends(require_
     doc["_id"] = result.inserted_id
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="kb_article_created", target_type="kb_article", target_id=str(result.inserted_id),
         details={"title": payload.title, "category": payload.category},
     )
@@ -102,7 +102,7 @@ async def update_article(article_id: str, payload: KbArticleUpdate, user: dict =
         raise HTTPException(status_code=404, detail="Article not found")
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="kb_article_updated", target_type="kb_article", target_id=article_id,
         details={"fields": [k for k in updates if k != "updatedAt"]},
     )
@@ -119,7 +119,7 @@ async def delete_article(article_id: str, user: dict = Depends(require_staff)):
         raise HTTPException(status_code=404, detail="Article not found")
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="kb_article_deleted", target_type="kb_article", target_id=article_id,
     )
 
