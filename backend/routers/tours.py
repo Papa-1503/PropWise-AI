@@ -19,6 +19,12 @@ moment. That's enforced with a single atomic Mongo update
 (find_one_and_update with a bookedCount < capacity filter baked into
 the query itself) — not a read-then-write, which would have a real
 race condition window between the two steps.
+
+MULTI-TENANCY: every slot carries a real orgId, stamped from the
+creating staff member. list_open_slots and book_slot stay public and
+scoped by propertyId only (their existing, deliberate design), but
+the resulting lead and booking records inherit the slot's own real
+orgId, so staff-facing views of them stay correctly scoped too.
 """
 from datetime import datetime, timezone
 
@@ -45,6 +51,7 @@ def serialize(doc: dict) -> dict:
 @router.post("/slots")
 async def create_slot(payload: TourSlotCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["startTime"] = parse_date_utc(doc["startTime"])
     doc["endTime"] = parse_date_utc(doc["endTime"])
     if doc["endTime"] <= doc["startTime"]:
@@ -97,11 +104,11 @@ async def book_slot(slot_id: str, payload: TourBookingCreate):
 
     # Auto-create (or link to an existing) lead so a booked tour feeds
     # the real leads pipeline rather than living in a separate system.
-    lead = await leads_col.find_one({"email": payload.email, "propertyId": slot["propertyId"]})
+    lead = await leads_col.find_one({"email": payload.email, "propertyId": slot["propertyId"], "orgId": slot.get("orgId")})
     if not lead:
         lead_doc = {
             "name": payload.name, "email": payload.email, "phone": payload.phone,
-            "propertyId": slot["propertyId"], "unitId": slot.get("unitId"),
+            "propertyId": slot["propertyId"], "unitId": slot.get("unitId"), "orgId": slot.get("orgId"),
             "message": f"Booked a tour for {slot['startTime'].isoformat()}",
             "status": "new", "touredAt": None, "createdAt": datetime.now(timezone.utc),
         }
@@ -111,7 +118,7 @@ async def book_slot(slot_id: str, payload: TourBookingCreate):
         lead_id = str(lead["_id"])
 
     booking_doc = {
-        "slotId": slot_id, "propertyId": slot["propertyId"], "unitId": slot.get("unitId"),
+        "slotId": slot_id, "propertyId": slot["propertyId"], "unitId": slot.get("unitId"), "orgId": slot.get("orgId"),
         "name": payload.name, "email": payload.email, "phone": payload.phone,
         "leadId": lead_id, "bookedAt": datetime.now(timezone.utc),
     }
@@ -130,7 +137,7 @@ async def book_slot(slot_id: str, payload: TourBookingCreate):
 
 @router.get("/bookings")
 async def list_bookings(propertyId: str | None = None, slotId: str | None = None, user: dict = Depends(require_staff)):
-    query: dict = {}
+    query: dict = {"orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
     if slotId:
@@ -144,7 +151,7 @@ async def list_bookings(propertyId: str | None = None, slotId: str | None = None
 async def delete_slot(slot_id: str, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(slot_id):
         raise HTTPException(status_code=400, detail="Invalid slot ID")
-    slot = await tour_slots_col.find_one({"_id": ObjectId(slot_id)})
+    slot = await tour_slots_col.find_one({"_id": ObjectId(slot_id), "orgId": user["orgId"]})
     if not slot:
         raise HTTPException(status_code=404, detail="Tour slot not found")
     if slot.get("bookedCount", 0) > 0:
