@@ -73,6 +73,7 @@ async def accept_vendor_dispatch(token: str):
     await log_action(
         actor_id="vendor_public_link", actor_email="",
         action="vendor_accepted_dispatch", target_type="ticket", target_id=str(ticket["_id"]),
+        org_id=ticket.get("orgId"),
         details={"vendorId": ticket.get("assignedVendorId"), "vendorName": ticket.get("assignedVendorName")},
     )
 
