@@ -17,6 +17,9 @@ until empty" alerts instead of a fixed threshold) is real, valuable
 follow-on work, deliberately not attempted here - it needs genuine
 order history to compute a consumption rate from, which doesn't exist
 yet until Phase 1 has been in real use for a while.
+
+MULTI-TENANCY: every supply and order carries a real orgId. Every
+query below is scoped by it.
 """
 from datetime import datetime, timezone
 
@@ -44,6 +47,7 @@ def serialize(doc: dict) -> dict:
 @router.post("")
 async def create_supply(payload: SupplyCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     doc["createdAt"] = datetime.now(timezone.utc)
     doc["updatedAt"] = doc["createdAt"]
     result = await supplies_col.insert_one(doc)
@@ -53,7 +57,7 @@ async def create_supply(payload: SupplyCreate, user: dict = Depends(require_staf
 
 @router.get("")
 async def list_supplies(propertyId: str | None = None, category: str | None = None, user: dict = Depends(require_staff)):
-    query = {}
+    query: dict = {"orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
     if category:
@@ -70,7 +74,7 @@ async def list_low_stock(propertyId: str | None = None, user: dict = Depends(req
     fields on the same document (quantity vs reorderThreshold), not a
     fixed value - a real MongoDB query, not filtered client-side after
     fetching everything."""
-    query = {"$expr": {"$lte": ["$quantity", "$reorderThreshold"]}}
+    query: dict = {"$expr": {"$lte": ["$quantity", "$reorderThreshold"]}, "orgId": user["orgId"]}
     if propertyId:
         query["propertyId"] = propertyId
     cursor = supplies_col.find(query).sort("quantity", 1)
@@ -88,7 +92,7 @@ async def update_supply(supply_id: str, payload: SupplyUpdate, user: dict = Depe
     updates["updatedAt"] = datetime.now(timezone.utc)
 
     result = await supplies_col.find_one_and_update(
-        {"_id": ObjectId(supply_id)}, {"$set": updates}, return_document=True
+        {"_id": ObjectId(supply_id), "orgId": user["orgId"]}, {"$set": updates}, return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Supply not found")
@@ -99,7 +103,7 @@ async def update_supply(supply_id: str, payload: SupplyUpdate, user: dict = Depe
 async def adjust_supply_quantity(supply_id: str, payload: SupplyQuantityAdjust, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(supply_id):
         raise HTTPException(status_code=400, detail="Invalid supply ID")
-    supply = await supplies_col.find_one({"_id": ObjectId(supply_id)})
+    supply = await supplies_col.find_one({"_id": ObjectId(supply_id), "orgId": user["orgId"]})
     if not supply:
         raise HTTPException(status_code=404, detail="Supply not found")
 
@@ -108,7 +112,7 @@ async def adjust_supply_quantity(supply_id: str, payload: SupplyQuantityAdjust, 
         raise HTTPException(status_code=400, detail=f"Adjustment would make quantity negative (currently {supply.get('quantity', 0)}).")
 
     result = await supplies_col.find_one_and_update(
-        {"_id": ObjectId(supply_id)},
+        {"_id": ObjectId(supply_id), "orgId": user["orgId"]},
         {"$set": {"quantity": new_quantity, "updatedAt": datetime.now(timezone.utc)}},
         return_document=True,
     )
@@ -132,13 +136,13 @@ async def order_supply(supply_id: str, user: dict = Depends(require_staff)):
     matching this app's established pattern everywhere else."""
     if not ObjectId.is_valid(supply_id):
         raise HTTPException(status_code=400, detail="Invalid supply ID")
-    supply = await supplies_col.find_one({"_id": ObjectId(supply_id)})
+    supply = await supplies_col.find_one({"_id": ObjectId(supply_id), "orgId": user["orgId"]})
     if not supply:
         raise HTTPException(status_code=404, detail="Supply not found")
     if not supply.get("vendorId"):
         raise HTTPException(status_code=400, detail="This supply has no vendor linked to order from.")
 
-    vendor = await vendors_col.find_one({"_id": ObjectId(supply["vendorId"])}) if ObjectId.is_valid(supply["vendorId"]) else None
+    vendor = await vendors_col.find_one({"_id": ObjectId(supply["vendorId"]), "orgId": user["orgId"]}) if ObjectId.is_valid(supply["vendorId"]) else None
     if not vendor:
         raise HTTPException(status_code=404, detail="Linked vendor not found")
     vendor_email = vendor.get("email")
@@ -153,6 +157,7 @@ async def order_supply(supply_id: str, user: dict = Depends(require_staff)):
 
     order_doc = {
         "propertyId": supply["propertyId"],
+        "orgId": user["orgId"],
         "supplyId": supply_id,
         "supplyName": supply.get("name"),
         "vendorId": supply["vendorId"],
