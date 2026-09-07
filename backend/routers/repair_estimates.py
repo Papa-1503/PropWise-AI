@@ -25,6 +25,13 @@ GET  /api/inspections/{id}/items/{item_id}/estimate
                                         -> the real per-flagged-item estimate,
                                            matched to a repair_items entry by
                                            damageType == the item's description
+
+MULTI-TENANCY: every catalog entry and labor rate carries a real
+orgId - each organization gets its own real repair-item catalog and
+labor rates, not a shared global one. The labor_rates_col unique
+index (see db.py) now includes orgId too, so two organizations can
+each set their own real rate for the same category name without
+colliding.
 """
 from urllib.parse import quote_plus
 
@@ -47,7 +54,7 @@ def build_retailer_links(search_query: str) -> dict:
 
 
 async def compute_estimate(repair_item: dict) -> dict:
-    rate_doc = await labor_rates_col.find_one({"category": repair_item["category"]})
+    rate_doc = await labor_rates_col.find_one({"category": repair_item["category"], "orgId": repair_item["orgId"]})
     hourly_rate = rate_doc["hourlyRate"] if rate_doc else 0
     labor_cost = round(repair_item["laborHours"] * hourly_rate, 2)
     return {
@@ -69,6 +76,7 @@ def serialize(doc: dict) -> dict:
 @router.post("/api/repair-items")
 async def create_repair_item(payload: RepairItemCreate, user: dict = Depends(require_staff)):
     doc = payload.model_dump()
+    doc["orgId"] = user["orgId"]
     result = await repair_items_col.insert_one(doc)
     doc["_id"] = result.inserted_id
     return serialize(doc)
@@ -76,7 +84,7 @@ async def create_repair_item(payload: RepairItemCreate, user: dict = Depends(req
 
 @router.get("/api/repair-items")
 async def list_repair_items(user: dict = Depends(require_staff)):
-    items = await repair_items_col.find({}).sort("damageType", 1).to_list(length=500)
+    items = await repair_items_col.find({"orgId": user["orgId"]}).sort("damageType", 1).to_list(length=500)
     return {"repairItems": [serialize(i) for i in items]}
 
 
@@ -84,7 +92,7 @@ async def list_repair_items(user: dict = Depends(require_staff)):
 async def get_repair_item_estimate(repair_item_id: str, user: dict = Depends(require_staff)):
     if not ObjectId.is_valid(repair_item_id):
         raise HTTPException(status_code=400, detail="Invalid repair item ID")
-    repair_item = await repair_items_col.find_one({"_id": ObjectId(repair_item_id)})
+    repair_item = await repair_items_col.find_one({"_id": ObjectId(repair_item_id), "orgId": user["orgId"]})
     if not repair_item:
         raise HTTPException(status_code=404, detail="Repair item not found")
     return await compute_estimate(repair_item)
@@ -96,7 +104,7 @@ async def set_labor_rate(payload: LaborRateCreate, user: dict = Depends(require_
     should replace the existing rate for that category, not create a
     second, ambiguous one."""
     await labor_rates_col.update_one(
-        {"category": payload.category},
+        {"category": payload.category, "orgId": user["orgId"]},
         {"$set": {"hourlyRate": payload.hourlyRate}},
         upsert=True,
     )
@@ -105,7 +113,7 @@ async def set_labor_rate(payload: LaborRateCreate, user: dict = Depends(require_
 
 @router.get("/api/labor-rates")
 async def list_labor_rates(user: dict = Depends(require_staff)):
-    rates = await labor_rates_col.find({}).sort("category", 1).to_list(length=100)
+    rates = await labor_rates_col.find({"orgId": user["orgId"]}).sort("category", 1).to_list(length=100)
     return {"laborRates": [{"category": r["category"], "hourlyRate": r["hourlyRate"]} for r in rates]}
 
 
@@ -121,7 +129,7 @@ async def get_flagged_item_estimate(inspection_id: str, item_id: str, user: dict
     an error, just no estimate available yet."""
     if not ObjectId.is_valid(inspection_id):
         raise HTTPException(status_code=400, detail="Invalid inspection ID")
-    inspection = await inspections_col.find_one({"_id": ObjectId(inspection_id)})
+    inspection = await inspections_col.find_one({"_id": ObjectId(inspection_id), "orgId": user["orgId"]})
     if not inspection:
         raise HTTPException(status_code=404, detail="Inspection not found")
 
@@ -135,7 +143,7 @@ async def get_flagged_item_estimate(inspection_id: str, item_id: str, user: dict
     if not description:
         return {"matched": False, "reason": "This item has no description to match against the repair catalog."}
 
-    repair_item = await repair_items_col.find_one({"damageType": {"$regex": description, "$options": "i"}})
+    repair_item = await repair_items_col.find_one({"damageType": {"$regex": description, "$options": "i"}, "orgId": user["orgId"]})
     if not repair_item:
         return {"matched": False, "reason": "No matching repair catalog entry found for this damage type yet."}
 
