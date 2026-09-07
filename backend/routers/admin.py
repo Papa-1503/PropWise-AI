@@ -44,6 +44,22 @@ or reconfigure any external cron service accordingly.
                            $50 / 5 days if a property hasn't set its own),
                            notifies the resident, marks lateFeeApplied so
                            it's only ever charged once per charge.
+
+MULTI-TENANCY: NOT YET DONE for most of this file - a real, large,
+systemic gap. Every scheduled check below (_do_late_fee_check,
+_do_escalation_check, _do_autopay_check, _do_lease_renewal_check,
+_do_payment_reminder_check, _do_vendor_sla_check,
+_do_vendor_compliance_check, _do_renewal_risk_check) queries its
+target collection with NO org filter at all, since these run on a
+timer (see main.py's schedulers) rather than being triggered by an
+authenticated user with an orgId to scope by. Properly fixing this
+means looping per-organization inside each check, a substantial
+rewrite of 8 separate functions - real, valuable, and NOT attempted
+in this pass beyond the one ticket-creation fix below (stamping
+orgId from the schedule onto the ticket _do_maintenance_check
+creates, so that specific ticket is at least visible afterward).
+Flagged honestly as the single largest remaining gap in the
+multi-tenancy pass, not silently left unstated.
 """
 import os
 from datetime import datetime, timezone, timedelta
@@ -115,6 +131,7 @@ async def _do_maintenance_check():
         ticket = {
             "propertyId": schedule["propertyId"],
             "unitId": schedule.get("unitId"),
+            "orgId": schedule.get("orgId"),
             "title": schedule["title"],
             "priority": "normal",
             "source": "preventive_maintenance",
