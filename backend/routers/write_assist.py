@@ -18,6 +18,8 @@ Always returns a draft for review, never sends anything directly -
 the actual send still goes through the existing, separate
 communications.py endpoints once staff review and (if needed) edit
 the draft. This is a drafting aid, not an autonomous send.
+
+MULTI-TENANCY: the lease lookup is scoped by orgId.
 """
 import os
 
@@ -50,7 +52,7 @@ async def draft_message(payload: WriteAssistRequest, user: dict = Depends(requir
     if payload.leaseId:
         if not ObjectId.is_valid(payload.leaseId):
             raise HTTPException(status_code=400, detail="Invalid lease ID")
-        lease = await leases_col.find_one({"_id": ObjectId(payload.leaseId)})
+        lease = await leases_col.find_one({"_id": ObjectId(payload.leaseId), "orgId": user["orgId"]})
         if not lease:
             raise HTTPException(status_code=404, detail="Lease not found")
         context_text = (
