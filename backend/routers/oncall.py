@@ -127,7 +127,7 @@ async def create_shift(payload: OnCallShiftCreate, user: dict = Depends(require_
     doc["_id"] = result.inserted_id
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="on_call_shift_created", target_type="on_call_shift", target_id=str(result.inserted_id),
         details={"assignedUserId": payload.userId, "propertyIds": payload.propertyIds},
     )
@@ -181,7 +181,7 @@ async def delete_shift(shift_id: str, user: dict = Depends(require_staff)):
         raise HTTPException(status_code=404, detail="Shift not found")
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="on_call_shift_deleted", target_type="on_call_shift", target_id=shift_id,
     )
 
