@@ -45,21 +45,15 @@ or reconfigure any external cron service accordingly.
                            notifies the resident, marks lateFeeApplied so
                            it's only ever charged once per charge.
 
-MULTI-TENANCY: NOT YET DONE for most of this file - a real, large,
-systemic gap. Every scheduled check below (_do_late_fee_check,
-_do_escalation_check, _do_autopay_check, _do_lease_renewal_check,
-_do_payment_reminder_check, _do_vendor_sla_check,
-_do_vendor_compliance_check, _do_renewal_risk_check) queries its
-target collection with NO org filter at all, since these run on a
-timer (see main.py's schedulers) rather than being triggered by an
-authenticated user with an orgId to scope by. Properly fixing this
-means looping per-organization inside each check, a substantial
-rewrite of 8 separate functions - real, valuable, and NOT attempted
-in this pass beyond the one ticket-creation fix below (stamping
-orgId from the schedule onto the ticket _do_maintenance_check
-creates, so that specific ticket is at least visible afterward).
-Flagged honestly as the single largest remaining gap in the
-multi-tenancy pass, not silently left unstated.
+MULTI-TENANCY: DONE, this pass - every scheduled check below now
+loops per organization (see _all_org_ids), scoping each iteration's
+query by that org's real orgId, rather than querying its target
+collection globally across every organization combined. This was
+previously the single largest multi-tenancy gap in this app: late
+fees, escalations, autopay charges, lease renewal reminders, payment
+reminders, vendor SLA dispatch, vendor compliance alerts, and
+renewal-risk outreach could all have acted on, or leaked data
+between, every organization sharing this deployment.
 """
 import os
 from datetime import datetime, timezone, timedelta
@@ -67,7 +61,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
 
-from db import maintenance_schedules_col, tickets_col, users_col, leases_col, payments_col, properties_col, ai_actions_col, late_notices_col, scheduler_health_col, vendors_col
+from db import maintenance_schedules_col, tickets_col, users_col, leases_col, payments_col, properties_col, ai_actions_col, late_notices_col, scheduler_health_col, vendors_col, organizations_col
 from models import AdminKeyPayload
 from stripe_service import (
     StripeNotConfigured,
@@ -92,6 +86,21 @@ def check_key(key: str):
         raise HTTPException(status_code=500, detail="SEED_SECRET is not configured")
     if key != expected:
         raise HTTPException(status_code=403, detail="Invalid key")
+
+
+async def _all_org_ids() -> list[str]:
+    """Every real organization in the deployment - the loop boundary
+    every scheduled check below now runs across. MULTI-TENANCY: this
+    is the real fix for the single largest gap this app's multi-tenant
+    layer had - every scheduled check in this file previously queried
+    its target collection with no org filter at all, since these run
+    on a timer rather than being triggered by an authenticated user
+    with an orgId to scope by. Each check now loops over every real
+    organization and scopes its own query to just that org per
+    iteration, so one org's late fees/escalations/reminders/etc. can
+    never be computed against another org's data."""
+    orgs = await organizations_col.find({}, {"_id": 1}).to_list(length=1000)
+    return [str(o["_id"]) for o in orgs]
 
 
 @router.post("/seed-demo")
@@ -121,60 +130,67 @@ async def _do_maintenance_check():
     _do_late_fee_check/_do_escalation_check, so the real background
     scheduler (main.py) can call this directly without an admin key —
     the key exists to gate the external HTTP trigger, not to gate the
-    check itself from running automatically."""
+    check itself from running automatically.
+
+    MULTI-TENANCY: loops per organization - see _all_org_ids's own
+    docstring for why."""
     now = datetime.now(timezone.utc)
-    cursor = maintenance_schedules_col.find({"active": True, "nextDueDate": {"$lte": now}})
-    due_schedules = await cursor.to_list(length=500)
-
     created = []
-    for schedule in due_schedules:
-        ticket = {
-            "propertyId": schedule["propertyId"],
-            "unitId": schedule.get("unitId"),
-            "orgId": schedule.get("orgId"),
-            "title": schedule["title"],
-            "priority": "normal",
-            "source": "preventive_maintenance",
-            "sourceInspectionId": None,
-            "room": None,
-            "assignee": None,
-            "category": schedule.get("category", "general"),
-            "status": "open",
-            "createdAt": now,
-        }
+    schedules_checked = 0
 
-        assigned_tech = await users_col.find_one({"role": "staff", "assignedProperties": schedule["propertyId"]})
-        if assigned_tech:
-            ticket["assignee"] = assigned_tech.get("email")
+    for org_id in await _all_org_ids():
+        cursor = maintenance_schedules_col.find({"active": True, "nextDueDate": {"$lte": now}, "orgId": org_id})
+        due_schedules = await cursor.to_list(length=500)
+        schedules_checked += len(due_schedules)
 
-        result = await tickets_col.insert_one(ticket)
-        created.append(str(result.inserted_id))
+        for schedule in due_schedules:
+            ticket = {
+                "propertyId": schedule["propertyId"],
+                "unitId": schedule.get("unitId"),
+                "orgId": org_id,
+                "title": schedule["title"],
+                "priority": "normal",
+                "source": "preventive_maintenance",
+                "sourceInspectionId": None,
+                "room": None,
+                "assignee": None,
+                "category": schedule.get("category", "general"),
+                "status": "open",
+                "createdAt": now,
+            }
 
-        if assigned_tech:
-            await notifications_service.notify_user(
-                str(assigned_tech["_id"]),
-                type="general",
-                title=f"Preventive maintenance due: {schedule['title']}",
-                body=f"Property {schedule['propertyId']} — scheduled task now due",
-                link=f"/maintenance/{str(result.inserted_id)}",
+            assigned_tech = await users_col.find_one({"role": "staff", "assignedProperties": schedule["propertyId"], "orgId": org_id})
+            if assigned_tech:
+                ticket["assignee"] = assigned_tech.get("email")
+
+            result = await tickets_col.insert_one(ticket)
+            created.append(str(result.inserted_id))
+
+            if assigned_tech:
+                await notifications_service.notify_user(
+                    str(assigned_tech["_id"]),
+                    type="general",
+                    title=f"Preventive maintenance due: {schedule['title']}",
+                    body=f"Property {schedule['propertyId']} — scheduled task now due",
+                    link=f"/maintenance/{str(result.inserted_id)}",
+                )
+            else:
+                await notifications_service.notify_all_staff(
+                    type="general",
+                    title=f"Preventive maintenance due: {schedule['title']}",
+                    body=f"Property {schedule['propertyId']} — no tech assigned to this property yet",
+                    link=f"/maintenance/{str(result.inserted_id)}",
+                )
+
+            next_due = now + timedelta(days=schedule["intervalDays"])
+            await maintenance_schedules_col.update_one(
+                {"_id": schedule["_id"]},
+                {"$set": {"lastCompletedDate": now, "nextDueDate": next_due}},
             )
-        else:
-            await notifications_service.notify_all_staff(
-                type="general",
-                title=f"Preventive maintenance due: {schedule['title']}",
-                body=f"Property {schedule['propertyId']} — no tech assigned to this property yet",
-                link=f"/maintenance/{str(result.inserted_id)}",
-            )
-
-        next_due = now + timedelta(days=schedule["intervalDays"])
-        await maintenance_schedules_col.update_one(
-            {"_id": schedule["_id"]},
-            {"$set": {"lastCompletedDate": now, "nextDueDate": next_due}},
-        )
 
     return {
         "status": "done",
-        "schedulesChecked": len(due_schedules),
+        "schedulesChecked": schedules_checked,
         "ticketsCreated": len(created),
         "ticketIds": created,
     }
@@ -191,56 +207,64 @@ async def _do_lease_renewal_check(windowDays: int = 60):
     _do_late_fee_check, so the background scheduler can call this
     directly. Defaults to the same 60-day window the endpoint already
     used, so scheduled runs behave identically to how this was already
-    being triggered manually."""
+    being triggered manually.
+
+    MULTI-TENANCY: loops per organization - see _all_org_ids's own
+    docstring for why."""
     now = datetime.now(timezone.utc)
     cutoff = now + timedelta(days=windowDays)
-    cursor = leases_col.find({
-        "renewalStatus": "not_sent",
-        "endDate": {"$gte": now, "$lte": cutoff},
-    })
-    expiring_leases = await cursor.to_list(length=1000)
-
     notified = []
-    for lease in expiring_leases:
-        property_id = lease.get("propertyId")
-        unit_id = lease.get("unitId")
-        end_date_str = lease["endDate"].strftime("%B %d, %Y") if isinstance(lease.get("endDate"), datetime) else str(lease.get("endDate"))
+    leases_checked = 0
 
-        if property_id and unit_id:
-            incentive_note = ""
-            if lease.get("renewalIncentiveStatus") == "offered":
-                incentive_note = f" We're offering: {lease.get('renewalIncentiveDescription', '')}"
-            await notifications_service.notify_unit_resident(
-                property_id, unit_id,
-                type="lease_expiring",
-                title="Your lease is expiring soon",
-                body=f"Your lease ends {end_date_str} — contact us about renewal options.{incentive_note}",
-                link="/payments",
-            )
+    for org_id in await _all_org_ids():
+        cursor = leases_col.find({
+            "renewalStatus": "not_sent",
+            "endDate": {"$gte": now, "$lte": cutoff},
+            "orgId": org_id,
+        })
+        expiring_leases = await cursor.to_list(length=1000)
+        leases_checked += len(expiring_leases)
 
-        assigned_tech = await users_col.find_one({"role": "staff", "assignedProperties": property_id}) if property_id else None
-        if assigned_tech:
-            await notifications_service.notify_user(
-                str(assigned_tech["_id"]),
-                type="lease_expiring",
-                title=f"Lease renewal needed: Unit {unit_id}",
-                body=f"Property {property_id} — lease ends {end_date_str}",
-                link="/dashboard",
-            )
-        else:
-            await notifications_service.notify_all_staff(
-                type="lease_expiring",
-                title=f"Lease renewal needed: Unit {unit_id}",
-                body=f"Property {property_id} — lease ends {end_date_str} — no tech assigned to this property yet",
-                link="/dashboard",
-            )
+        for lease in expiring_leases:
+            property_id = lease.get("propertyId")
+            unit_id = lease.get("unitId")
+            end_date_str = lease["endDate"].strftime("%B %d, %Y") if isinstance(lease.get("endDate"), datetime) else str(lease.get("endDate"))
 
-        await leases_col.update_one({"_id": lease["_id"]}, {"$set": {"renewalStatus": "sent"}})
-        notified.append(str(lease["_id"]))
+            if property_id and unit_id:
+                incentive_note = ""
+                if lease.get("renewalIncentiveStatus") == "offered":
+                    incentive_note = f" We're offering: {lease.get('renewalIncentiveDescription', '')}"
+                await notifications_service.notify_unit_resident(
+                    property_id, unit_id,
+                    type="lease_expiring",
+                    title="Your lease is expiring soon",
+                    body=f"Your lease ends {end_date_str} — contact us about renewal options.{incentive_note}",
+                    link="/payments",
+                )
+
+            assigned_tech = await users_col.find_one({"role": "staff", "assignedProperties": property_id, "orgId": org_id}) if property_id else None
+            if assigned_tech:
+                await notifications_service.notify_user(
+                    str(assigned_tech["_id"]),
+                    type="lease_expiring",
+                    title=f"Lease renewal needed: Unit {unit_id}",
+                    body=f"Property {property_id} — lease ends {end_date_str}",
+                    link="/dashboard",
+                )
+            else:
+                await notifications_service.notify_all_staff(
+                    type="lease_expiring",
+                    title=f"Lease renewal needed: Unit {unit_id}",
+                    body=f"Property {property_id} — lease ends {end_date_str} — no tech assigned to this property yet",
+                    link="/dashboard",
+                )
+
+            await leases_col.update_one({"_id": lease["_id"]}, {"$set": {"renewalStatus": "sent"}})
+            notified.append(str(lease["_id"]))
 
     return {
         "status": "done",
-        "leasesChecked": len(expiring_leases),
+        "leasesChecked": leases_checked,
         "notified": len(notified),
         "leaseIds": notified,
     }
@@ -270,45 +294,52 @@ async def _do_payment_reminder_check(windowDays: int = 5):
     through the same real payment_reminder_service.reminder_eligible()
     check (48h since lastReminderSentAt, or never reminded) - a
     resident is never messaged more than once every 48 hours
-    regardless of which of these two groups their charge falls into."""
+    regardless of which of these two groups their charge falls into.
+
+    MULTI-TENANCY: loops per organization - see _all_org_ids's own
+    docstring for why."""
     now = datetime.now(timezone.utc)
     cutoff = now + timedelta(days=windowDays)
-    cursor = payments_col.find({
-        "$or": [
-            {"dueDate": {"$gte": now, "$lte": cutoff}},  # upcoming
-            {"dueDate": {"$lt": now}},                    # already late
-        ],
-    })
-    all_charges = await cursor.to_list(length=2000)
-
     notified = []
     skipped_cooldown = 0
     channel_totals = {"inApp": 0, "sms": 0, "email": 0}
+    charges_checked = 0
 
-    for charge in all_charges:
-        if charge.get("amountPaid", 0) >= charge.get("amountDue", 0):
-            continue  # already paid in full, nothing to remind about
-        if not payment_reminder_service.reminder_eligible(charge, now):
-            skipped_cooldown += 1
-            continue
+    for org_id in await _all_org_ids():
+        cursor = payments_col.find({
+            "$or": [
+                {"dueDate": {"$gte": now, "$lte": cutoff}},  # upcoming
+                {"dueDate": {"$lt": now}},                    # already late
+            ],
+            "orgId": org_id,
+        })
+        all_charges = await cursor.to_list(length=2000)
+        charges_checked += len(all_charges)
 
-        result = await payment_reminder_service.send_payment_reminder(charge)
-        if result["inApp"]:
-            channel_totals["inApp"] += 1
-        if result["sms"]["sent"]:
-            channel_totals["sms"] += 1
-        if result["email"]["sent"]:
-            channel_totals["email"] += 1
+        for charge in all_charges:
+            if charge.get("amountPaid", 0) >= charge.get("amountDue", 0):
+                continue  # already paid in full, nothing to remind about
+            if not payment_reminder_service.reminder_eligible(charge, now):
+                skipped_cooldown += 1
+                continue
 
-        await payments_col.update_one(
-            {"_id": charge["_id"]},
-            {"$set": {"lastReminderSentAt": now, "reminderSent": True}},  # reminderSent kept in sync for any older code/reports still reading it
-        )
-        notified.append(str(charge["_id"]))
+            result = await payment_reminder_service.send_payment_reminder(charge)
+            if result["inApp"]:
+                channel_totals["inApp"] += 1
+            if result["sms"]["sent"]:
+                channel_totals["sms"] += 1
+            if result["email"]["sent"]:
+                channel_totals["email"] += 1
+
+            await payments_col.update_one(
+                {"_id": charge["_id"]},
+                {"$set": {"lastReminderSentAt": now, "reminderSent": True}},  # reminderSent kept in sync for any older code/reports still reading it
+            )
+            notified.append(str(charge["_id"]))
 
     return {
         "status": "done",
-        "chargesChecked": len(all_charges),
+        "chargesChecked": charges_checked,
         "notified": len(notified),
         "skippedCooldown": skipped_cooldown,
         "channelTotals": channel_totals,
@@ -350,86 +381,93 @@ async def _do_autopay_check():
     directly. This is the one check in this file that moves real
     money — kept deliberately conservative (see the handler's own
     docstring above): a failed attempt is surfaced to staff and the
-    resident, never silently retried."""
-    now = datetime.now(timezone.utc)
-    cursor = payments_col.find({
-        "dueDate": {"$lte": now},
-        "autopayAttempted": {"$ne": True},
-    })
-    due_charges = await cursor.to_list(length=1000)
+    resident, never silently retried.
 
+    MULTI-TENANCY: loops per organization - see _all_org_ids's own
+    docstring for why."""
+    now = datetime.now(timezone.utc)
     attempted = []
     charged = []
     skipped_no_autopay = 0
     failed = []
+    charges_checked = 0
 
-    for charge in due_charges:
-        remaining_due = charge.get("amountDue", 0) - charge.get("amountPaid", 0)
-        if remaining_due <= 0:
-            continue  # already paid in full some other way, nothing for autopay to do
-
-        property_id = charge.get("propertyId")
-        unit_id = charge.get("unitId")
-        resident = await users_col.find_one({
-            "role": "tenant", "propertyId": property_id, "unitId": unit_id,
-            "autopayEnabled": True,
+    for org_id in await _all_org_ids():
+        cursor = payments_col.find({
+            "dueDate": {"$lte": now},
+            "autopayAttempted": {"$ne": True},
+            "orgId": org_id,
         })
-        if not resident or not resident.get("autopayPaymentMethodId") or not resident.get("stripeCustomerId"):
-            skipped_no_autopay += 1
-            continue
+        due_charges = await cursor.to_list(length=1000)
+        charges_checked += len(due_charges)
 
-        # Mark attempted before making the actual charge, not after -
-        # if this process crashes or the Render instance restarts
-        # mid-run, a retry of this same endpoint must not re-charge a
-        # resident whose attempt already went out, even if we never
-        # got to record the outcome.
-        await payments_col.update_one({"_id": charge["_id"]}, {"$set": {"autopayAttempted": True}})
-        attempted.append(str(charge["_id"]))
+        for charge in due_charges:
+            remaining_due = charge.get("amountDue", 0) - charge.get("amountPaid", 0)
+            if remaining_due <= 0:
+                continue  # already paid in full some other way, nothing for autopay to do
 
-        try:
-            result = await create_ach_payment_intent_async(
-                resident["stripeCustomerId"],
-                resident["autopayPaymentMethodId"],
-                amount_cents=round(remaining_due * 100),
-                description=charge.get("description", "Rent payment (autopay)"),
-            )
-            await payments_col.update_one(
-                {"_id": charge["_id"]},
-                {"$set": {"stripePaymentIntentId": result["paymentIntentId"], "paymentProcessingStatus": result["status"]}},
-            )
-            charged.append(str(charge["_id"]))
-            await notifications_service.notify_unit_resident(
-                property_id, unit_id,
-                type="general",
-                title="Autopay charge submitted",
-                body=f"${remaining_due:.2f} autopay submitted for {charge.get('description', 'your charge')}. "
-                     f"ACH payments take a few business days to clear.",
-                link="/payments",
-            )
-        except (StripeNotConfigured, StripePayError) as exc:
-            await payments_col.update_one(
-                {"_id": charge["_id"]},
-                {"$set": {"paymentProcessingStatus": "failed", "autopayError": str(exc)}},
-            )
-            failed.append(str(charge["_id"]))
-            await notifications_service.notify_unit_resident(
-                property_id, unit_id,
-                type="general",
-                title="Autopay charge failed",
-                body=f"We couldn't process your autopay charge for {charge.get('description', 'your charge')}. "
-                     f"Please check your payment method or pay another way.",
-                link="/payments",
-            )
-            await notifications_service.notify_all_staff(
-                type="general",
-                title="Autopay charge failed",
-                body=f"Unit {unit_id} at property {property_id} — autopay attempt failed: {exc}",
-                link="/payments",
-            )
+            property_id = charge.get("propertyId")
+            unit_id = charge.get("unitId")
+            resident = await users_col.find_one({
+                "role": "tenant", "propertyId": property_id, "unitId": unit_id,
+                "autopayEnabled": True, "orgId": org_id,
+            })
+            if not resident or not resident.get("autopayPaymentMethodId") or not resident.get("stripeCustomerId"):
+                skipped_no_autopay += 1
+                continue
+
+            # Mark attempted before making the actual charge, not after -
+            # if this process crashes or the Render instance restarts
+            # mid-run, a retry of this same endpoint must not re-charge a
+            # resident whose attempt already went out, even if we never
+            # got to record the outcome.
+            await payments_col.update_one({"_id": charge["_id"]}, {"$set": {"autopayAttempted": True}})
+            attempted.append(str(charge["_id"]))
+
+            try:
+                result = await create_ach_payment_intent_async(
+                    resident["stripeCustomerId"],
+                    resident["autopayPaymentMethodId"],
+                    amount_cents=round(remaining_due * 100),
+                    description=charge.get("description", "Rent payment (autopay)"),
+                )
+                await payments_col.update_one(
+                    {"_id": charge["_id"]},
+                    {"$set": {"stripePaymentIntentId": result["paymentIntentId"], "paymentProcessingStatus": result["status"]}},
+                )
+                charged.append(str(charge["_id"]))
+                await notifications_service.notify_unit_resident(
+                    property_id, unit_id,
+                    type="general",
+                    title="Autopay charge submitted",
+                    body=f"${remaining_due:.2f} autopay submitted for {charge.get('description', 'your charge')}. "
+                         f"ACH payments take a few business days to clear.",
+                    link="/payments",
+                )
+            except (StripeNotConfigured, StripePayError) as exc:
+                await payments_col.update_one(
+                    {"_id": charge["_id"]},
+                    {"$set": {"paymentProcessingStatus": "failed", "autopayError": str(exc)}},
+                )
+                failed.append(str(charge["_id"]))
+                await notifications_service.notify_unit_resident(
+                    property_id, unit_id,
+                    type="general",
+                    title="Autopay charge failed",
+                    body=f"We couldn't process your autopay charge for {charge.get('description', 'your charge')}. "
+                         f"Please check your payment method or pay another way.",
+                    link="/payments",
+                )
+                await notifications_service.notify_all_staff(
+                    type="general",
+                    title="Autopay charge failed",
+                    body=f"Unit {unit_id} at property {property_id} — autopay attempt failed: {exc}",
+                    link="/payments",
+                )
 
     return {
         "status": "done",
-        "chargesChecked": len(due_charges),
+        "chargesChecked": charges_checked,
         "attempted": len(attempted),
         "charged": len(charged),
         "failed": len(failed),
@@ -438,17 +476,20 @@ async def _do_autopay_check():
     }
 
 
-async def _find_property(property_id: str | None) -> dict | None:
+async def _find_property(property_id: str | None, org_id: str) -> dict | None:
     """Property _id may be a real ObjectId or a plain string (e.g. seeded
     demo/scale-test data) — try string first (the common case here), fall
-    back to ObjectId only if the string itself looks like a valid one."""
+    back to ObjectId only if the string itself looks like a valid one.
+    org_id is required and checked - defense in depth, since the
+    payments already being iterated in each caller are themselves
+    already scoped to this same org."""
     if not property_id:
         return None
-    prop = await properties_col.find_one({"_id": property_id})
+    prop = await properties_col.find_one({"_id": property_id, "orgId": org_id})
     if prop:
         return prop
     if ObjectId.is_valid(property_id):
-        return await properties_col.find_one({"_id": ObjectId(property_id)})
+        return await properties_col.find_one({"_id": ObjectId(property_id), "orgId": org_id})
     return None
 
 
@@ -463,86 +504,94 @@ async def _do_late_fee_check():
     a real background scheduler (see main.py) can call it directly
     without a self-HTTP-call or the admin key — the key exists to gate
     manual/external triggering, not to gate the in-process scheduler
-    that already runs inside this same trusted process."""
+    that already runs inside this same trusted process.
+
+    MULTI-TENANCY: loops per organization - see _all_org_ids's own
+    docstring for why."""
     now = datetime.now(timezone.utc)
-    cursor = payments_col.find({"lateFeeApplied": {"$ne": True}})
-    all_unpaid_candidates = await cursor.to_list(length=2000)
-
     charged = []
-    for charge in all_unpaid_candidates:
-        if charge.get("amountPaid", 0) >= charge.get("amountDue", 0):
-            continue  # already paid, not late
-        due_date = charge.get("dueDate")
-        if not isinstance(due_date, datetime):
-            continue
+    candidates_checked = 0
 
-        property_id = charge.get("propertyId")
-        prop = await _find_property(property_id)
-        grace_days = (prop or {}).get("lateFeeGraceDays", DEFAULT_LATE_FEE_GRACE_DAYS)
-        late_fee_amount = (prop or {}).get("lateFeeAmount", DEFAULT_LATE_FEE_AMOUNT)
+    for org_id in await _all_org_ids():
+        cursor = payments_col.find({"lateFeeApplied": {"$ne": True}, "orgId": org_id})
+        all_unpaid_candidates = await cursor.to_list(length=2000)
+        candidates_checked += len(all_unpaid_candidates)
 
-        # MongoDB via Motor returns naive datetimes by default (no tzinfo),
-        # while `now` here is timezone-aware — subtracting them directly
-        # raises TypeError. Normalize both to naive before comparing.
-        due_date_naive = due_date.replace(tzinfo=None) if due_date.tzinfo else due_date
-        now_naive = now.replace(tzinfo=None)
-        if (now_naive - due_date_naive).days < grace_days:
-            continue  # still within grace period
+        for charge in all_unpaid_candidates:
+            if charge.get("amountPaid", 0) >= charge.get("amountDue", 0):
+                continue  # already paid, not late
+            due_date = charge.get("dueDate")
+            if not isinstance(due_date, datetime):
+                continue
 
-        new_amount_due = charge["amountDue"] + late_fee_amount
-        await payments_col.update_one(
-            {"_id": charge["_id"]},
-            {"$set": {"amountDue": new_amount_due, "lateFeeApplied": True, "lateFeeAmount": late_fee_amount}},
-        )
+            property_id = charge.get("propertyId")
+            prop = await _find_property(property_id, org_id)
+            grace_days = (prop or {}).get("lateFeeGraceDays", DEFAULT_LATE_FEE_GRACE_DAYS)
+            late_fee_amount = (prop or {}).get("lateFeeAmount", DEFAULT_LATE_FEE_AMOUNT)
 
-        unit_id = charge.get("unitId")
+            # MongoDB via Motor returns naive datetimes by default (no tzinfo),
+            # while `now` here is timezone-aware — subtracting them directly
+            # raises TypeError. Normalize both to naive before comparing.
+            due_date_naive = due_date.replace(tzinfo=None) if due_date.tzinfo else due_date
+            now_naive = now.replace(tzinfo=None)
+            if (now_naive - due_date_naive).days < grace_days:
+                continue  # still within grace period
 
-        # A real notice document, not just a fee silently applied.
-        # Deliberately factual, not a legal-conclusion document: states
-        # what's owed and when, without using jurisdiction-specific
-        # legal terms (e.g. "Notice to Quit") or claiming to satisfy
-        # any particular state's statutory notice-period requirements -
-        # this app's real, multi-state compliance rules (mentioned in
-        # project history but confirmed absent from this actual repo,
-        # same as the earlier on-call/telephony gap this session found)
-        # would need to genuinely exist and be verified correct before
-        # a document claiming legal compliance would be honest to
-        # generate. A factual notice of the real charge is safe and
-        # useful on its own without needing that.
-        notice_content = (
-            f"This is a notice that a late fee has been applied to your account.\n\n"
-            f"Charge: {charge.get('description', 'Rent')}\n"
-            f"Original amount due: ${charge['amountDue']:,.2f}\n"
-            f"Late fee applied: ${late_fee_amount:,.2f}\n"
-            f"New amount due: ${new_amount_due:,.2f}\n"
-            f"Original due date: {due_date_naive.strftime('%B %d, %Y')}\n"
-            f"Notice date: {now.strftime('%B %d, %Y')}\n\n"
-            f"Please contact the property office with any questions about this charge."
-        )
-        notice_doc = {
-            "propertyId": property_id,
-            "unitId": unit_id,
-            "chargeId": str(charge["_id"]),
-            "content": notice_content,
-            "amountDue": new_amount_due,
-            "createdAt": now,
-        }
-        await late_notices_col.insert_one(notice_doc)
-
-        if property_id and unit_id:
-            await notifications_service.notify_unit_resident(
-                property_id, unit_id,
-                type="general",
-                title="Late fee applied",
-                body=f"A ${late_fee_amount:.2f} late fee was added to your {charge.get('description', 'charge')} — new amount due: ${new_amount_due:.2f}",
-                link="/payments",
+            new_amount_due = charge["amountDue"] + late_fee_amount
+            await payments_col.update_one(
+                {"_id": charge["_id"]},
+                {"$set": {"amountDue": new_amount_due, "lateFeeApplied": True, "lateFeeAmount": late_fee_amount}},
             )
 
-        charged.append(str(charge["_id"]))
+            unit_id = charge.get("unitId")
+
+            # A real notice document, not just a fee silently applied.
+            # Deliberately factual, not a legal-conclusion document: states
+            # what's owed and when, without using jurisdiction-specific
+            # legal terms (e.g. "Notice to Quit") or claiming to satisfy
+            # any particular state's statutory notice-period requirements -
+            # this app's real, multi-state compliance rules (mentioned in
+            # project history but confirmed absent from this actual repo,
+            # same as the earlier on-call/telephony gap this session found)
+            # would need to genuinely exist and be verified correct before
+            # a document claiming legal compliance would be honest to
+            # generate. A factual notice of the real charge is safe and
+            # useful on its own without needing that.
+            notice_content = (
+                f"This is a notice that a late fee has been applied to your account.\n\n"
+                f"Charge: {charge.get('description', 'Rent')}\n"
+                f"Original amount due: ${charge['amountDue']:,.2f}\n"
+                f"Late fee applied: ${late_fee_amount:,.2f}\n"
+                f"New amount due: ${new_amount_due:,.2f}\n"
+                f"Original due date: {due_date_naive.strftime('%B %d, %Y')}\n"
+                f"Notice date: {now.strftime('%B %d, %Y')}\n\n"
+                f"Please contact the property office with any questions about this charge."
+            )
+            notice_doc = {
+                "propertyId": property_id,
+                "unitId": unit_id,
+                "orgId": org_id,
+                "chargeId": str(charge["_id"]),
+                "content": notice_content,
+                "amountDue": new_amount_due,
+                "createdAt": now,
+            }
+            await late_notices_col.insert_one(notice_doc)
+
+            if property_id and unit_id:
+                await notifications_service.notify_unit_resident(
+                    property_id, unit_id,
+                    type="general",
+                    title="Late fee applied",
+                    body=f"A ${late_fee_amount:.2f} late fee was added to your {charge.get('description', 'charge')} — new amount due: ${new_amount_due:.2f}",
+                    link="/payments",
+                )
+
+            charged.append(str(charge["_id"]))
 
     return {
         "status": "done",
-        "chargesChecked": len(all_unpaid_candidates),
+        "chargesChecked": candidates_checked,
         "lateFeesApplied": len(charged),
         "chargeIds": charged,
     }
@@ -566,75 +615,83 @@ async def _do_escalation_check():
     visibility (not a task they must remember to do) via a real AI
     Action, using the exact same schema and status flow as every other
     action in the Actions tab — reviewable, but not a required step for
-    the escalation itself to have already happened."""
+    the escalation itself to have already happened.
+
+    MULTI-TENANCY: loops per organization - see _all_org_ids's own
+    docstring for why."""
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    cursor = payments_col.find({"lateFeeApplied": True, "escalated": {"$ne": True}})
-    candidates = await cursor.to_list(length=2000)
-
     escalated = []
-    for charge in candidates:
-        if charge.get("amountPaid", 0) >= charge.get("amountDue", 0):
-            continue  # paid since the late fee was applied — no longer a candidate
+    candidates_checked = 0
 
-        due_date = charge.get("dueDate")
-        if not isinstance(due_date, datetime):
-            continue
-        due_date_naive = due_date.replace(tzinfo=None) if due_date.tzinfo else due_date
+    for org_id in await _all_org_ids():
+        cursor = payments_col.find({"lateFeeApplied": True, "escalated": {"$ne": True}, "orgId": org_id})
+        candidates = await cursor.to_list(length=2000)
+        candidates_checked += len(candidates)
 
-        property_id = charge.get("propertyId")
-        prop = await _find_property(property_id)
-        escalation_days = (prop or {}).get("escalationDays", 10)
-        grace_days = (prop or {}).get("lateFeeGraceDays", DEFAULT_LATE_FEE_GRACE_DAYS)
+        for charge in candidates:
+            if charge.get("amountPaid", 0) >= charge.get("amountDue", 0):
+                continue  # paid since the late fee was applied — no longer a candidate
 
-        # Escalation threshold is measured from the ORIGINAL due date, not
-        # from when the late fee happened to be applied — the late-fee
-        # check itself only runs when triggered, so "when it was applied"
-        # is an artifact of scheduling, not a meaningful anchor point.
-        if (now - due_date_naive).days < grace_days + escalation_days:
-            continue
+            due_date = charge.get("dueDate")
+            if not isinstance(due_date, datetime):
+                continue
+            due_date_naive = due_date.replace(tzinfo=None) if due_date.tzinfo else due_date
 
-        await payments_col.update_one(
-            {"_id": charge["_id"]},
-            {"$set": {"escalated": True, "escalatedAt": now}},
-        )
+            property_id = charge.get("propertyId")
+            prop = await _find_property(property_id, org_id)
+            escalation_days = (prop or {}).get("escalationDays", 10)
+            grace_days = (prop or {}).get("lateFeeGraceDays", DEFAULT_LATE_FEE_GRACE_DAYS)
 
-        unit_id = charge.get("unitId")
-        days_late = (now - due_date_naive).days
-        await ai_actions_col.insert_one({
-            "propertyId": property_id,
-            "type": "collections_escalation",
-            "title": f"Escalated: Unit {unit_id} — {days_late} days past due",
-            "priority": "high",
-            "rationale": (
-                f"${charge.get('amountDue', 0):.2f} owed for {charge.get('description', 'a charge')}, "
-                f"{days_late} days past the due date and {escalation_days} days past the late-fee stage "
-                f"with no payment — automatically escalated per this property's rent rules."
-            ),
-            "projectedOutcome": "Direct collections follow-up or payment plan discussion",
-            "estimatedValue": charge.get("amountDue", 0),
-            "affectedUnitIds": [unit_id] if unit_id else [],
-            "confidence": 90,
-            "riskLevel": "high",
-            "plannedSteps": ["Review resident's full payment history", "Contact resident directly", "Consider a payment plan or further action"],
-            "status": "suggested",
-            "createdAt": now,
-        })
+            # Escalation threshold is measured from the ORIGINAL due date, not
+            # from when the late fee happened to be applied — the late-fee
+            # check itself only runs when triggered, so "when it was applied"
+            # is an artifact of scheduling, not a meaningful anchor point.
+            if (now - due_date_naive).days < grace_days + escalation_days:
+                continue
 
-        if property_id and unit_id:
-            await notifications_service.notify_unit_resident(
-                property_id, unit_id,
-                type="general",
-                title="Account escalated",
-                body=f"Your account for {charge.get('description', 'a charge')} has been escalated due to non-payment. Please contact the office.",
-                link="/payments",
+            await payments_col.update_one(
+                {"_id": charge["_id"]},
+                {"$set": {"escalated": True, "escalatedAt": now}},
             )
 
-        escalated.append(str(charge["_id"]))
+            unit_id = charge.get("unitId")
+            days_late = (now - due_date_naive).days
+            await ai_actions_col.insert_one({
+                "propertyId": property_id,
+                "orgId": org_id,
+                "type": "collections_escalation",
+                "title": f"Escalated: Unit {unit_id} — {days_late} days past due",
+                "priority": "high",
+                "rationale": (
+                    f"${charge.get('amountDue', 0):.2f} owed for {charge.get('description', 'a charge')}, "
+                    f"{days_late} days past the due date and {escalation_days} days past the late-fee stage "
+                    f"with no payment — automatically escalated per this property's rent rules."
+                ),
+                "projectedOutcome": "Direct collections follow-up or payment plan discussion",
+                "estimatedValue": charge.get("amountDue", 0),
+                "affectedUnitIds": [unit_id] if unit_id else [],
+                "confidence": 90,
+                "riskLevel": "high",
+                "plannedSteps": ["Review resident's full payment history", "Contact resident directly", "Consider a payment plan or further action"],
+                "status": "suggested",
+                "createdAt": now,
+            })
+
+            if property_id and unit_id:
+                await notifications_service.notify_unit_resident(
+                    property_id, unit_id,
+                    type="general",
+                    title="Account escalated",
+                    body=f"Your account for {charge.get('description', 'a charge')} has been escalated due to non-payment. Please contact the office.",
+                    link="/payments",
+                )
+
+            escalated.append(str(charge["_id"]))
 
     return {
         "status": "done",
-        "chargesChecked": len(candidates),
+        "chargesChecked": candidates_checked,
         "escalated": len(escalated),
         "chargeIds": escalated,
     }
@@ -672,54 +729,62 @@ async def _do_vendor_sla_check():
     excluding every vendor that's already been tried and didn't
     respond, or (b) if no further vendor is configured, escalates
     directly to staff with an honest, specific notification — never a
-    ticket silently left assigned to a vendor who may never show up."""
-    now = datetime.now(timezone.utc)
-    cursor = tickets_col.find({
-        "vendorAcceptanceStatus": "pending",
-        "vendorAcceptanceDeadline": {"$lte": now},
-    })
-    expired_tickets = await cursor.to_list(length=500)
+    ticket silently left assigned to a vendor who may never show up.
 
+    MULTI-TENANCY: loops per organization - see _all_org_ids's own
+    docstring for why."""
+    now = datetime.now(timezone.utc)
     reassigned = []
     escalated = []
-    for ticket in expired_tickets:
-        declined_ids = list(ticket.get("vendorDeclinedIds", []))
-        if ticket.get("assignedVendorId"):
-            declined_ids.append(ticket["assignedVendorId"])
+    checked = 0
 
-        next_vendor = await vendor_sla_service.find_next_eligible_vendor(
-            ticket.get("propertyId"), ticket.get("category"), exclude_vendor_ids=declined_ids,
-        )
+    for org_id in await _all_org_ids():
+        cursor = tickets_col.find({
+            "vendorAcceptanceStatus": "pending",
+            "vendorAcceptanceDeadline": {"$lte": now},
+            "orgId": org_id,
+        })
+        expired_tickets = await cursor.to_list(length=500)
+        checked += len(expired_tickets)
 
-        if next_vendor:
-            ticket["vendorDeclinedIds"] = declined_ids  # carried through to dispatch_with_sla's own update
-            await vendor_sla_service.dispatch_with_sla(str(ticket["_id"]), ticket, next_vendor)
-            await notifications_service.notify_all_staff(
-                type="general",
-                title=f"Reassigned after no response: {ticket.get('title', 'ticket')}",
-                body=f"Unit {ticket.get('unitId')} — {ticket.get('assignedVendorName', 'the prior vendor')} "
-                     f"didn't confirm in time. Now trying {next_vendor['name']}.",
-                link=f"/maintenance/{str(ticket['_id'])}",
+        for ticket in expired_tickets:
+            declined_ids = list(ticket.get("vendorDeclinedIds", []))
+            if ticket.get("assignedVendorId"):
+                declined_ids.append(ticket["assignedVendorId"])
+
+            next_vendor = await vendor_sla_service.find_next_eligible_vendor(
+                ticket.get("propertyId"), ticket.get("category"), exclude_vendor_ids=declined_ids,
             )
-            reassigned.append(str(ticket["_id"]))
-        else:
-            await tickets_col.update_one(
-                {"_id": ticket["_id"]},
-                {"$set": {"vendorAcceptanceStatus": "expired_escalated", "vendorDeclinedIds": declined_ids}},
-            )
-            await notifications_service.notify_all_staff(
-                type="general",
-                title=f"No vendor confirmed: {ticket.get('title', 'ticket')}",
-                body=f"Unit {ticket.get('unitId')} — {ticket.get('assignedVendorName', 'the assigned vendor')} "
-                     f"did not confirm within the SLA window, and no further preferred vendor is configured "
-                     f"for this category. Please reassign manually.",
-                link=f"/maintenance/{str(ticket['_id'])}",
-            )
-            escalated.append(str(ticket["_id"]))
+
+            if next_vendor:
+                ticket["vendorDeclinedIds"] = declined_ids  # carried through to dispatch_with_sla's own update
+                await vendor_sla_service.dispatch_with_sla(str(ticket["_id"]), ticket, next_vendor)
+                await notifications_service.notify_all_staff(
+                    type="general",
+                    title=f"Reassigned after no response: {ticket.get('title', 'ticket')}",
+                    body=f"Unit {ticket.get('unitId')} — {ticket.get('assignedVendorName', 'the prior vendor')} "
+                         f"didn't confirm in time. Now trying {next_vendor['name']}.",
+                    link=f"/maintenance/{str(ticket['_id'])}",
+                )
+                reassigned.append(str(ticket["_id"]))
+            else:
+                await tickets_col.update_one(
+                    {"_id": ticket["_id"]},
+                    {"$set": {"vendorAcceptanceStatus": "expired_escalated", "vendorDeclinedIds": declined_ids}},
+                )
+                await notifications_service.notify_all_staff(
+                    type="general",
+                    title=f"No vendor confirmed: {ticket.get('title', 'ticket')}",
+                    body=f"Unit {ticket.get('unitId')} — {ticket.get('assignedVendorName', 'the assigned vendor')} "
+                         f"did not confirm within the SLA window, and no further preferred vendor is configured "
+                         f"for this category. Please reassign manually.",
+                    link=f"/maintenance/{str(ticket['_id'])}",
+                )
+                escalated.append(str(ticket["_id"]))
 
     return {
         "status": "done",
-        "checked": len(expired_tickets),
+        "checked": checked,
         "reassigned": len(reassigned),
         "escalated": len(escalated),
     }
@@ -756,40 +821,47 @@ async def _do_vendor_compliance_check():
     vendor's paperwork and update the date, that's a genuinely new
     expiration this check has never seen, so it correctly alerts again
     when that new date approaches — a single alert per real deadline,
-    not a single alert ever."""
+    not a single alert ever.
+
+    MULTI-TENANCY: loops per organization - see _all_org_ids's own
+    docstring for why."""
     now = datetime.now(timezone.utc)
     cutoff = now + timedelta(days=VENDOR_COMPLIANCE_WINDOW_DAYS)
-    vendors = await vendors_col.find({"active": True}).to_list(length=500)
-
     alerted = []
-    for vendor in vendors:
-        for date_field, alert_field, label in (
-            ("insuranceExpiresDate", "insuranceAlertSentFor", "insurance"),
-            ("licenseExpiresDate", "licenseAlertSentFor", "license"),
-        ):
-            expires = vendor.get(date_field)
-            if not isinstance(expires, datetime):
-                continue
-            expires_aware = expires if expires.tzinfo else expires.replace(tzinfo=timezone.utc)
-            if not (now <= expires_aware <= cutoff):
-                continue
-            if vendor.get(alert_field) == expires_aware:
-                continue  # already alerted for this exact expiration date
+    vendors_checked = 0
 
-            days_left = (expires_aware - now).days
-            await notifications_service.notify_all_staff(
-                type="general",
-                title=f"Vendor {label} expiring soon: {vendor.get('name')}",
-                body=f"{vendor.get('name')}'s {label} expires in {days_left} day{'s' if days_left != 1 else ''} "
-                     f"({expires_aware.strftime('%B %d, %Y')}). Auto-dispatch to this vendor will be blocked once it lapses.",
-                link="/vendors",
-            )
-            await vendors_col.update_one({"_id": vendor["_id"]}, {"$set": {alert_field: expires_aware}})
-            alerted.append(f"{vendor.get('name')} ({label})")
+    for org_id in await _all_org_ids():
+        vendors = await vendors_col.find({"active": True, "orgId": org_id}).to_list(length=500)
+        vendors_checked += len(vendors)
+
+        for vendor in vendors:
+            for date_field, alert_field, label in (
+                ("insuranceExpiresDate", "insuranceAlertSentFor", "insurance"),
+                ("licenseExpiresDate", "licenseAlertSentFor", "license"),
+            ):
+                expires = vendor.get(date_field)
+                if not isinstance(expires, datetime):
+                    continue
+                expires_aware = expires if expires.tzinfo else expires.replace(tzinfo=timezone.utc)
+                if not (now <= expires_aware <= cutoff):
+                    continue
+                if vendor.get(alert_field) == expires_aware:
+                    continue  # already alerted for this exact expiration date
+
+                days_left = (expires_aware - now).days
+                await notifications_service.notify_all_staff(
+                    type="general",
+                    title=f"Vendor {label} expiring soon: {vendor.get('name')}",
+                    body=f"{vendor.get('name')}'s {label} expires in {days_left} day{'s' if days_left != 1 else ''} "
+                         f"({expires_aware.strftime('%B %d, %Y')}). Auto-dispatch to this vendor will be blocked once it lapses.",
+                    link="/vendors",
+                )
+                await vendors_col.update_one({"_id": vendor["_id"]}, {"$set": {alert_field: expires_aware}})
+                alerted.append(f"{vendor.get('name')} ({label})")
 
     return {
         "status": "done",
-        "vendorsChecked": len(vendors),
+        "vendorsChecked": vendors_checked,
         "alertsSent": len(alerted),
         "details": alerted,
     }
@@ -868,65 +940,72 @@ async def _do_renewal_risk_check():
     which the existing 60-day _do_lease_renewal_check already covers
     on its own, separate schedule. Low-risk leases at any stage are
     marked as checked but get no extra outreach - the existing generic
-    reminder is already the right amount of attention for those."""
-    now = datetime.now(timezone.utc)
-    cursor = leases_col.find({
-        "endDate": {"$gte": now, "$lte": now + timedelta(days=91)},
-        "renewalStatus": {"$ne": "signed"},
-    })
-    candidates = await cursor.to_list(length=1000)
+    reminder is already the right amount of attention for those.
 
+    MULTI-TENANCY: loops per organization - see _all_org_ids's own
+    docstring for why."""
+    now = datetime.now(timezone.utc)
     checked = []
     flagged = []
-    for lease in candidates:
-        days_left = renewal_risk_service.days_until(lease.get("endDate"), now)
-        if days_left is None:
-            continue
 
-        already_sent = lease.get("renewalRiskStagesSent", [])
-        stage = None
-        for lower, upper in RENEWAL_RISK_STAGES:
-            if lower < days_left <= upper and upper not in already_sent:
-                stage = upper
-                break
-        if stage is None:
-            continue
+    for org_id in await _all_org_ids():
+        cursor = leases_col.find({
+            "endDate": {"$gte": now, "$lte": now + timedelta(days=91)},
+            "renewalStatus": {"$ne": "signed"},
+            "orgId": org_id,
+        })
+        candidates = await cursor.to_list(length=1000)
 
-        risk = await renewal_risk_service.compute_renewal_risk(lease)
-        await leases_col.update_one({"_id": lease["_id"]}, {"$addToSet": {"renewalRiskStagesSent": stage}})
-        checked.append(str(lease["_id"]))
+        for lease in candidates:
+            days_left = renewal_risk_service.days_until(lease.get("endDate"), now)
+            if days_left is None:
+                continue
 
-        if risk["riskLevel"] in ("medium", "high"):
-            unit_id = lease.get("unitId")
-            property_id = lease.get("propertyId")
-            factor_summary = "; ".join(f"{f['name']}: {f['detail']}" for f in risk["factors"])
+            already_sent = lease.get("renewalRiskStagesSent", [])
+            stage = None
+            for lower, upper in RENEWAL_RISK_STAGES:
+                if lower < days_left <= upper and upper not in already_sent:
+                    stage = upper
+                    break
+            if stage is None:
+                continue
 
-            await ai_actions_col.insert_one({
-                "propertyId": property_id,
-                "type": "renewal_campaign",
-                "title": f"Renewal risk ({risk['riskLevel']}): Unit {unit_id}, {stage} days out",
-                "priority": "high" if risk["riskLevel"] == "high" else "medium",
-                "rationale": f"Renewal risk score {risk['score']}/100 ({risk['riskLevel']}). {factor_summary}",
-                "projectedOutcome": "Direct renewal outreach before this resident's lease decision is made",
-                "estimatedValue": lease.get("rent", 0) * 12,
-                "affectedUnitIds": [unit_id] if unit_id else [],
-                "confidence": 70,  # a real heuristic, not a validated model - see module docstring
-                "riskLevel": risk["riskLevel"],
-                "plannedSteps": ["Review the real factors behind this score", "Reach out directly, not just an automated reminder", "Consider a real renewal incentive if warranted"],
-                "status": "suggested",
-                "createdAt": now,
-            })
+            risk = await renewal_risk_service.compute_renewal_risk(lease)
+            await leases_col.update_one({"_id": lease["_id"]}, {"$addToSet": {"renewalRiskStagesSent": stage}})
+            checked.append(str(lease["_id"]))
 
-            if property_id and unit_id:
-                await notifications_service.notify_unit_resident(
-                    property_id, unit_id,
-                    type="general",
-                    title="How are you feeling about renewing?",
-                    body="Your lease is coming up for renewal. We'd genuinely like to know if there's anything we could do better — reply in the app to let us know.",
-                    link=f"/app/renewal-checkin/{lease['_id']}",
-                )
+            if risk["riskLevel"] in ("medium", "high"):
+                unit_id = lease.get("unitId")
+                property_id = lease.get("propertyId")
+                factor_summary = "; ".join(f"{f['name']}: {f['detail']}" for f in risk["factors"])
 
-            flagged.append(str(lease["_id"]))
+                await ai_actions_col.insert_one({
+                    "propertyId": property_id,
+                    "orgId": org_id,
+                    "type": "renewal_campaign",
+                    "title": f"Renewal risk ({risk['riskLevel']}): Unit {unit_id}, {stage} days out",
+                    "priority": "high" if risk["riskLevel"] == "high" else "medium",
+                    "rationale": f"Renewal risk score {risk['score']}/100 ({risk['riskLevel']}). {factor_summary}",
+                    "projectedOutcome": "Direct renewal outreach before this resident's lease decision is made",
+                    "estimatedValue": lease.get("rent", 0) * 12,
+                    "affectedUnitIds": [unit_id] if unit_id else [],
+                    "confidence": 70,  # a real heuristic, not a validated model - see module docstring
+                    "riskLevel": risk["riskLevel"],
+                    "plannedSteps": ["Review the real factors behind this score", "Reach out directly, not just an automated reminder", "Consider a real renewal incentive if warranted"],
+                    "status": "suggested",
+                    "createdAt": now,
+                })
+
+                if property_id and unit_id:
+                    await notifications_service.notify_unit_resident(
+                        property_id, unit_id,
+                        type="general",
+                        title="How are you feeling about renewing?",
+                        body="Your lease is coming up for renewal. We'd genuinely like to know if there's anything we could do better — reply in the app to let us know.",
+                        link=f"/app/renewal-checkin/{lease['_id']}",
+                    )
+
+                flagged.append(str(lease["_id"]))
 
     return {
         "status": "done",
