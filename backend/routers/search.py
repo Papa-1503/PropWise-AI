@@ -14,6 +14,11 @@ and leads (name, email, phone). Vendors were considered but skipped:
 there's no standalone vendor page to navigate a result to (vendors
 only appear nested inside VendorAssignment during ticket assignment),
 so a vendor search result would have nowhere sensible to land.
+
+MULTI-TENANCY: every query below is scoped by orgId - a real,
+previously-live gap this pass closes: any staff member of any
+organization could search and surface leases, tickets, or leads
+belonging to a completely different organization.
 """
 
 from fastapi import APIRouter, Depends
@@ -32,7 +37,9 @@ async def global_search(q: str, propertyId: str | None = None, user: dict = Depe
         return {"results": []}
 
     regex = {"$regex": q.strip(), "$options": "i"}
-    scope = {"propertyId": propertyId} if propertyId else {}
+    scope: dict = {"orgId": user["orgId"]}
+    if propertyId:
+        scope["propertyId"] = propertyId
     results = []
 
     async for l in leases_col.find({**scope, "$or": [{"residentName": regex}, {"unitId": regex}, {"residentPhone": regex}]}).limit(RESULT_LIMIT_PER_TYPE):
@@ -53,7 +60,16 @@ async def global_search(q: str, propertyId: str | None = None, user: dict = Depe
             "navigateTo": "maintenance",
         })
 
-    async for ld in leads_col.find({**scope, "$or": [{"name": regex}, {"email": regex}, {"phone": regex}]}).limit(RESULT_LIMIT_PER_TYPE):
+    # Leads get real, defense-in-depth org scoping too - but matching
+    # leads.py's own design (see that module's docstring): a lead with
+    # orgId=None is a genuine general inquiry not tied to any org, and
+    # should stay findable rather than becoming permanently invisible.
+    leads_scope: dict = {"propertyId": propertyId} if propertyId else {}
+    async for ld in leads_col.find({
+        **leads_scope,
+        "$or": [{"orgId": user["orgId"]}, {"orgId": None}],
+        "$and": [{"$or": [{"name": regex}, {"email": regex}, {"phone": regex}]}],
+    }).limit(RESULT_LIMIT_PER_TYPE):
         results.append({
             "type": "lead",
             "id": str(ld["_id"]),
