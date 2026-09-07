@@ -20,6 +20,18 @@ real property management company almost always runs one QuickBooks
 company file for its whole operation, categorizing by property/class
 within it rather than maintaining a separate QuickBooks company per
 building.
+
+MULTI-TENANCY: a real, serious gap fixed here - the connection was
+previously keyed by provider ALONE, with a global unique database
+index, meaning only ONE organization across the entire deployment
+could ever connect QuickBooks at all (a second org's connect attempt
+would collide with or silently overwrite the first). Now keyed by
+(provider, orgId) - each organization gets its own real, independent
+QuickBooks connection. /callback is a public endpoint with no user
+session, so orgId is now embedded in the real OAuth state token
+itself (see /connect) so the callback can recover which organization
+initiated the flow - the state's own random component still provides
+the real CSRF protection this already had.
 """
 import os
 import secrets
@@ -38,8 +50,8 @@ from quickbooks_service import QuickBooksNotConfigured, QuickBooksApiError
 router = APIRouter(prefix="/api/accounting", tags=["accounting"])
 
 
-async def _get_connection() -> dict | None:
-    return await accounting_connections_col.find_one({"provider": "quickbooks"})
+async def _get_connection(org_id: str) -> dict | None:
+    return await accounting_connections_col.find_one({"provider": "quickbooks", "orgId": org_id})
 
 
 async def _get_valid_access_token(connection: dict) -> str:
@@ -60,7 +72,7 @@ async def _get_valid_access_token(connection: dict) -> str:
     new_expires_at = now + timedelta(seconds=result.get("expires_in", 3600))
 
     await accounting_connections_col.update_one(
-        {"provider": "quickbooks"},
+        {"provider": "quickbooks", "orgId": connection["orgId"]},
         {"$set": {"accessToken": new_access_token, "refreshToken": new_refresh_token, "tokenExpiresAt": new_expires_at}},
     )
     return new_access_token
@@ -72,10 +84,15 @@ async def connect(user: dict = Depends(require_staff)):
     it, and returns the real Intuit authorization URL to send the
     staff member to."""
     try:
-        state = secrets.token_urlsafe(32)
+        # Real, load-bearing state - includes orgId so /callback (a
+        # public endpoint with no user session) can recover which
+        # organization initiated this connect flow. Without this, the
+        # callback would have no way to know which org's connection to
+        # actually write to.
+        state = f"{user['orgId']}:{secrets.token_urlsafe(32)}"
         await accounting_connections_col.update_one(
-            {"provider": "quickbooks"},
-            {"$set": {"provider": "quickbooks", "pendingState": state, "pendingStateCreatedAt": datetime.now(timezone.utc)}},
+            {"provider": "quickbooks", "orgId": user["orgId"]},
+            {"$set": {"provider": "quickbooks", "orgId": user["orgId"], "pendingState": state, "pendingStateCreatedAt": datetime.now(timezone.utc)}},
             upsert=True,
         )
         auth_url = quickbooks_service.get_authorization_url(state)
@@ -96,7 +113,13 @@ async def callback(request: Request, code: str | None = None, state: str | None 
     if not code or not state or not realmId:
         raise HTTPException(status_code=400, detail="Missing code, state, or realmId from QuickBooks' redirect.")
 
-    connection = await _get_connection()
+    # Real org recovery: the state token embeds orgId (see /connect
+    # above) since this public callback has no user session of its own
+    # to read it from otherwise.
+    org_id = state.split(":", 1)[0] if ":" in state else None
+    if not org_id:
+        raise HTTPException(status_code=403, detail="Invalid or expired state — start the connect flow again.")
+    connection = await accounting_connections_col.find_one({"provider": "quickbooks", "orgId": org_id})
     if not connection or connection.get("pendingState") != state:
         raise HTTPException(status_code=403, detail="Invalid or expired state — start the connect flow again.")
 
@@ -107,7 +130,7 @@ async def callback(request: Request, code: str | None = None, state: str | None 
 
     now = datetime.now(timezone.utc)
     await accounting_connections_col.update_one(
-        {"provider": "quickbooks"},
+        {"provider": "quickbooks", "orgId": org_id},
         {"$set": {
             "realmId": realmId,
             "accessToken": tokens["access_token"],
@@ -121,7 +144,7 @@ async def callback(request: Request, code: str | None = None, state: str | None 
 
 @router.get("/status")
 async def status(user: dict = Depends(require_staff)):
-    connection = await _get_connection()
+    connection = await _get_connection(user["orgId"])
     if not connection or not connection.get("realmId"):
         return {"connected": False}
     return {
@@ -140,13 +163,13 @@ async def sync_payment(charge_id: str, user: dict = Depends(require_staff)):
     for. Fails honest at every real failure point (not connected,
     charge not found/not actually paid, no resident name to match a
     customer against) rather than silently doing nothing."""
-    connection = await _get_connection()
+    connection = await _get_connection(user["orgId"])
     if not connection or not connection.get("realmId"):
         raise HTTPException(status_code=501, detail="QuickBooks isn't connected yet — call GET /api/accounting/connect first.")
 
     if not ObjectId.is_valid(charge_id):
         raise HTTPException(status_code=400, detail="Invalid charge ID")
-    charge = await payments_col.find_one({"_id": ObjectId(charge_id)})
+    charge = await payments_col.find_one({"_id": ObjectId(charge_id), "orgId": user["orgId"]})
     if not charge:
         raise HTTPException(status_code=404, detail="Charge not found")
     amount_paid = charge.get("amountPaid", 0)
@@ -155,7 +178,7 @@ async def sync_payment(charge_id: str, user: dict = Depends(require_staff)):
     if charge.get("quickbooksPaymentId"):
         raise HTTPException(status_code=400, detail="This payment was already synced to QuickBooks.")
 
-    lease = await leases_col.find_one({"propertyId": charge.get("propertyId"), "unitId": charge.get("unitId")})
+    lease = await leases_col.find_one({"propertyId": charge.get("propertyId"), "unitId": charge.get("unitId"), "orgId": user["orgId"]})
     resident_name = lease.get("residentName") if lease else None
     if not resident_name:
         raise HTTPException(status_code=400, detail="No resident name on file for this unit — can't match a QuickBooks customer.")
@@ -189,7 +212,7 @@ async def sync_payment(charge_id: str, user: dict = Depends(require_staff)):
 
 @router.post("/disconnect")
 async def disconnect(user: dict = Depends(require_staff)):
-    await accounting_connections_col.delete_one({"provider": "quickbooks"})
+    await accounting_connections_col.delete_one({"provider": "quickbooks", "orgId": user["orgId"]})
     await log_action(
         actor_id=str(user["id"]), actor_email=user.get("email", ""),
         action="quickbooks_disconnected", target_type="accounting_connection", target_id="quickbooks",
