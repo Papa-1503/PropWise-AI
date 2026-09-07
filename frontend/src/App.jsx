@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Outlet, useOutletContext } from "react-router-dom";
 import { useState, lazy, Suspense } from "react";
-import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList, Package, Droplets, TrendingUp, Shield, Tag, PenTool, Receipt, Calculator, Scale, Percent, History, HardHat } from "lucide-react";
+import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList, Package, Droplets, TrendingUp, Shield, Tag, PenTool, Receipt, Calculator, Scale, Percent, History, HardHat, Wallet } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";
 import { ToastProvider } from "./ToastContext";
 import { DarkModeProvider, useDarkMode } from "./DarkModeContext";
@@ -43,6 +43,7 @@ import Packages from "./Packages";
 import RubsBilling from "./RubsBilling";
 import TrustAccounting from "./TrustAccounting";
 import CapitalPlanning from "./CapitalPlanning";
+import Budgets from "./Budgets";
 import PredictiveAnalytics from "./PredictiveAnalytics";
 import CustomRoles from "./CustomRoles";
 import CustomFields from "./CustomFields";
@@ -121,7 +122,7 @@ const STAFF_TAB_GROUPS = [
   { label: "Overview", tabs: ["dashboard", "actions", "ai", "scenario"] },
   { label: "Leasing", tabs: ["leads", "screening", "leases", "forms"] },
   { label: "Maintenance", tabs: ["maintenance", "inspections", "schedules", "on-call"] },
-  { label: "Rent & Accounting", tabs: ["payments", "rubs", "reconciliation", "trust-accounting", "capital-planning", "bill-scan", "portfolio-pricing"] },
+  { label: "Rent & Accounting", tabs: ["payments", "rubs", "reconciliation", "trust-accounting", "capital-planning", "bill-scan", "portfolio-pricing", "budgets"] },
   { label: "Communications", tabs: ["communications", "feed", "packages", "write-assist", "conversation-log"] },
   { label: "Documents & Reports", tabs: ["documents", "gallery", "predictive-analytics", "compliance"] },
   { label: "Admin", tabs: ["properties", "staff", "workflows", "custom-roles", "custom-fields", "vendors"] },
@@ -169,6 +170,7 @@ const TAB_LABELS = {
   "conversation-log": "Conversation Log",
   "bill-scan": "Bill Scan",
   "portfolio-pricing": "Portfolio Pricing",
+  budgets: "Budgets",
   vendors: "Vendors",
 };
 const TAB_ICONS = {
@@ -205,6 +207,7 @@ const TAB_ICONS = {
   "conversation-log": History,
   "bill-scan": Receipt,
   "portfolio-pricing": Percent,
+  budgets: Wallet,
   vendors: HardHat,
 };
 
@@ -467,6 +470,7 @@ export default function App() {
             <Route path="rubs" element={<RubsBillingWrapper />} />
             <Route path="trust-accounting" element={<TrustAccountingWrapper />} />
             <Route path="capital-planning" element={<CapitalPlanningWrapper />} />
+            <Route path="budgets" element={<BudgetsWrapper />} />
             <Route path="predictive-analytics" element={<PredictiveAnalyticsWrapper />} />
             <Route path="custom-roles" element={<CustomRoles />} />
             <Route path="custom-fields" element={<CustomFields />} />
@@ -531,6 +535,10 @@ function TrustAccountingWrapper() {
 function CapitalPlanningWrapper() {
   const { effectivePropertyId } = useOutletContext();
   return <CapitalPlanning propertyId={effectivePropertyId} />;
+}
+function BudgetsWrapper() {
+  const { effectivePropertyId } = useOutletContext();
+  return <Budgets propertyId={effectivePropertyId} />;
 }
 function WriteAssistWrapper() {
   const { effectivePropertyId } = useOutletContext();
