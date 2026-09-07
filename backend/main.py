@@ -16,7 +16,7 @@ import os
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from db import ensure_indexes, users_col, properties_col, organizations_col, leases_col, tickets_col, vendors_col, payments_col, bank_lines_col, inspections_col, documents_col, leads_col, screening_col, communications_col, packages_col, custom_field_definitions_col, custom_field_values_col, custom_roles_col, custom_reports_col, fixed_assets_col, capital_projects_col, budgets_col, workflows_col, on_call_shifts_col, kb_articles_col, supplies_col, supply_orders_col, community_posts_col, repair_items_col, labor_rates_col
+from db import ensure_indexes, users_col, properties_col, organizations_col, leases_col, tickets_col, vendors_col, payments_col, bank_lines_col, inspections_col, documents_col, leads_col, screening_col, communications_col, packages_col, custom_field_definitions_col, custom_field_values_col, custom_roles_col, custom_reports_col, fixed_assets_col, capital_projects_col, budgets_col, workflows_col, on_call_shifts_col, kb_articles_col, supplies_col, supply_orders_col, community_posts_col, repair_items_col, labor_rates_col, unit_baseline_photos_col, condition_reports_col, smart_lock_access_log_col, tour_slots_col, tour_bookings_col, market_rent_analyses_col, application_questions_col
 from routers import inspections, maintenance, ai_copilot, properties, leases, dashboard, auth, ai_actions, vendors, email_test, payments, notifications, social
 from rate_limiter import limiter
 from routers import condition_reports
@@ -466,7 +466,29 @@ async def _migrate_legacy_data_to_default_org():
             await community_posts_col.update_one({"_id": post["_id"]}, {"$set": {"orgId": prop["orgId"]}})
             community_posts_updated += 1
 
-    if user_result.modified_count or property_result.modified_count or leases_updated or tickets_updated or vendor_result.modified_count or payments_updated or bank_lines_updated or inspections_updated or documents_updated or leads_updated or screening_updated or communications_updated or packages_updated or custom_field_defs_result.modified_count or custom_field_values_result.modified_count or custom_roles_result.modified_count or custom_reports_result.modified_count or fixed_assets_updated or capital_projects_updated or budgets_updated or workflows_result.modified_count or shifts_updated or kb_result.modified_count or repair_items_result.modified_count or labor_rates_result.modified_count or supplies_updated or supply_orders_updated or community_posts_updated:
+    async def _backfill_by_property(col, extra=0):
+        missing = await col.find({"orgId": {"$exists": False}}, {"_id": 1, "propertyId": 1}).to_list(length=50000)
+        updated = 0
+        for doc in missing:
+            property_id = doc.get("propertyId")
+            if not property_id:
+                continue
+            query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+            prop = await properties_col.find_one({"_id": query_id}, {"orgId": 1})
+            if prop and prop.get("orgId"):
+                await col.update_one({"_id": doc["_id"]}, {"$set": {"orgId": prop["orgId"]}})
+                updated += 1
+        return updated
+
+    baseline_photos_updated = await _backfill_by_property(unit_baseline_photos_col)
+    condition_reports_updated = await _backfill_by_property(condition_reports_col)
+    smart_lock_log_updated = await _backfill_by_property(smart_lock_access_log_col)
+    tour_slots_updated = await _backfill_by_property(tour_slots_col)
+    tour_bookings_updated = await _backfill_by_property(tour_bookings_col)
+    market_rent_analyses_updated = await _backfill_by_property(market_rent_analyses_col)
+    application_questions_updated = await _backfill_by_property(application_questions_col)
+
+    if user_result.modified_count or property_result.modified_count or leases_updated or tickets_updated or vendor_result.modified_count or payments_updated or bank_lines_updated or inspections_updated or documents_updated or leads_updated or screening_updated or communications_updated or packages_updated or custom_field_defs_result.modified_count or custom_field_values_result.modified_count or custom_roles_result.modified_count or custom_reports_result.modified_count or fixed_assets_updated or capital_projects_updated or budgets_updated or workflows_result.modified_count or shifts_updated or kb_result.modified_count or repair_items_result.modified_count or labor_rates_result.modified_count or supplies_updated or supply_orders_updated or community_posts_updated or baseline_photos_updated or condition_reports_updated or smart_lock_log_updated or tour_slots_updated or tour_bookings_updated or market_rent_analyses_updated or application_questions_updated:
         logger.info(
             f"[migration] Backfilled {user_result.modified_count} users, "
             f"{property_result.modified_count} properties, {leases_updated} leases, "
@@ -483,8 +505,12 @@ async def _migrate_legacy_data_to_default_org():
             f"{budgets_updated} budgets, {workflows_result.modified_count} workflows, "
             f"{shifts_updated} on-call shifts, {kb_result.modified_count} KB articles, "
             f"{repair_items_result.modified_count} repair items, {labor_rates_result.modified_count} labor rates, "
-            f"{supplies_updated} supplies, {supply_orders_updated} supply orders, and "
-            f"{community_posts_updated} community posts into default org {org_id}"
+            f"{supplies_updated} supplies, {supply_orders_updated} supply orders, "
+            f"{community_posts_updated} community posts, {baseline_photos_updated} baseline photos, "
+            f"{condition_reports_updated} condition reports, {smart_lock_log_updated} smart lock log entries, "
+            f"{tour_slots_updated} tour slots, {tour_bookings_updated} tour bookings, "
+            f"{market_rent_analyses_updated} market rent analyses, and "
+            f"{application_questions_updated} application questions into default org {org_id}"
         )
 
 
