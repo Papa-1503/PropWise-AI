@@ -1,64 +1,221 @@
 """
-Audit trail / activity log — who did what, to what, when.
+QuickBooks Online accounting sync — real OAuth2 connect flow + one real
+sync operation (pushing a received rent payment into QuickBooks as a
+real Payment against a matched/created Customer). See
+quickbooks_service.py's own docstring for the required environment
+variables and what's genuinely NOT built yet (bills/expenses/full
+bidirectional sync).
 
-A single append-only collection (audit_log_col), written to via
-log_action() below, rather than automatic request/response
-instrumentation. Deliberately explicit, not automatic: automatic
-logging of every request either drowns real signal in noise (every
-GET, every list fetch) or silently misses actions that don't look like
-typical CRUD (a bulk action, a status transition triggered by a
-scheduled job rather than a direct user request). An explicit call at
-each meaningful mutation is more code, but it's honest about exactly
-what's tracked and what isn't, rather than implying blanket coverage
-that doesn't actually exist.
+GET  /api/accounting/connect              -> (staff) returns the real Intuit
+                                              authorization URL to redirect to
+GET  /api/accounting/callback              -> PUBLIC (Intuit redirects the
+                                              browser here after approval) —
+                                              exchanges the code for real tokens
+GET  /api/accounting/status                -> (staff) connected? which company?
+POST /api/accounting/sync-payment/{charge_id} -> (staff) push one payment to QuickBooks
+POST /api/accounting/disconnect            -> (staff) clears the stored connection
 
-Scope of this pass: real infrastructure (this service, the model, the
-query endpoints) wired into a representative, genuinely high-value set
-of actions across the app - not literally every mutating endpoint in
-all 27 routers, which would be a much larger, separate effort. See
-routers/audit.py's module docstring for exactly which actions are
-covered as of this commit.
+Single connection for the whole app, not per-property — matches how a
+real property management company almost always runs one QuickBooks
+company file for its whole operation, categorizing by property/class
+within it rather than maintaining a separate QuickBooks company per
+building.
+
+MULTI-TENANCY: a real, serious gap fixed here - the connection was
+previously keyed by provider ALONE, with a global unique database
+index, meaning only ONE organization across the entire deployment
+could ever connect QuickBooks at all (a second org's connect attempt
+would collide with or silently overwrite the first). Now keyed by
+(provider, orgId) - each organization gets its own real, independent
+QuickBooks connection. /callback is a public endpoint with no user
+session, so orgId is now embedded in the real OAuth state token
+itself (see /connect) so the callback can recover which organization
+initiated the flow - the state's own random component still provides
+the real CSRF protection this already had.
 """
-from datetime import datetime, timezone
+import os
+import secrets
+from datetime import datetime, timezone, timedelta
 
-from db import audit_log_col
+from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.responses import RedirectResponse
+from bson import ObjectId
+
+from db import accounting_connections_col, payments_col, leases_col
+from auth import require_staff
+from audit_service import log_action
+import quickbooks_service
+from quickbooks_service import QuickBooksNotConfigured, QuickBooksApiError
+
+router = APIRouter(prefix="/api/accounting", tags=["accounting"])
 
 
-async def log_action(
-    actor_id: str,
-    actor_email: str,
-    action: str,
-    target_type: str,
-    target_id: str | None = None,
-    details: dict | None = None,
-    org_id: str | None = None,
-):
-    """Records one audit entry. Never raises - a logging failure should
-    never break the actual operation it's describing (same principle as
-    notify_all_staff's insert-per-user loop not being allowed to fail
-    the action that triggered it). If the audit write itself fails,
-    that's a real problem worth knowing about, but it belongs in
-    server logs, not as a 500 surfaced to whoever just, say,
-    successfully deleted a lease.
+async def _get_connection(org_id: str) -> dict | None:
+    return await accounting_connections_col.find_one({"provider": "quickbooks", "orgId": org_id})
 
-    org_id is a real, required-in-practice parameter (multi-tenancy
-    pass) - every real call site across the app (leases.py, payments.py,
-    properties.py, staff.py, oncall.py, kb.py, budgets.py, supplies.py,
-    screening.py, custom_roles.py, rubs.py, smart_locks.py,
-    accounting.py, deposit_pipeline.py, telephony.py,
-    vendor_acceptance.py) now passes it, so routers/audit.py's
-    org-scoped query correctly returns this app's real audit history,
-    not just entries created after this parameter was added."""
+
+async def _get_valid_access_token(connection: dict) -> str:
+    """Returns a real, currently-valid access token — refreshing first
+    if the stored one has actually expired. Persists BOTH the new
+    access token and the new refresh token immediately (see
+    quickbooks_service.py's own docstring on why the refresh token
+    specifically must never be left stale)."""
+    expires_at = connection.get("tokenExpiresAt")
+    now = datetime.now(timezone.utc)
+    # 5-minute safety buffer before the real expiry, not right at the edge
+    if expires_at and isinstance(expires_at, datetime) and expires_at.replace(tzinfo=timezone.utc) > now + timedelta(minutes=5):
+        return connection["accessToken"]
+
+    result = await quickbooks_service.refresh_access_token_async(connection["refreshToken"])
+    new_access_token = result["access_token"]
+    new_refresh_token = result["refresh_token"]  # a genuinely NEW token, not the same one
+    new_expires_at = now + timedelta(seconds=result.get("expires_in", 3600))
+
+    await accounting_connections_col.update_one(
+        {"provider": "quickbooks", "orgId": connection["orgId"]},
+        {"$set": {"accessToken": new_access_token, "refreshToken": new_refresh_token, "tokenExpiresAt": new_expires_at}},
+    )
+    return new_access_token
+
+
+@router.get("/connect")
+async def connect(user: dict = Depends(require_staff)):
+    """Step 1: generates a real, per-attempt CSRF state token, stores
+    it, and returns the real Intuit authorization URL to send the
+    staff member to."""
     try:
-        await audit_log_col.insert_one({
-            "actorId": actor_id,
-            "actorEmail": actor_email,
-            "action": action,
-            "targetType": target_type,
-            "targetId": target_id,
-            "details": details or {},
-            "orgId": org_id,
-            "createdAt": datetime.now(timezone.utc),
-        })
-    except Exception as exc:
-        print(f"Audit log write failed (action={action}, target={target_type}/{target_id}): {exc}")
+        # Real, load-bearing state - includes orgId so /callback (a
+        # public endpoint with no user session) can recover which
+        # organization initiated this connect flow. Without this, the
+        # callback would have no way to know which org's connection to
+        # actually write to.
+        state = f"{user['orgId']}:{secrets.token_urlsafe(32)}"
+        await accounting_connections_col.update_one(
+            {"provider": "quickbooks", "orgId": user["orgId"]},
+            {"$set": {"provider": "quickbooks", "orgId": user["orgId"], "pendingState": state, "pendingStateCreatedAt": datetime.now(timezone.utc)}},
+            upsert=True,
+        )
+        auth_url = quickbooks_service.get_authorization_url(state)
+    except QuickBooksNotConfigured as exc:
+        raise HTTPException(status_code=501, detail=str(exc))
+    return {"authorizationUrl": auth_url}
+
+
+@router.get("/callback")
+async def callback(request: Request, code: str | None = None, state: str | None = None, realmId: str | None = None):
+    """Step 2/3: Intuit redirects the browser here after the staff
+    member approves access, with a real authorization code, the same
+    state this app generated in /connect, and the real realmId
+    (QuickBooks company ID). Deliberately public — Intuit's redirect
+    is a plain browser navigation, not an authenticated API call — the
+    state check is what actually prevents a forged callback from
+    completing a connection."""
+    if not code or not state or not realmId:
+        raise HTTPException(status_code=400, detail="Missing code, state, or realmId from QuickBooks' redirect.")
+
+    # Real org recovery: the state token embeds orgId (see /connect
+    # above) since this public callback has no user session of its own
+    # to read it from otherwise.
+    org_id = state.split(":", 1)[0] if ":" in state else None
+    if not org_id:
+        raise HTTPException(status_code=403, detail="Invalid or expired state — start the connect flow again.")
+    connection = await accounting_connections_col.find_one({"provider": "quickbooks", "orgId": org_id})
+    if not connection or connection.get("pendingState") != state:
+        raise HTTPException(status_code=403, detail="Invalid or expired state — start the connect flow again.")
+
+    try:
+        tokens = await quickbooks_service.exchange_code_for_tokens_async(code)
+    except (QuickBooksNotConfigured, QuickBooksApiError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    now = datetime.now(timezone.utc)
+    await accounting_connections_col.update_one(
+        {"provider": "quickbooks", "orgId": org_id},
+        {"$set": {
+            "realmId": realmId,
+            "accessToken": tokens["access_token"],
+            "refreshToken": tokens["refresh_token"],
+            "tokenExpiresAt": now + timedelta(seconds=tokens.get("expires_in", 3600)),
+            "connectedAt": now,
+        }, "$unset": {"pendingState": "", "pendingStateCreatedAt": ""}},
+    )
+    return RedirectResponse(url="/app/reconciliation?quickbooksConnected=true")
+
+
+@router.get("/status")
+async def status(user: dict = Depends(require_staff)):
+    connection = await _get_connection(user["orgId"])
+    if not connection or not connection.get("realmId"):
+        return {"connected": False}
+    return {
+        "connected": True,
+        "realmId": connection["realmId"],
+        "connectedAt": connection["connectedAt"].isoformat() if isinstance(connection.get("connectedAt"), datetime) else None,
+        "sandbox": os.getenv("QUICKBOOKS_SANDBOX", "false").lower() == "true",
+    }
+
+
+@router.post("/sync-payment/{charge_id}")
+async def sync_payment(charge_id: str, user: dict = Depends(require_staff)):
+    """Pushes one already-recorded payment (see routers/payments.py)
+    into QuickBooks as a real Payment against a matched/created
+    Customer — the actual, real sync operation this infrastructure is
+    for. Fails honest at every real failure point (not connected,
+    charge not found/not actually paid, no resident name to match a
+    customer against) rather than silently doing nothing."""
+    connection = await _get_connection(user["orgId"])
+    if not connection or not connection.get("realmId"):
+        raise HTTPException(status_code=501, detail="QuickBooks isn't connected yet — call GET /api/accounting/connect first.")
+
+    if not ObjectId.is_valid(charge_id):
+        raise HTTPException(status_code=400, detail="Invalid charge ID")
+    charge = await payments_col.find_one({"_id": ObjectId(charge_id), "orgId": user["orgId"]})
+    if not charge:
+        raise HTTPException(status_code=404, detail="Charge not found")
+    amount_paid = charge.get("amountPaid", 0)
+    if amount_paid <= 0:
+        raise HTTPException(status_code=400, detail="This charge has no payment recorded against it yet.")
+    if charge.get("quickbooksPaymentId"):
+        raise HTTPException(status_code=400, detail="This payment was already synced to QuickBooks.")
+
+    lease = await leases_col.find_one({"propertyId": charge.get("propertyId"), "unitId": charge.get("unitId"), "orgId": user["orgId"]})
+    resident_name = lease.get("residentName") if lease else None
+    if not resident_name:
+        raise HTTPException(status_code=400, detail="No resident name on file for this unit — can't match a QuickBooks customer.")
+
+    try:
+        access_token = await _get_valid_access_token(connection)
+        customer_id = await quickbooks_service.find_or_create_customer_async(
+            access_token, connection["realmId"], resident_name, lease.get("residentEmail"),
+        )
+        result = await quickbooks_service.record_payment_async(
+            access_token, connection["realmId"], customer_id, amount_paid,
+            memo=f"{charge.get('description', 'Rent payment')} — Unit {charge.get('unitId')}",
+        )
+    except (QuickBooksNotConfigured, QuickBooksApiError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    qb_payment_id = result.get("Payment", {}).get("Id")
+    await payments_col.update_one(
+        {"_id": ObjectId(charge_id)},
+        {"$set": {"quickbooksPaymentId": qb_payment_id, "quickbooksSyncedAt": datetime.now(timezone.utc)}},
+    )
+
+    await log_action(
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
+        action="quickbooks_payment_synced", target_type="payment", target_id=charge_id,
+        details={"quickbooksPaymentId": qb_payment_id, "amount": amount_paid},
+    )
+
+    return {"synced": True, "quickbooksPaymentId": qb_payment_id}
+
+
+@router.post("/disconnect")
+async def disconnect(user: dict = Depends(require_staff)):
+    await accounting_connections_col.delete_one({"provider": "quickbooks", "orgId": user["orgId"]})
+    await log_action(
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
+        action="quickbooks_disconnected", target_type="accounting_connection", target_id="quickbooks",
+        details={},
+    )
+    return {"connected": False}
