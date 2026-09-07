@@ -23,7 +23,13 @@ def serialize(doc: dict) -> dict:
 
 @router.get("/residents/360")
 async def resident_360(email: str = Query(...), user: dict = Depends(require_staff_or_owner)):
-    leases = await leases_col.find({"residentEmail": email}).sort("startDate", -1).to_list(length=50)
+    # MULTI-TENANCY: real, severe gap closed here - this lookup
+    # previously had NO org scoping at all, meaning any staff member
+    # could type in any resident's email (even one belonging to a
+    # completely different organization) and see that resident's full
+    # lease/payment/ticket/communication history. orgId is now always
+    # part of the query, for both staff and owners.
+    leases = await leases_col.find({"residentEmail": email, "orgId": user["orgId"]}).sort("startDate", -1).to_list(length=50)
     leases = [serialize(l) for l in leases]
 
     # Real access-control gap, closed here rather than left as a
@@ -125,9 +131,17 @@ async def unit_360(
     # a direct query parameter: check ownership before running any
     # queries at all, rather than filtering results afterward.
     if user["role"] == "owner":
-        owned = await properties_col.find_one({"_id": propertyId, "ownerId": user["id"]})
+        owned = await properties_col.find_one({"_id": propertyId, "ownerId": user["id"], "orgId": user["orgId"]})
         if not owned:
             raise HTTPException(status_code=403, detail="You don't have access to this property.")
+    else:
+        # MULTI-TENANCY: same real gap as resident_360 above - staff
+        # previously had no org check at all on this lookup, meaning
+        # any propertyId (even one belonging to a different
+        # organization) would return that unit's real data.
+        owned = await properties_col.find_one({"_id": propertyId, "orgId": user["orgId"]})
+        if not owned:
+            raise HTTPException(status_code=404, detail="Property not found")
 
     query = {"propertyId": propertyId, "unitId": unitId}
 
