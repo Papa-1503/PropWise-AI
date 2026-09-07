@@ -37,6 +37,12 @@ Opt-Out feature at the carrier/Twilio level before they ever reach
 this webhook (default-on for the number types this app uses) - not
 reimplemented here, since Twilio's own compliance handling is more
 reliable than a bespoke keyword check would be.
+
+MULTI-TENANCY: /log is scoped by orgId. The inbound match itself
+(_match_phone_to_resident) has a real, honest, structural limitation
+rather than a simple missing filter - see that function's own
+docstring for why the single shared Twilio number this app uses means
+there's no org signal available to scope the match by at all.
 """
 from datetime import datetime, timedelta, timezone
 
@@ -65,7 +71,24 @@ async def _match_phone_to_resident(phone: str) -> dict | None:
     scope this to up front (see module docstring). If more than one
     lease matches the same normalized number (e.g. a reused number
     across two tenancies over time), the most recently started lease
-    wins - the real, current resident at that number."""
+    wins - the real, current resident at that number.
+
+    MULTI-TENANCY: a real, honest, structural limitation - not a
+    simple missing filter. This app has exactly ONE shared
+    TWILIO_FROM_NUMBER for the whole deployment (see module docstring),
+    so at the moment an inbound text arrives, there is no property or
+    org signal available at all to scope this search by - Twilio gives
+    this webhook only the caller's phone number, nothing else. If two
+    different organizations sharing this deployment both happened to
+    have a resident with the same (or a reused) phone number on file,
+    this could genuinely match the wrong org's resident. The correct
+    long-term fix is a dedicated Twilio number per organization
+    (mirroring how routers/telephony.py's Voice line already scopes by
+    twilioNumber per property) - out of scope for a code-only change,
+    since it requires provisioning real per-org Twilio numbers.
+    Acceptable for now given this app's real current state (a single
+    organization), but a genuine gap to close before a second real org
+    shares this same deployment."""
     normalized_target = normalize_phone(phone)
     if not normalized_target:
         return None
