@@ -15,6 +15,10 @@ what inputs) based on the free-text question, that function does the
 actual math in plain Python, and Claude only narrates the real result
 handed back to it. Same "AI reasoning grounded only in computed
 numbers" principle as market_rent.py's comp-based pricing.
+
+MULTI-TENANCY: org_id is threaded through to every scenario_service
+tool call - see that module's own docstring for the real, previously-
+live cross-tenant gap this closes.
 """
 import os
 import json
@@ -72,13 +76,13 @@ SYSTEM_PROMPT = (
 )
 
 
-async def _execute_tool(name: str, tool_input: dict, property_ids: list[str] | None) -> dict:
+async def _execute_tool(name: str, tool_input: dict, org_id: str, property_ids: list[str] | None) -> dict:
     if name == "portfolio_snapshot":
-        return await scenario_service.portfolio_snapshot(property_ids)
+        return await scenario_service.portfolio_snapshot(org_id, property_ids)
     if name == "simulate_rent_increase":
-        return await scenario_service.simulate_rent_increase(property_ids, tool_input.get("percent", 0))
+        return await scenario_service.simulate_rent_increase(org_id, property_ids, tool_input.get("percent", 0))
     if name == "simulate_occupancy_change":
-        return await scenario_service.simulate_occupancy_change(property_ids, tool_input.get("unitDelta", 0))
+        return await scenario_service.simulate_occupancy_change(org_id, property_ids, tool_input.get("unitDelta", 0))
     raise ValueError(f"Unknown tool: {name}")
 
 
@@ -123,7 +127,7 @@ async def ask_scenario_planner(payload: CopilotRequest, user: dict = Depends(req
             if getattr(block, "type", None) != "tool_use":
                 continue
             try:
-                result = await _execute_tool(block.name, block.input, property_ids)
+                result = await _execute_tool(block.name, block.input, user["orgId"], property_ids)
                 last_tool_result = result
                 sources.append(block.name)
                 tool_results.append({
