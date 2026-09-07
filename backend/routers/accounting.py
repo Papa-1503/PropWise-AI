@@ -202,7 +202,7 @@ async def sync_payment(charge_id: str, user: dict = Depends(require_staff)):
     )
 
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="quickbooks_payment_synced", target_type="payment", target_id=charge_id,
         details={"quickbooksPaymentId": qb_payment_id, "amount": amount_paid},
     )
@@ -214,7 +214,7 @@ async def sync_payment(charge_id: str, user: dict = Depends(require_staff)):
 async def disconnect(user: dict = Depends(require_staff)):
     await accounting_connections_col.delete_one({"provider": "quickbooks", "orgId": user["orgId"]})
     await log_action(
-        actor_id=str(user["id"]), actor_email=user.get("email", ""),
+        actor_id=str(user["id"]), actor_email=user.get("email", ""), org_id=user["orgId"],
         action="quickbooks_disconnected", target_type="accounting_connection", target_id="quickbooks",
         details={},
     )
