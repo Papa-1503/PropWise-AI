@@ -12,12 +12,18 @@ import { useAuth } from "./AuthContext";
  * property via invite code - this is for a property management
  * company creating its own new, independent account for the first
  * time.
+ *
+ * Requires explicit agreement to the Terms of Service and Privacy
+ * Policy (see LegalDocument.jsx) before an organization can be
+ * created - a real consent checkpoint, not just a footer link no one
+ * is required to have seen.
  */
 export default function OrganizationSignup() {
   const [organizationName, setOrganizationName] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const { signupOrganization } = useAuth();
@@ -27,6 +33,10 @@ export default function OrganizationSignup() {
     e.preventDefault();
     if (!organizationName.trim() || !name.trim() || !email.trim() || password.length < 8) {
       setError("Please fill in every field. Password must be at least 8 characters.");
+      return;
+    }
+    if (!agreedToTerms) {
+      setError("Please agree to the Terms of Service and Privacy Policy to continue.");
       return;
     }
     setSaving(true);
@@ -99,6 +109,21 @@ export default function OrganizationSignup() {
           </div>
 
           {error && <p role="alert" className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2">{error}</p>}
+
+          <label className="flex items-start gap-2 text-[11px] text-slate-500">
+            <input
+              type="checkbox"
+              checked={agreedToTerms}
+              onChange={(e) => setAgreedToTerms(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              I agree to the{" "}
+              <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline">Terms of Service</a>
+              {" "}and{" "}
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline">Privacy Policy</a>.
+            </span>
+          </label>
 
           <button
             type="submit"
