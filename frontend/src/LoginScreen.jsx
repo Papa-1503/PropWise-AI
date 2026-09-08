@@ -181,6 +181,11 @@ export default function LoginScreen() {
           Property manager? <a href="/signup" className="text-indigo-600 underline">Create your organization</a>
         </p>
       </form>
+      <p className="text-[10px] text-slate-400 mt-4 text-center">
+        <a href="/terms" className="underline hover:text-slate-600">Terms of Service</a>
+        {" · "}
+        <a href="/privacy" className="underline hover:text-slate-600">Privacy Policy</a>
+      </p>
     </div>
   );
 }
