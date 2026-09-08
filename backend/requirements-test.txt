@@ -1,0 +1,9 @@
+# Test-only dependencies — kept separate from requirements.txt so
+# production installs never pull these in. httpx is already a real
+# production dependency (used by the app itself); listed here again
+# only so `pip install -r requirements-test.txt` alone is enough to
+# run the suite.
+pytest==9.1.1
+pytest-asyncio==1.4.0
+httpx==0.28.1
+mongomock-motor==0.0.36
