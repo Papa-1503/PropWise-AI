@@ -498,6 +498,34 @@ async def _migrate_legacy_data_to_default_org():
     communication_templates_result = await communication_templates_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
     accounting_connections_result = await accounting_connections_col.update_many({"orgId": {"$exists": False}}, {"$set": {"orgId": org_id}})
 
+    # Real, genuine gap this closes: an organization created via the
+    # legacy-data migration path above (rather than the real
+    # signup_organization endpoint - see routers/auth.py) never had
+    # ANY user marked isOrgOwner=True, since that flag is only ever
+    # set on the specific account that runs through real signup.
+    # Without this, billing (routers/billing.py) would be permanently
+    # unreachable for that organization - no staff account could ever
+    # manage it. Every real organization needs exactly one real owner,
+    # guaranteed, not just ones created through signup. Idempotent and
+    # narrow: only acts on an org that genuinely has zero owners, and
+    # promotes its single earliest-created staff member - a real,
+    # deterministic choice, not an arbitrary one, and the org's real
+    # owner can always reassign this later via a future admin UI.
+    owners_assigned = 0
+    all_org_docs = await organizations_col.find({}, {"_id": 1}).to_list(length=1000)
+    for org_doc in all_org_docs:
+        this_org_id = str(org_doc["_id"])
+        has_owner = await users_col.find_one({"orgId": this_org_id, "isOrgOwner": True}, {"_id": 1})
+        if has_owner:
+            continue
+        earliest_staff = await users_col.find_one(
+            {"orgId": this_org_id, "role": "staff"},
+            sort=[("createdAt", 1)],
+        )
+        if earliest_staff:
+            await users_col.update_one({"_id": earliest_staff["_id"]}, {"$set": {"isOrgOwner": True}})
+            owners_assigned += 1
+
     # Same real per-property lookup as elsewhere above - an AI Action's
     # org is derived from its own real property when set. A handful of
     # actions may have no propertyId (a genuinely portfolio-wide
@@ -515,7 +543,7 @@ async def _migrate_legacy_data_to_default_org():
             await ai_actions_col.update_one({"_id": action["_id"]}, {"$set": {"orgId": prop["orgId"]}})
             ai_actions_updated += 1
 
-    if user_result.modified_count or property_result.modified_count or leases_updated or tickets_updated or vendor_result.modified_count or payments_updated or bank_lines_updated or inspections_updated or documents_updated or leads_updated or screening_updated or communications_updated or packages_updated or custom_field_defs_result.modified_count or custom_field_values_result.modified_count or custom_roles_result.modified_count or custom_reports_result.modified_count or fixed_assets_updated or capital_projects_updated or budgets_updated or workflows_result.modified_count or shifts_updated or kb_result.modified_count or repair_items_result.modified_count or labor_rates_result.modified_count or supplies_updated or supply_orders_updated or community_posts_updated or baseline_photos_updated or condition_reports_updated or smart_lock_log_updated or tour_slots_updated or tour_bookings_updated or market_rent_analyses_updated or application_questions_updated or gallery_photos_updated or maintenance_schedules_updated or communication_templates_result.modified_count or accounting_connections_result.modified_count or ai_actions_updated:
+    if user_result.modified_count or property_result.modified_count or leases_updated or tickets_updated or vendor_result.modified_count or payments_updated or bank_lines_updated or inspections_updated or documents_updated or leads_updated or screening_updated or communications_updated or packages_updated or custom_field_defs_result.modified_count or custom_field_values_result.modified_count or custom_roles_result.modified_count or custom_reports_result.modified_count or fixed_assets_updated or capital_projects_updated or budgets_updated or workflows_result.modified_count or shifts_updated or kb_result.modified_count or repair_items_result.modified_count or labor_rates_result.modified_count or supplies_updated or supply_orders_updated or community_posts_updated or baseline_photos_updated or condition_reports_updated or smart_lock_log_updated or tour_slots_updated or tour_bookings_updated or market_rent_analyses_updated or application_questions_updated or gallery_photos_updated or maintenance_schedules_updated or communication_templates_result.modified_count or accounting_connections_result.modified_count or owners_assigned or ai_actions_updated:
         logger.info(
             f"[migration] Backfilled {user_result.modified_count} users, "
             f"{property_result.modified_count} properties, {leases_updated} leases, "
@@ -540,8 +568,9 @@ async def _migrate_legacy_data_to_default_org():
             f"{application_questions_updated} application questions, {gallery_photos_updated} gallery photos, "
             f"{maintenance_schedules_updated} maintenance schedules, "
             f"{communication_templates_result.modified_count} communication templates, "
-            f"{accounting_connections_result.modified_count} accounting connections, and "
-            f"{ai_actions_updated} AI actions into default org {org_id}"
+            f"{accounting_connections_result.modified_count} accounting connections, "
+            f"{ai_actions_updated} AI actions, and {owners_assigned} organizations backfilled with a real owner "
+            f"into default org {org_id}"
         )
 
 
