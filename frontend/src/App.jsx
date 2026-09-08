@@ -26,6 +26,7 @@ import ComplianceCalendar from "./ComplianceCalendar";
 import PortfolioPricing from "./PortfolioPricing";
 import PhotoUploadPage from "./PhotoUploadPage";
 import OrganizationSignup from "./OrganizationSignup";
+import LegalDocument from "./LegalDocument";
 import ConversationLog from "./ConversationLog";
 import VendorsList from "./VendorsList";
 import AIActionsPanel from "./AIActionsPanel";
@@ -450,6 +451,8 @@ export default function App() {
               <Route path="/apply" element={<LeadCaptureForm />} />
               <Route path="/upload-photos/:token" element={<PhotoUploadPage />} />
               <Route path="/signup" element={<OrganizationSignup />} />
+              <Route path="/terms" element={<LegalDocument type="terms" />} />
+              <Route path="/privacy" element={<LegalDocument type="privacy" />} />
               <Route path="/" element={<RootRedirect />} />
 
           <Route path="/app" element={<AppGate />}>
