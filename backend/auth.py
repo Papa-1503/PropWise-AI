@@ -34,7 +34,7 @@ from jwt import PyJWTError
 import bcrypt
 from bson import ObjectId
 
-from db import users_col, custom_roles_col
+from db import users_col, custom_roles_col, organizations_col
 
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-only-secret-change-me")
 JWT_ALGORITHM = "HS256"
@@ -102,7 +102,21 @@ async def get_current_user(request: Request, token: Optional[str] = Depends(oaut
 
 
 def require_role(*allowed_roles: str):
-    """Use as a dependency: Depends(require_role('staff'))"""
+    """Use as a dependency: Depends(require_role('staff'))
+
+    Also the real, single enforcement point for trial expiration (see
+    routers/billing.py) - deliberately placed here rather than
+    retrofitted into 177+ individual staff-facing endpoints. Every
+    dependency built on this factory (require_staff, require_owner,
+    require_staff_or_owner) picks up the same real block automatically;
+    plain get_current_user (what every tenant-facing endpoint uses) is
+    completely untouched, so a resident is never locked out because
+    their landlord's organization is behind on billing - only the
+    staff/owner side of the app is gated by the org's own subscription
+    state. routers/billing.py's own endpoints deliberately use
+    get_current_user directly (see that router's _require_org_owner),
+    never this factory, so an organization whose trial has expired can
+    always still reach the one place that lets them fix it."""
 
     async def checker(user: dict = Depends(get_current_user)) -> dict:
         if user["role"] not in allowed_roles:
@@ -110,9 +124,37 @@ def require_role(*allowed_roles: str):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Requires role: {' or '.join(allowed_roles)}",
             )
+        await _enforce_trial_status(user)
         return user
 
     return checker
+
+
+async def _enforce_trial_status(user: dict) -> None:
+    """Real, honest trial-expiration check. Only ever blocks when the
+    organization is genuinely still on 'trial' AND that trial's real
+    end date has passed AND it hasn't been converted to a paid plan -
+    an org on the "internal" plan (this app's own real portfolio, see
+    main.py's migration) or already upgraded to "pro" (see
+    routers/billing.py's webhook) is never blocked here, regardless of
+    what trialEndsAt happens to still say."""
+    org_id = user.get("orgId")
+    if not org_id:
+        return  # an account genuinely not linked to an org (shouldn't happen post-migration) - not this check's job to police
+    query_id = ObjectId(org_id) if ObjectId.is_valid(org_id) else org_id
+    org = await organizations_col.find_one({"_id": query_id}, {"plan": 1, "active": 1, "trialEndsAt": 1})
+    if not org or org.get("plan") != "trial":
+        return
+    trial_ends_at = org.get("trialEndsAt")
+    if not trial_ends_at:
+        return
+    if trial_ends_at.tzinfo is None:
+        trial_ends_at = trial_ends_at.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) > trial_ends_at:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Your free trial has ended. Please subscribe to continue using PropWise AI.",
+        )
 
 
 def require_permission(permission: str):
@@ -133,6 +175,7 @@ def require_permission(permission: str):
     async def checker(user: dict = Depends(get_current_user)) -> dict:
         if user["role"] != "staff":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Requires role: staff")
+        await _enforce_trial_status(user)
         custom_role_id = user.get("customRoleId")
         if not custom_role_id:
             return user  # no custom role assigned - full access, today's real default behavior
