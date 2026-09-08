@@ -187,7 +187,16 @@ async def billing_webhook(request: Request):
     except (StripeNotConfigured, StripePayError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    obj = event["data"]["object"]
+    # BUG FIX (found by actually running a real, validly-signed test
+    # webhook through this handler, not assumed correct): stripe's
+    # Event.data.object is a StripeObject, not a plain dict - it
+    # supports [] access but NOT .get(), which raises AttributeError
+    # ("'get' is a dict method, but a StripeObject is not a dict").
+    # Every .get() call below would have raised the moment a REAL
+    # Stripe webhook fired in production. .to_dict() converts it to a
+    # real plain dict first, after which every .get() call below
+    # behaves exactly as written.
+    obj = event["data"]["object"].to_dict()
 
     if event["type"] == "checkout.session.completed":
         customer_id = obj.get("customer")
