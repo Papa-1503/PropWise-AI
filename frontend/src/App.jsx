@@ -15,6 +15,7 @@ import Settings from "./Settings";
 import OnboardingTour from "./OnboardingTour";
 import WelcomeScreen from "./WelcomeScreen";
 import InstallBanner from "./InstallBanner";
+import TrialBanner from "./TrialBanner";
 import PushSetup from "./PushSetup";
 const Dashboard = lazy(() => import("./Dashboard"));
 import MaintenanceTickets from "./MaintenanceTickets";
@@ -405,6 +406,8 @@ function AppGate() {
               <NotificationBell />
             </div>
           </header>
+
+          <TrialBanner />
 
           <main id="main-content" tabIndex={-1} className="px-4 lg:px-6 pb-10 pt-3 bg-[#f6f3ec] min-h-0">
             <Outlet context={{ effectivePropertyId, userName: user.name }} />
