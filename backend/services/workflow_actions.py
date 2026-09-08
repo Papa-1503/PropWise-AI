@@ -4,6 +4,13 @@ Action handlers for workflow automation.
 Each handler takes (config, payload) and performs one action step.
 config = the action's settings from the workflow definition
 payload = the event data (e.g. the unit/lease/tenant that triggered it)
+
+MULTI-TENANCY: real gaps closed here - tickets and inspections created
+by these actions now carry a real orgId (derived from the event's
+propertyId - see _resolve_org_id), and every ticket lookup/staff
+lookup is scoped by it. assign_user_action's gap was the most serious:
+without it, a workflow could assign a real ticket to a DIFFERENT
+organization's staff member simply by having that user's ID configured.
 """
 import uuid
 from datetime import datetime, timezone
@@ -14,6 +21,25 @@ from email_service import send_email_async, EmailNotConfigured, EmailSendError
 import notifications_service
 from services.ticket_dedup import find_existing_open_duplicate, record_duplicate_occurrence
 from services.ticket_severity import compute_severity
+
+
+async def _resolve_org_id(property_id) -> str | None:
+    """Every real event payload that reaches these action handlers
+    carries a propertyId (a unit-scoped event with no property at all
+    isn't a real, meaningful trigger for anything here) - this derives
+    the real orgId from it fresh, the same pattern used throughout the
+    rest of this app, since workflow event payloads were never given
+    their own orgId field and emit_event's many call sites across the
+    app would be a much larger, riskier change to thread it through
+    directly. Returns None (not a guess) if the property can't be
+    resolved - callers treat that as "can't verify this org, don't
+    stamp/scope by anything false."
+    """
+    if not property_id:
+        return None
+    query_id = ObjectId(property_id) if ObjectId.is_valid(property_id) else property_id
+    prop = await properties_col.find_one({"_id": query_id}, {"orgId": 1})
+    return prop.get("orgId") if prop else None
 
 
 # Standard unit turnover checklist — housekeeping + maintenance items.
@@ -94,6 +120,7 @@ async def create_task_action(config: dict, payload: dict):
     property_id = payload.get("propertyId")
     unit_id = payload.get("unitId")
     title = config.get("title", "Automated task")
+    org_id = await _resolve_org_id(property_id)
 
     existing_duplicate = await find_existing_open_duplicate(property_id, unit_id, title)
     if existing_duplicate:
@@ -105,6 +132,7 @@ async def create_task_action(config: dict, payload: dict):
         "title": title,
         "propertyId": property_id,
         "unitId": unit_id,
+        "orgId": org_id,
         "status": "open",
         "createdAt": datetime.now(timezone.utc),
         "severityScore": severity["score"],
@@ -125,6 +153,7 @@ async def create_turnover_checklist_action(config: dict, payload: dict):
     back once every item is checked off)."""
     property_id = payload.get("propertyId")
     unit_id = payload.get("unitId")
+    org_id = await _resolve_org_id(property_id)
 
     items = [
         {"id": uuid.uuid4().hex[:8], "room": item["room"], "description": item["description"],
@@ -135,6 +164,7 @@ async def create_turnover_checklist_action(config: dict, payload: dict):
     doc = {
         "propertyId": property_id,
         "unitId": unit_id,
+        "orgId": org_id,
         "inspectorName": "",
         "type": "turnover",
         "items": items,
@@ -152,7 +182,7 @@ async def create_turnover_checklist_action(config: dict, payload: dict):
 
     assigned_tech = None
     if property_id:
-        assigned_tech = await users_col.find_one({"role": "staff", "assignedProperties": property_id})
+        assigned_tech = await users_col.find_one({"role": "staff", "assignedProperties": property_id, "orgId": org_id})
 
     if assigned_tech:
         await notifications_service.notify_user(
@@ -190,17 +220,23 @@ async def assign_user_action(config: dict, payload: dict):
         raise ValueError("No unitId in event payload")
     if not user_id:
         raise ValueError("No userId configured for this action")
+    org_id = await _resolve_org_id(property_id)
 
     ticket = await tickets_col.find_one(
-        {"propertyId": property_id, "unitId": unit_id, "status": {"$ne": "done"}},
+        {"propertyId": property_id, "unitId": unit_id, "status": {"$ne": "done"}, "orgId": org_id},
         sort=[("createdAt", -1)],
     )
     if not ticket:
         return {"assigned": False, "reason": "No open ticket found for this unit to assign."}
 
-    assigned_user = await users_col.find_one({"_id": ObjectId(user_id)}) if ObjectId.is_valid(user_id) else None
+    # Real ownership check, not just scoping: without orgId here, a
+    # workflow could assign a ticket to a DIFFERENT organization's
+    # staff member simply by having that user's real user ID
+    # configured (e.g. a stale config from before a staff member
+    # changed orgs, or a copy-pasted workflow).
+    assigned_user = await users_col.find_one({"_id": ObjectId(user_id), "orgId": org_id}) if ObjectId.is_valid(user_id) else None
     if not assigned_user:
-        raise ValueError(f"Configured userId {user_id} is not a real user.")
+        raise ValueError(f"Configured userId {user_id} is not a real user in this organization.")
 
     await tickets_col.update_one({"_id": ticket["_id"]}, {"$set": {"assignee": assigned_user.get("email")}})
     await notifications_service.notify_user(
@@ -227,15 +263,16 @@ async def route_to_team_action(config: dict, payload: dict):
     property_id = payload.get("propertyId")
     if not unit_id or not property_id:
         raise ValueError("No propertyId/unitId in event payload")
+    org_id = await _resolve_org_id(property_id)
 
     ticket = await tickets_col.find_one(
-        {"propertyId": property_id, "unitId": unit_id, "status": {"$ne": "done"}},
+        {"propertyId": property_id, "unitId": unit_id, "status": {"$ne": "done"}, "orgId": org_id},
         sort=[("createdAt", -1)],
     )
     if not ticket:
         return {"routed": False, "reason": "No open ticket found for this unit to route."}
 
-    assigned_tech = await users_col.find_one({"role": "staff", "assignedProperties": property_id})
+    assigned_tech = await users_col.find_one({"role": "staff", "assignedProperties": property_id, "orgId": org_id})
     if assigned_tech:
         await tickets_col.update_one({"_id": ticket["_id"]}, {"$set": {"assignee": assigned_tech.get("email")}})
         await notifications_service.notify_user(
@@ -268,9 +305,10 @@ async def set_status_action(config: dict, payload: dict):
         raise ValueError("No unitId in event payload")
     if new_status not in ("open", "in_progress", "done"):
         raise ValueError(f"Invalid status '{new_status}' - must be open, in_progress, or done.")
+    org_id = await _resolve_org_id(property_id)
 
     ticket = await tickets_col.find_one(
-        {"propertyId": property_id, "unitId": unit_id},
+        {"propertyId": property_id, "unitId": unit_id, "orgId": org_id},
         sort=[("createdAt", -1)],
     )
     if not ticket:
