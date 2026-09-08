@@ -6,15 +6,16 @@ import { API_BASE } from "./config";
 /**
  * Settings
  *
- * Modeled on the shared design's tabbed Settings page, but honestly
- * scoped down: that design had Profile/Notifications/Billing/Security
- * tabs, but PropWise AI has no real backend behind notification
- * preferences at the user level, and no real subscription/billing
- * system for itself as a product. Building those tabs would mean UI
- * with nothing functional behind it — the same category of gap flagged
- * and avoided in the original PropWise AI assessment. Built the two tabs
- * that have genuine, real capability: editing your name, and changing
- * your password (neither existed anywhere in the app before this).
+ * Modeled on the shared design's tabbed Settings page. Profile and
+ * Security are the two tabs with genuine, real capability that
+ * existed before this pass (editing your name, changing your
+ * password). Billing is now real too (routers/billing.py,
+ * billing_service.py) - shown only to staff, and only functional for
+ * the org owner specifically (who can actually change what the
+ * organization pays), matching the real ownership boundary that
+ * backend enforces. Notification preferences at the user level still
+ * have no real backend behind them - deliberately not added as a tab
+ * to avoid UI with nothing functional behind it.
  */
 
 function ProfileTab() {
@@ -205,14 +206,145 @@ function SecurityTab() {
   );
 }
 
+function BillingTab() {
+  const { user, authFetch } = useAuth();
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
+  const { show: showToast } = useToast();
+
+  useEffect(() => {
+    authFetch(`${API_BASE}/billing/status`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => data && setStatus(data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [authFetch]);
+
+  async function handleUpgrade() {
+    setActionLoading(true);
+    try {
+      const res = await authFetch(`${API_BASE}/billing/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          successUrl: `${window.location.origin}/app/settings?billingSuccess=true`,
+          cancelUrl: `${window.location.origin}/app/settings`,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "Couldn't start checkout.");
+      window.location.href = data.checkoutUrl;
+    } catch (err) {
+      showToast(err.message, "error");
+      setActionLoading(false);
+    }
+  }
+
+  async function handleManage() {
+    setActionLoading(true);
+    try {
+      const res = await authFetch(`${API_BASE}/billing/portal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ returnUrl: `${window.location.origin}/app/settings` }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "Couldn't open billing management.");
+      window.location.href = data.portalUrl;
+    } catch (err) {
+      showToast(err.message, "error");
+      setActionLoading(false);
+    }
+  }
+
+  if (!user?.isOrgOwner) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-xl p-5">
+        <h3 className="text-sm font-semibold mb-1">Billing</h3>
+        <p className="text-sm text-slate-500">
+          Only your organization's owner can view and manage billing.
+        </p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return <div className="bg-white border border-slate-200 rounded-xl p-5 text-sm text-slate-400">Loading…</div>;
+  }
+
+  if (!status) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-xl p-5">
+        <h3 className="text-sm font-semibold mb-1">Billing</h3>
+        <p className="text-sm text-rose-600">Couldn't load billing status.</p>
+      </div>
+    );
+  }
+
+  const isPaid = status.plan === "pro" && status.active;
+  const isInternal = status.plan === "internal";
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+      <h3 className="text-sm font-semibold">Billing</h3>
+
+      {isInternal ? (
+        <p className="text-sm text-slate-600">This organization isn't subject to billing.</p>
+      ) : isPaid ? (
+        <div>
+          <p className="text-sm text-emerald-700 font-medium mb-1">You're on the paid plan.</p>
+          {status.subscriptionStatus && status.subscriptionStatus !== "active" && (
+            <p className="text-xs text-amber-600 mb-2">
+              Subscription status: {status.subscriptionStatus} — check your payment method if this persists.
+            </p>
+          )}
+          <button
+            onClick={handleManage}
+            disabled={actionLoading}
+            className="text-sm font-semibold bg-slate-900 disabled:bg-slate-300 text-white px-4 py-2 rounded-lg"
+          >
+            {actionLoading ? "Opening…" : "Manage billing"}
+          </button>
+        </div>
+      ) : (
+        <div>
+          {status.blocked ? (
+            <p className="text-sm text-rose-600 font-medium mb-2">
+              Your free trial has ended. Subscribe to keep using PropWise AI.
+            </p>
+          ) : (
+            <p className="text-sm text-slate-600 mb-2">
+              {status.trialDaysLeft != null
+                ? `${status.trialDaysLeft} day${status.trialDaysLeft === 1 ? "" : "s"} left in your free trial.`
+                : "You're on a free trial."}
+            </p>
+          )}
+          <button
+            onClick={handleUpgrade}
+            disabled={actionLoading}
+            className="text-sm font-semibold bg-indigo-600 disabled:bg-indigo-300 text-white px-4 py-2 rounded-lg"
+          >
+            {actionLoading ? "Redirecting…" : "Subscribe now"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Settings() {
+  const { user } = useAuth();
   const [tab, setTab] = useState("profile");
+
+  const tabs = [["profile", "Profile"], ["security", "Security"]];
+  if (user?.role === "staff") tabs.push(["billing", "Billing"]);
 
   return (
     <div className="max-w-lg mx-auto">
       <h2 className="text-lg font-semibold mb-3">Settings</h2>
       <div className="flex gap-1 bg-slate-100 rounded-full p-0.5 w-fit mb-4">
-        {[["profile", "Profile"], ["security", "Security"]].map(([id, label]) => (
+        {tabs.map(([id, label]) => (
           <button
             key={id}
             onClick={() => setTab(id)}
@@ -224,7 +356,7 @@ export default function Settings() {
           </button>
         ))}
       </div>
-      {tab === "profile" ? <ProfileTab /> : <SecurityTab />}
+      {tab === "profile" ? <ProfileTab /> : tab === "security" ? <SecurityTab /> : <BillingTab />}
     </div>
   );
 }
