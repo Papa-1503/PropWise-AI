@@ -27,6 +27,7 @@ import PortfolioPricing from "./PortfolioPricing";
 import PhotoUploadPage from "./PhotoUploadPage";
 import OrganizationSignup from "./OrganizationSignup";
 import LegalDocument from "./LegalDocument";
+import ResetPassword from "./ResetPassword";
 import ConversationLog from "./ConversationLog";
 import VendorsList from "./VendorsList";
 import AIActionsPanel from "./AIActionsPanel";
@@ -453,6 +454,7 @@ export default function App() {
               <Route path="/signup" element={<OrganizationSignup />} />
               <Route path="/terms" element={<LegalDocument type="terms" />} />
               <Route path="/privacy" element={<LegalDocument type="privacy" />} />
+              <Route path="/reset-password/:token" element={<ResetPassword />} />
               <Route path="/" element={<RootRedirect />} />
 
           <Route path="/app" element={<AppGate />}>
