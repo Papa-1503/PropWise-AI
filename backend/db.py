@@ -192,3 +192,11 @@ async def ensure_indexes():
     await tour_bookings_col.create_index("slotId")
     await scheduler_health_col.create_index("scheduler", unique=True)
     await renewal_checkins_col.create_index([("leaseId", 1), ("promptedAt", -1)])
+    # Real, database-level guarantee that two organizations can never
+    # both claim the same dedicated Twilio SMS number - sparse since
+    # most organizations won't set one and share the default instead
+    # (see sms_service.py's own docstring). The application-level
+    # check in routers/organizations.py is real too, but this index is
+    # what actually prevents a race between two near-simultaneous
+    # requests from both succeeding.
+    await organizations_col.create_index("smsNumber", unique=True, sparse=True)
