@@ -451,6 +451,15 @@ class PasswordChange(BaseModel):
     newPassword: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    newPassword: str
+
+
 class PushSubscriptionKeys(BaseModel):
     p256dh: str
     auth: str
