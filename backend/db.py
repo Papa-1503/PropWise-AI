@@ -71,6 +71,7 @@ application_questions_col = db["application_questions"]
 packages_col = db["packages"]
 community_posts_col = db["community_posts"]
 late_notices_col = db["late_notices"]
+password_reset_tokens_col = db["password_reset_tokens"]
 async def ensure_indexes():
     """Call once at app startup (see main.py) to keep queries fast."""
     await inspections_col.create_index([("propertyId", 1), ("unitId", 1)])
@@ -200,3 +201,10 @@ async def ensure_indexes():
     # what actually prevents a race between two near-simultaneous
     # requests from both succeeding.
     await organizations_col.create_index("smsNumber", unique=True, sparse=True)
+    # Real, single-use, self-expiring password reset tokens - same TTL
+    # pattern as photo_upload_tokens_col: MongoDB itself deletes an
+    # expired token document, so an old reset link genuinely stops
+    # working with no separate cleanup job needed, and "token not
+    # found" is honestly true either way (expired or never existed).
+    await password_reset_tokens_col.create_index("token", unique=True)
+    await password_reset_tokens_col.create_index("expiresAt", expireAfterSeconds=0)
