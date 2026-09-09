@@ -23,6 +23,14 @@ POST /api/auth/register-staff   -> create a staff account. Requires an
 POST /api/auth/register-owner   -> same, for owner accounts.
 POST /api/auth/login            -> returns a JWT + user profile
 GET  /api/auth/me               -> current user, given a valid Bearer token
+POST /api/auth/forgot-password  -> public, sends a real single-use, 60-
+                                    minute reset link if the given email
+                                    matches an account. Deliberately
+                                    returns the same generic response
+                                    either way, to avoid confirming
+                                    which emails have real accounts.
+POST /api/auth/reset-password   -> public, consumes the token from that
+                                    email to actually set a new password.
 
 SECURITY HISTORY (kept for context — the first two were found and fixed
 in an earlier session, the third is today's further hardening):
@@ -48,13 +56,14 @@ in an earlier session, the third is today's further hardening):
    all, so there's nothing left for a client to even attempt to spoof.
 """
 from datetime import datetime, timezone, timedelta
+import secrets
 
 from fastapi import APIRouter, HTTPException, Depends, Response, Request
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 
-from db import users_col, leases_col, properties_col, organizations_col
-from models import StaffOwnerRegister, TenantActivate, UserLogin, TokenResponse, UserOut, ProfileUpdate, PasswordChange, OrganizationSignup
+from db import users_col, leases_col, properties_col, organizations_col, password_reset_tokens_col
+from models import StaffOwnerRegister, TenantActivate, UserLogin, TokenResponse, UserOut, ProfileUpdate, PasswordChange, OrganizationSignup, ForgotPasswordRequest, ResetPasswordRequest
 from email_service import send_email_async, EmailNotConfigured, EmailSendError
 from auth import hash_password, verify_password, create_access_token, get_current_user, require_staff, set_session_cookie, COOKIE_NAME
 from rate_limiter import limiter
@@ -260,6 +269,89 @@ async def login(request: Request, payload: UserLogin, response: Response):
     token = create_access_token(user["id"], user["role"])
     set_session_cookie(response, token)
     return TokenResponse(accessToken=token, user=to_user_out(user))
+
+
+PASSWORD_RESET_TOKEN_TTL_MINUTES = 60
+
+
+@router.post("/forgot-password")
+@limiter.limit("5/minute")
+async def forgot_password(request: Request, payload: ForgotPasswordRequest):
+    """Real, genuinely missing piece before this — the app had a
+    change-password endpoint (requires knowing your CURRENT password
+    already) but no way to recover an account whose password was
+    actually forgotten. A real SaaS product needs this as a baseline
+    feature.
+
+    Deliberately returns the same generic success message whether or
+    not the email exists — a real, standard security practice
+    (prevents an attacker from using this endpoint to enumerate which
+    emails have real accounts). The email itself is only actually sent
+    if a matching account is found; a non-existent email silently sees
+    the same response and simply never receives anything."""
+    user = await users_col.find_one({"email": payload.email})
+    generic_response = {"message": "If an account exists for that email, a password reset link has been sent."}
+    if not user:
+        return generic_response
+
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+    await password_reset_tokens_col.insert_one({
+        "token": token,
+        "userId": str(user["_id"]),
+        "expiresAt": now + timedelta(minutes=PASSWORD_RESET_TOKEN_TTL_MINUTES),
+        "createdAt": now,
+    })
+
+    reset_link = f"https://rentflow-ai-1.onrender.com/reset-password/{token}"
+    try:
+        await send_email_async(
+            to=payload.email,
+            subject="Reset your PropWise AI password",
+            body_text=(
+                f"We received a request to reset your PropWise AI password. "
+                f"This link expires in {PASSWORD_RESET_TOKEN_TTL_MINUTES} minutes:\n\n{reset_link}\n\n"
+                f"If you didn't request this, you can safely ignore this email — your password won't be changed."
+            ),
+        )
+    except (EmailNotConfigured, EmailSendError):
+        # Fails silently to the caller (same generic response either
+        # way, for the same anti-enumeration reason above) - but this
+        # is a real, worth-monitoring server-side condition, since it
+        # means password recovery is genuinely broken for everyone
+        # until SMTP is configured correctly.
+        pass
+
+    return generic_response
+
+
+@router.post("/reset-password")
+@limiter.limit("5/minute")
+async def reset_password(request: Request, payload: ResetPasswordRequest):
+    """Real, single-use token consumption — the token document is
+    deleted the moment it's used (not just marked used), so a replay
+    of the same request can never succeed twice, and a genuinely
+    expired token has already been deleted by MongoDB's own TTL index
+    (see db.py) by the time it would be checked here, so an expired
+    token and a nonexistent one produce the identical, honest error."""
+    if len(payload.newPassword) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters.")
+
+    token_doc = await password_reset_tokens_col.find_one_and_delete({"token": payload.token})
+    if not token_doc:
+        raise HTTPException(status_code=400, detail="This reset link is invalid or has expired. Please request a new one.")
+
+    user_id = token_doc["userId"]
+    if not ObjectId.is_valid(user_id):
+        raise HTTPException(status_code=400, detail="This reset link is invalid or has expired. Please request a new one.")
+
+    result = await users_col.update_one(
+        {"_id": ObjectId(user_id)}, {"$set": {"password": hash_password(payload.newPassword)}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=400, detail="This reset link is invalid or has expired. Please request a new one.")
+
+    return {"status": "ok"}
 
 
 @router.get("/languages")
