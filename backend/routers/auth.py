@@ -239,8 +239,14 @@ async def register(request: Request, payload: TenantActivate, response: Response
                 "Welcome home."
             ),
         )
-    except (EmailNotConfigured, EmailSendError):
-        pass
+    except (EmailNotConfigured, EmailSendError) as exc:
+        # Real server-side visibility - fails silently to the caller
+        # for a genuine reason (welcome emails shouldn't block account
+        # activation), but a completely silent failure server-side too
+        # would make a broken email configuration invisible until a
+        # user complained. Printed, not raised - matches this app's
+        # established pattern elsewhere (e.g. vendor_sla_service.py).
+        print(f"[email] Welcome email failed for {payload.email}: {exc}")
 
     return TokenResponse(accessToken=token, user=to_user_out(doc))
 
@@ -314,13 +320,14 @@ async def forgot_password(request: Request, payload: ForgotPasswordRequest):
                 f"If you didn't request this, you can safely ignore this email — your password won't be changed."
             ),
         )
-    except (EmailNotConfigured, EmailSendError):
-        # Fails silently to the caller (same generic response either
-        # way, for the same anti-enumeration reason above) - but this
-        # is a real, worth-monitoring server-side condition, since it
-        # means password recovery is genuinely broken for everyone
-        # until SMTP is configured correctly.
-        pass
+    except (EmailNotConfigured, EmailSendError) as exc:
+        # Fails silently to the CALLER (same generic response either
+        # way, for the same anti-enumeration reason above) - but now
+        # logs the real reason server-side, so a broken email
+        # configuration is actually visible in the logs instead of
+        # manifesting only as "users report never receiving reset
+        # emails" with zero diagnostic trail.
+        print(f"[email] Password reset email failed for {payload.email}: {exc}")
 
     return generic_response
 
