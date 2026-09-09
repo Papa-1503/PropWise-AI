@@ -32,3 +32,4 @@ pywebpush==2.5.0
 twilio==9.11.0
 stripe==15.6.1
 slowapi==0.1.10
+sentry-sdk[fastapi]==2.69.1
