@@ -153,7 +153,12 @@ async def dispatch_with_sla(ticket_id: str, ticket: dict, vendor: dict, sla_hour
         )
         sms_result["attempted"] = True
         try:
-            await sms_service.send_sms_async(vendor_phone, body)
+            # Real per-org sender: uses the org's own dedicated number
+            # when one is configured, so a vendor sees a consistent
+            # sender across jobs from the same property manager -
+            # falls back to the shared default number when not.
+            org_number = await sms_service.get_org_sms_number(ticket.get("orgId"))
+            await sms_service.send_sms_async(vendor_phone, body, from_number=org_number)
             sms_result["sent"] = True
         except (SmsNotConfigured, SmsSendError) as exc:
             sms_result["note"] = str(exc)
