@@ -7,23 +7,25 @@ whether the answer arrives by voice or text), same real ticket
 creation pipeline as everything else (create_ticket_document).
 
 POST /api/sms/inbound  -> Twilio hits this on every inbound text to
-                           the app's TWILIO_FROM_NUMBER (see
-                           sms_service.py). Configure this as that
-                           number's Messaging webhook in the Twilio
-                           console (one-time manual setup, same
-                           pattern as the Voice webhook in
+                           any of this app's configured numbers -
+                           either an organization's own dedicated
+                           number (organizations_col.smsNumber, see
+                           routers/organizations.py) or the shared
+                           default TWILIO_FROM_NUMBER (see
+                           sms_service.py). Configure this as the
+                           Messaging webhook for EVERY number that
+                           should route here - the shared default and
+                           each organization's own dedicated number
+                           alike (one-time manual setup per number,
+                           same pattern as the Voice webhook in
                            routers/telephony.py).
 
-Real difference from the after-hours Voice line: there's exactly ONE
-shared Twilio number for all outbound/inbound SMS (TWILIO_FROM_NUMBER),
-not one per property the way Voice has (properties_col.twilioNumber).
-So a texting resident can't be matched to a property by which number
-they texted - only by their own phone number, searched across every
-lease's residentPhone (a genuinely larger scan than Voice's
-single-property version; same honest performance caveat as
-telephony.py's _match_caller_to_resident, worth revisiting if real
-inbound SMS volume ever makes a full-collection scan a genuine
-concern).
+MULTI-TENANCY: real per-org disambiguation now exists for
+organizations that configure their own dedicated number - see
+_match_phone_to_resident's own docstring for exactly how the org is
+resolved from the number Twilio says was texted, and for the real,
+honestly-narrower limitation that still applies to organizations
+sharing the default number. /log is scoped by orgId.
 
 Conversation state: Twilio's inbound SMS webhook carries no session -
 each text is a separate, stateless POST. sms_triage_col tracks an
@@ -37,12 +39,6 @@ Opt-Out feature at the carrier/Twilio level before they ever reach
 this webhook (default-on for the number types this app uses) - not
 reimplemented here, since Twilio's own compliance handling is more
 reliable than a bespoke keyword check would be.
-
-MULTI-TENANCY: /log is scoped by orgId. The inbound match itself
-(_match_phone_to_resident) has a real, honest, structural limitation
-rather than a simple missing filter - see that function's own
-docstring for why the single shared Twilio number this app uses means
-there's no org signal available to scope the match by at all.
 """
 from datetime import datetime, timedelta, timezone
 
@@ -51,7 +47,7 @@ from fastapi.responses import Response
 from twilio.twiml.messaging_response import MessagingResponse
 from bson import ObjectId
 
-from db import leases_col, sms_triage_col, properties_col
+from db import leases_col, sms_triage_col, properties_col, organizations_col
 from phone_utils import normalize_phone
 from routers.telephony import _validate_twilio_signature
 from auth import require_staff
@@ -65,35 +61,50 @@ router = APIRouter(prefix="/api/sms", tags=["sms"])
 CONVERSATION_TIMEOUT_MINUTES = 30
 
 
-async def _match_phone_to_resident(phone: str) -> dict | None:
-    """Global match across every lease with a residentPhone on file -
-    unlike telephony.py's per-property version, there's no property to
-    scope this to up front (see module docstring). If more than one
-    lease matches the same normalized number (e.g. a reused number
-    across two tenancies over time), the most recently started lease
-    wins - the real, current resident at that number.
+async def _resolve_org_from_to_number(to_number: str) -> str | None:
+    """Looks up which organization (if any) has configured to_number
+    as its own dedicated SMS number. Returns None for the shared
+    default number, since by definition no single organization owns
+    it."""
+    if not to_number:
+        return None
+    org = await organizations_col.find_one({"smsNumber": to_number}, {"_id": 1})
+    return str(org["_id"]) if org else None
 
-    MULTI-TENANCY: a real, honest, structural limitation - not a
-    simple missing filter. This app has exactly ONE shared
-    TWILIO_FROM_NUMBER for the whole deployment (see module docstring),
-    so at the moment an inbound text arrives, there is no property or
-    org signal available at all to scope this search by - Twilio gives
-    this webhook only the caller's phone number, nothing else. If two
-    different organizations sharing this deployment both happened to
-    have a resident with the same (or a reused) phone number on file,
-    this could genuinely match the wrong org's resident. The correct
-    long-term fix is a dedicated Twilio number per organization
-    (mirroring how routers/telephony.py's Voice line already scopes by
-    twilioNumber per property) - out of scope for a code-only change,
-    since it requires provisioning real per-org Twilio numbers.
-    Acceptable for now given this app's real current state (a single
-    organization), but a genuine gap to close before a second real org
-    shares this same deployment."""
+
+async def _match_phone_to_resident(phone: str, org_id: str | None) -> dict | None:
+    """Matches an incoming text's caller ID to a real resident. If
+    org_id is known - because the resident texted an organization's
+    own dedicated number, see _resolve_org_from_to_number - the search
+    is scoped to that org's leases only, closing the real cross-org
+    ambiguity this function used to always have.
+
+    MULTI-TENANCY: when org_id is None (the resident texted the
+    shared default number, because their organization hasn't
+    configured its own), this remains a real, honestly-narrower
+    structural limitation: at the moment an inbound text arrives to a
+    number shared by every organization without their own number,
+    there genuinely is no signal beyond the caller's raw phone number
+    to disambiguate which organization they belong to. If two
+    different organizations sharing the default number both happened
+    to have a resident with the same (or a reused) phone number on
+    file, this could match the wrong org's resident. Organizations
+    that need real isolation should configure their own dedicated
+    number via routers/organizations.py - the fix above is not
+    optional dressing, it is the actual, real elimination of this gap
+    for any organization that opts in.
+
+    If more than one lease matches the same normalized number (e.g. a
+    reused number across two tenancies over time), the most recently
+    started lease wins - the real, current resident at that number."""
     normalized_target = normalize_phone(phone)
     if not normalized_target:
         return None
 
-    candidates = await leases_col.find({"residentPhone": {"$ne": None}}).to_list(length=5000)
+    query: dict = {"residentPhone": {"$ne": None}}
+    if org_id:
+        query["orgId"] = org_id
+    candidates = await leases_col.find(query).to_list(length=5000)
     matches = [l for l in candidates if normalize_phone(l.get("residentPhone")) == normalized_target]
     if not matches:
         return None
@@ -109,6 +120,7 @@ async def sms_inbound(request: Request):
     _validate_twilio_signature(request, form_dict, signature)
 
     from_number = form_dict.get("From", "")
+    to_number = form_dict.get("To", "")
     body = (form_dict.get("Body") or "").strip()
     now = datetime.now(timezone.utc)
     response = MessagingResponse()
@@ -121,7 +133,8 @@ async def sms_inbound(request: Request):
     })
 
     if not triage_doc:
-        lease = await _match_phone_to_resident(from_number)
+        known_org_id = await _resolve_org_from_to_number(to_number)
+        lease = await _match_phone_to_resident(from_number, known_org_id)
         if not lease:
             response.message(
                 "We couldn't match this number to a resident account. "
@@ -179,13 +192,17 @@ async def sms_inbound(request: Request):
         "priority": "urgent" if severity["tier"] in ("emergency", "urgent") else "normal",
         "source": "resident",
     }
-    # Multi-tenancy: same real orgId lookup used in routers/telephony.py's
-    # equivalent conclude branch - this webhook has no authenticated
-    # user of its own, so the org is derived from the real property
-    # this text-in conversation is already scoped to.
-    property_query_id = ObjectId(triage_doc["propertyId"]) if ObjectId.is_valid(triage_doc["propertyId"]) else triage_doc["propertyId"]
-    property_doc_for_org = await properties_col.find_one({"_id": property_query_id}, {"orgId": 1})
-    ticket_result = await create_ticket_document(ticket_doc, property_doc_for_org.get("orgId") if property_doc_for_org else None)
+    # Multi-tenancy: prefer the org already resolved on the triage
+    # conversation itself (correct even for the shared-number case,
+    # since it was derived from the matched lease at conversation
+    # start) - only falls back to a fresh property lookup if that's
+    # somehow missing.
+    org_id = triage_doc.get("orgId")
+    if not org_id:
+        property_query_id = ObjectId(triage_doc["propertyId"]) if ObjectId.is_valid(triage_doc["propertyId"]) else triage_doc["propertyId"]
+        property_doc_for_org = await properties_col.find_one({"_id": property_query_id}, {"orgId": 1})
+        org_id = property_doc_for_org.get("orgId") if property_doc_for_org else None
+    ticket_result = await create_ticket_document(ticket_doc, org_id)
 
     await sms_triage_col.update_one(
         {"_id": triage_doc["_id"]},
