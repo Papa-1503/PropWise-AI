@@ -16,6 +16,35 @@ import os
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
+# Real error monitoring (Sentry) — genuinely missing before this. The
+# email-config bug found and fixed earlier today (an invalid Mailgun
+# API key silently breaking every outbound email for an unknown
+# period) is exactly the class of problem this exists to catch
+# automatically going forward, rather than only discovering it when a
+# real customer notices something never arrived. SENTRY_DSN is
+# optional - sentry_sdk.init() is a real, safe no-op with dsn=None
+# (confirmed directly, not assumed), so this app runs completely
+# normally, with no behavior change at all, until a real DSN is
+# configured. traces_sample_rate is deliberately low (10%) - full
+# request tracing on every request has a real, non-trivial overhead
+# cost and quota cost that isn't justified for this app's real scale;
+# 10% is enough to see real performance patterns without either.
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.starlette import StarletteIntegration
+
+sentry_sdk.init(
+    dsn=os.getenv("SENTRY_DSN"),
+    integrations=[StarletteIntegration(), FastApiIntegration()],
+    traces_sample_rate=0.1,
+    environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
+    release=os.getenv("RENDER_GIT_COMMIT"),
+    # ^ Render sets this automatically to the real deployed commit SHA
+    # - when present, Sentry can tell you exactly which deploy a given
+    # error first appeared in, without this app needing its own
+    # separate versioning scheme.
+)
+
 from db import ensure_indexes, users_col, properties_col, organizations_col, leases_col, tickets_col, vendors_col, payments_col, bank_lines_col, inspections_col, documents_col, leads_col, screening_col, communications_col, packages_col, custom_field_definitions_col, custom_field_values_col, custom_roles_col, custom_reports_col, fixed_assets_col, capital_projects_col, budgets_col, workflows_col, on_call_shifts_col, kb_articles_col, supplies_col, supply_orders_col, community_posts_col, repair_items_col, labor_rates_col, unit_baseline_photos_col, condition_reports_col, smart_lock_access_log_col, tour_slots_col, tour_bookings_col, market_rent_analyses_col, application_questions_col, gallery_photos_col, communication_templates_col, maintenance_schedules_col, accounting_connections_col, ai_actions_col
 from routers import inspections, maintenance, ai_copilot, properties, leases, dashboard, auth, ai_actions, vendors, email_test, payments, notifications, social
 from rate_limiter import limiter
