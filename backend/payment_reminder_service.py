@@ -81,7 +81,9 @@ async def send_payment_reminder(charge: dict) -> dict:
                 f"PropWise AI: ${amount_owed:.2f} is due for {description} "
                 f"(due {due_str}). Pay in the app or contact the office."
             )
-            await sms_service.send_sms_async(lease["residentPhone"], sms_body)
+            # Real per-org sender - see sms_service.py's own docstring.
+            org_number = await sms_service.get_org_sms_number(charge.get("orgId"))
+            await sms_service.send_sms_async(lease["residentPhone"], sms_body, from_number=org_number)
             result["sms"]["sent"] = True
         except (SmsNotConfigured, SmsSendError) as exc:
             result["sms"]["note"] = str(exc)
