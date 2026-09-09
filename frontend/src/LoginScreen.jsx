@@ -38,6 +38,13 @@ import { useAuth } from "./AuthContext";
  * the busier background — none of the accessibility fixes above were
  * touched, since the card remains solid white regardless of what's
  * behind it.
+ *
+ * BUG FIX (Sept 8, 2026): the outer container used `flex items-center
+ * justify-center` with no `flex-col` — meaning its default row
+ * direction placed the new Terms/Privacy footer paragraph BESIDE the
+ * form rather than below it, pushing it out of the visible viewport
+ * on most screens. Added flex-col so the form and footer links stack
+ * vertically as intended.
  */
 export default function LoginScreen() {
   const { login, register } = useAuth();
@@ -68,7 +75,7 @@ export default function LoginScreen() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center login-skyline-bg px-4">
+    <div className="min-h-screen flex flex-col items-center justify-center login-skyline-bg px-4">
       <form
         onSubmit={handleSubmit}
         className="bg-white border border-slate-200 rounded-xl p-9 w-full max-w-[340px] text-center shadow-lg"
