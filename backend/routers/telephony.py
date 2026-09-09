@@ -334,10 +334,15 @@ async def voice_ai_turn(request: Request):
     try:
         upload_token = await create_upload_token(ticket_result.get("id"), triage_doc["propertyId"], unit_id)
         upload_link = f"https://rentflow-ai-1.onrender.com/upload-photos/{upload_token}"
+        # Real per-org sender - see sms_service.py's own docstring.
+        # property_doc_for_org (already looked up above) carries the
+        # real orgId this call already needs.
+        org_number = await sms_service.get_org_sms_number(property_doc_for_org.get("orgId") if property_doc_for_org else None)
         await sms_service.send_sms_async(
             triage_doc.get("callerNumber"),
             f"PropWise AI: we logged your maintenance request ({title}). "
             f"If you have a photo, send it here (link expires in 48h): {upload_link}",
+            from_number=org_number,
         )
     except Exception:
         pass
