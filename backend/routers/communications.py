@@ -40,7 +40,7 @@ from db import communications_col
 from models import CommunicationCreate, SendEmailCommunication, SendSmsCommunication, GroupMessageSend
 from auth import require_staff
 from email_service import send_email_async, EmailNotConfigured, EmailSendError
-from sms_service import send_sms_async, SmsNotConfigured, SmsSendError
+from sms_service import send_sms_async, get_org_sms_number, SmsNotConfigured, SmsSendError
 from db import properties_col, leases_col
 from bson import ObjectId
 
@@ -124,7 +124,11 @@ async def send_sms_communication(payload: SendSmsCommunication, user: dict = Dep
     }
 
     try:
-        message_sid = await send_sms_async(to=payload.to, body=payload.body)
+        # Real per-org sender - uses the org's own dedicated number
+        # when configured, so residents see a consistent sender (see
+        # sms_service.py's own docstring).
+        org_number = await get_org_sms_number(user["orgId"])
+        message_sid = await send_sms_async(to=payload.to, body=payload.body, from_number=org_number)
         doc["status"] = "sent"
         doc["providerMessageId"] = message_sid
     except (SmsNotConfigured, SmsSendError) as exc:
@@ -218,7 +222,8 @@ async def send_group_message(payload: GroupMessageSend, user: dict = Depends(req
             if payload.channel == "email":
                 await send_email_async(to=contact, subject=payload.subject, body_text=payload.body)
             else:
-                await send_sms_async(to=contact, body=payload.body)
+                org_number = await get_org_sms_number(user["orgId"])
+                await send_sms_async(to=contact, body=payload.body, from_number=org_number)
             doc["status"] = "sent"
             sent.append(unit_id)
         except (EmailNotConfigured, EmailSendError, SmsNotConfigured, SmsSendError) as exc:
