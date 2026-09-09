@@ -16,6 +16,10 @@ browser tab — use ReqBin (or any HTTP client) with a POST + JSON body,
 or reconfigure any external cron service accordingly.
 
 /seed-demo             -> (existing) triggers demo simulation seed data
+/test-sentry            -> deliberately raises a real test exception, to
+                           confirm Sentry error monitoring (main.py) is
+                           genuinely capturing errors once SENTRY_DSN is
+                           configured.
 /run-maintenance-check  -> finds preventive maintenance schedules that are
                            due, creates a ticket for each, advances their
                            next due date. Safe to run repeatedly — only
@@ -109,6 +113,20 @@ async def seed_demo(payload: AdminKeyPayload):
     from scripts.seed_property_data import seed
     await seed()
     return {"status": "done", "message": "Simulation data seeded. Refresh the app to see it."}
+
+
+@router.post("/test-sentry")
+async def test_sentry(payload: AdminKeyPayload):
+    """Real, deliberate diagnostic endpoint - lets you confirm Sentry
+    is genuinely capturing errors after configuring SENTRY_DSN,
+    without needing to wait for (or manually cause) a real production
+    error first. Raises a real exception on purpose; if Sentry is
+    configured correctly, it should show up in your Sentry project's
+    Issues tab within a few seconds. Gated behind the same admin key
+    as every other endpoint in this file - deliberately not something
+    reachable by an ordinary request."""
+    check_key(payload.key)
+    raise RuntimeError("Test error from /api/admin/test-sentry — if you see this in Sentry, it's working.")
 
 
 @router.post("/seed-scale-test")
