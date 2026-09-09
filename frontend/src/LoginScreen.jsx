@@ -1,5 +1,6 @@
 import { useState, useId } from "react";
 import { useAuth } from "./AuthContext";
+import { API_BASE } from "./config";
 
 /**
  * LoginScreen
@@ -45,16 +46,26 @@ import { useAuth } from "./AuthContext";
  * form rather than below it, pushing it out of the visible viewport
  * on most screens. Added flex-col so the form and footer links stack
  * vertically as intended.
+ *
+ * CHANGED Sept 9, 2026: added a real "forgot password" mode — the app
+ * previously had no way to recover a forgotten password at all (only
+ * change-password, which requires knowing the current one already).
+ * Calls POST /api/auth/forgot-password directly (not through
+ * AuthContext, since this never establishes a session) and shows the
+ * same generic confirmation regardless of whether the email matched a
+ * real account, mirroring the backend's own anti-enumeration design -
+ * this UI must not leak account existence either.
  */
 export default function LoginScreen() {
   const { login, register } = useAuth();
-  const [mode, setMode] = useState("signin"); // "signin" | "signup"
+  const [mode, setMode] = useState("signin"); // "signin" | "signup" | "forgot"
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [forgotSubmitted, setForgotSubmitted] = useState(false);
   const idPrefix = useId();
 
   async function handleSubmit(e) {
@@ -64,6 +75,17 @@ export default function LoginScreen() {
     try {
       if (mode === "signin") {
         await login(email, password);
+      } else if (mode === "forgot") {
+        await fetch(`${API_BASE}/auth/forgot-password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        // Same generic confirmation regardless of the real outcome -
+        // this endpoint's own response is already generic for the
+        // same anti-enumeration reason, so there is nothing more
+        // specific to honestly show here either way.
+        setForgotSubmitted(true);
       } else {
         await register({ email, password, name, inviteCode });
       }
@@ -72,6 +94,72 @@ export default function LoginScreen() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (mode === "forgot") {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center login-skyline-bg px-4">
+        <form
+          onSubmit={handleSubmit}
+          className="bg-white border border-slate-200 rounded-xl p-9 w-full max-w-[340px] text-center shadow-lg"
+        >
+          <h1 className="text-2xl font-serif font-bold mb-1">PropWise AI</h1>
+          {forgotSubmitted ? (
+            <>
+              <p className="text-sm text-slate-600 my-5">
+                If an account exists for that email, a password reset link has been sent.
+                It expires in an hour.
+              </p>
+              <button
+                type="button"
+                onClick={() => { setMode("signin"); setForgotSubmitted(false); setError(null); }}
+                className="w-full bg-amber-700 text-white text-sm font-semibold py-2.5 rounded-lg hover:bg-amber-800"
+              >
+                Back to sign in
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-slate-500 mb-5">
+                Enter your email and we'll send you a link to reset your password.
+              </p>
+              <div className="text-left mb-2">
+                <label htmlFor={`${idPrefix}-forgot-email`} className="sr-only">Email</label>
+                <input
+                  id={`${idPrefix}-forgot-email`}
+                  type="email"
+                  required
+                  autoComplete="email"
+                  placeholder="Email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full text-sm border border-slate-200 rounded-md px-3 py-2"
+                />
+              </div>
+              {error && (
+                <p role="alert" aria-live="polite" className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2 mt-2 text-left">
+                  {error}
+                </p>
+              )}
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full mt-3 bg-amber-700 disabled:bg-slate-300 text-white text-sm font-semibold py-2.5 rounded-lg hover:bg-amber-800"
+              >
+                {submitting ? "Sending…" : "Send reset link"}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMode("signin"); setError(null); }}
+                className="text-[11px] text-indigo-600 underline mt-4"
+              >
+                Back to sign in
+              </button>
+            </>
+          )}
+        </form>
+      </div>
+    );
   }
 
   return (
@@ -146,6 +234,17 @@ export default function LoginScreen() {
             className="w-full text-sm border border-slate-200 rounded-md px-3 py-2"
           />
         </div>
+        {mode === "signin" && (
+          <div className="text-left -mt-1 mb-2">
+            <button
+              type="button"
+              onClick={() => { setMode("forgot"); setError(null); }}
+              className="text-[11px] text-indigo-600 underline"
+            >
+              Forgot password?
+            </button>
+          </div>
+        )}
 
         {mode === "signup" && (
           <>
