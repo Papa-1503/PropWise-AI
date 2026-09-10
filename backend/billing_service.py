@@ -77,7 +77,18 @@ def get_or_create_org_customer(org_id: str, email: str, org_name: str) -> str:
     _get_client_configured()
     existing = stripe.Customer.list(email=email, limit=10)
     for c in existing.data:
-        if c.metadata.get("rentflow_org_id") == org_id:
+        # BUG FIX (found live via Sentry, real production error -
+        # /api/billing/checkout raised AttributeError:
+        # "'get' is a dict method, but a StripeObject is not a dict"):
+        # c.metadata is itself a StripeObject, not a plain dict, same
+        # real issue already fixed in routers/billing.py's webhook
+        # handler. StripeObject DOES support attribute access
+        # reliably (confirmed by session.url/session.id working fine
+        # elsewhere in this same file) - getattr with a default is the
+        # correct, safe fix here, matching that same proven pattern,
+        # rather than converting the whole object with .to_dict() for
+        # a single field.
+        if getattr(c.metadata, "rentflow_org_id", None) == org_id:
             return c.id
     customer = stripe.Customer.create(
         email=email,
