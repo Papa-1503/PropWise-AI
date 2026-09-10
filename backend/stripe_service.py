@@ -70,7 +70,13 @@ def get_or_create_customer(user_id: str, email: str, name: str) -> str:
     _get_client_configured()
     existing = stripe.Customer.list(email=email, limit=1)
     for c in existing.data:
-        if c.metadata.get("rentflow_user_id") == user_id:
+        # BUG FIX (same real bug found live via Sentry in
+        # billing_service.py's near-identical function -
+        # c.metadata is a StripeObject, not a plain dict, so .get()
+        # raises AttributeError. Confirmed here too by direct
+        # inspection, not assumed. getattr with a default is the
+        # correct fix, since StripeObject supports attribute access.
+        if getattr(c.metadata, "rentflow_user_id", None) == user_id:
             return c.id
     customer = stripe.Customer.create(
         email=email,
