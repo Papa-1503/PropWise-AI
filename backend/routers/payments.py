@@ -32,6 +32,7 @@ identifier that's already an unambiguous pointer to exactly one real
 charge regardless of organization, so no additional org filter is
 needed or possible there.
 """
+import sentry_sdk
 from datetime import datetime, timezone
 import os
 from io import BytesIO
@@ -258,6 +259,10 @@ async def record_payment(charge_id: str, payload: PaymentRecord, user: dict = De
             "amountDue": charge.get("amountDue"),
         })
     except Exception as e:
+        # Sentry capture added - found during a comprehensive
+        # sweep that caught-and-printed exceptions were invisible
+        # to Sentry (which only auto-captures unhandled ones).
+        sentry_sdk.capture_exception(e)
         print(f"Workflow dispatch failed: {e}")
 
     return serialize(result)
@@ -302,6 +307,10 @@ async def return_payment(charge_id: str, payload: PaymentReturn, user: dict = De
             "reason": payload.reason,
         })
     except Exception as e:
+        # Sentry capture added - found during a comprehensive
+        # sweep that caught-and-printed exceptions were invisible
+        # to Sentry (which only auto-captures unhandled ones).
+        sentry_sdk.capture_exception(e)
         print(f"Workflow dispatch failed: {e}")
 
     return serialize(result)
@@ -444,7 +453,16 @@ async def stripe_webhook(request: Request):
     except (StripeNotConfigured, StripePayError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    intent = event["data"]["object"]
+    # BUG FIX (found during a comprehensive sweep, same real bug
+    # already fixed in routers/billing.py's webhook - see that file's
+    # own comment for the full explanation): stripe's
+    # Event.data.object is a StripeObject, not a plain dict - it
+    # supports [] access but NOT .get(), which raises AttributeError.
+    # This webhook handles REAL rent payments - every .get() call
+    # below would have raised the moment a real ACH payment actually
+    # succeeded or failed in production, meaning this webhook has
+    # likely never successfully processed a real payment outcome.
+    intent = event["data"]["object"].to_dict()
     intent_id = intent.get("id")
 
     if event["type"] == "payment_intent.succeeded":
