@@ -8,6 +8,7 @@ load_dotenv()
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from bson import ObjectId
 from slowapi import _rate_limit_exceeded_handler
@@ -104,7 +105,33 @@ from routers import portfolio_pricing
 from routers import photo_upload
 from routers import billing
 from routers import organizations
-app = FastAPI(title="PropWise AI API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Replaces the old @app.on_event("startup") decorator - found
+    during a comprehensive sweep that FastAPI's own test suite output
+    already flagged on_event as deprecated in the FastAPI version this
+    app runs on, in favor of this lifespan context-manager pattern.
+    Safe to reference _migrate_legacy_data_to_default_org,
+    rent_automation_scheduler, and vendor_sla_scheduler here even
+    though they're defined further down in this same file - Python
+    only looks up these names when this function actually RUNS (at
+    real server startup, well after the whole module has finished
+    loading), not when it's merely defined here - the exact same
+    deferred-execution behavior the old on_event decorator already
+    relied on.
+
+    The `yield` is the real, correct place a shutdown step would go if
+    this app ever needed one (closing a connection pool, flushing a
+    queue) - there isn't one today, so nothing runs after it, but the
+    contract point exists for real future use."""
+    await _migrate_legacy_data_to_default_org()
+    await ensure_indexes()
+    asyncio.create_task(rent_automation_scheduler())
+    asyncio.create_task(vendor_sla_scheduler())
+    yield
+
+
+app = FastAPI(title="PropWise AI API", lifespan=lifespan)
 
 # Real rate limiting (slowapi) — genuinely missing before this,
 # confirmed absent via a direct search of every existing endpoint.
@@ -725,14 +752,6 @@ async def vendor_sla_scheduler():
             logger.exception("[scheduler] vendor SLA check failed")
         await scheduler_health.record_heartbeat("vendor_sla_scheduler")
         await asyncio.sleep(interval_seconds)
-
-
-@app.on_event("startup")
-async def on_startup():
-    await _migrate_legacy_data_to_default_org()
-    await ensure_indexes()
-    asyncio.create_task(rent_automation_scheduler())
-    asyncio.create_task(vendor_sla_scheduler())
 
 
 @app.get("/api/health")
