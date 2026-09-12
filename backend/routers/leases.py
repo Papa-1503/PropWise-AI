@@ -17,6 +17,7 @@ helper; tenant-facing endpoints keep their existing propertyId/unitId
 ownership check (the real security boundary for a tenant) and add an
 orgId filter alongside it for defense in depth.
 """
+import sentry_sdk
 from datetime import datetime, timedelta, timezone
 import secrets
 import string
@@ -163,6 +164,10 @@ async def create_lease(payload: LeaseCreate, user: dict = Depends(require_staff)
             "residentName": doc.get("residentName"),
         })
     except Exception as e:
+        # Sentry capture added - found during a comprehensive
+        # sweep that caught-and-printed exceptions were invisible
+        # to Sentry (which only auto-captures unhandled ones).
+        sentry_sdk.capture_exception(e)
         print(f"Workflow dispatch failed: {e}")
 
     return serialize(doc)
