@@ -27,6 +27,7 @@ key a caller could forget to set), so a new caller literally cannot
 compile without deciding whose org a ticket belongs to. Every other
 query below is scoped through user["orgId"] directly.
 """
+import sentry_sdk
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -229,6 +230,10 @@ async def update_ticket(ticket_id: str, payload: TicketUpdate, user: dict = Depe
                 "title": result.get("title"),
             })
         except Exception as e:
+            # Sentry capture added - found during a comprehensive
+            # sweep that caught-and-printed exceptions were invisible
+            # to Sentry (which only auto-captures unhandled ones).
+            sentry_sdk.capture_exception(e)
             print(f"Workflow dispatch failed: {e}")
 
         property_id = result.get("propertyId")
