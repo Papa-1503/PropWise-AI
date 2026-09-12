@@ -49,6 +49,7 @@ dollar calculation and clearly marks the part cost as "see retailer
 link, not included in the total" rather than inventing a placeholder
 dollar figure for something this app has no real source for.
 """
+import sentry_sdk
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -322,6 +323,10 @@ async def maybe_auto_generate_deposit_draft(inspection_id: str, org_id: str) -> 
             inspection_id, actor_id="system_auto_generate", actor_email="", status="draft", org_id=org_id,
         )
     except Exception as e:
+        # Sentry capture added - found during a comprehensive sweep
+        # that caught-and-printed exceptions were invisible to Sentry
+        # (which only auto-captures unhandled ones).
+        sentry_sdk.capture_exception(e)
         print(f"Auto deposit-statement draft generation failed for inspection {inspection_id}: {e}")
 
 
