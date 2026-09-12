@@ -21,6 +21,8 @@ covered as of this commit.
 """
 from datetime import datetime, timezone
 
+import sentry_sdk
+
 from db import audit_log_col
 
 
@@ -61,4 +63,12 @@ async def log_action(
             "createdAt": datetime.now(timezone.utc),
         })
     except Exception as exc:
+        # Sentry capture added alongside the existing print - found
+        # during a comprehensive sweep that every caught-and-printed
+        # exception in this app was invisible to Sentry (which only
+        # auto-captures UNHANDLED exceptions), the same real class of
+        # "silently broken until someone complains" problem the
+        # Mailgun misconfiguration earlier this session was. print()
+        # is kept too - still useful for local/direct log reading.
+        sentry_sdk.capture_exception(exc)
         print(f"Audit log write failed (action={action}, target={target_type}/{target_id}): {exc}")
