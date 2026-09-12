@@ -22,6 +22,7 @@ then-compare step) so a cross-org access attempt gets exactly the same
 404 as "this property doesn't exist at all," never confirming that a
 property with that id exists in some other organization.
 """
+import sentry_sdk
 from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
 
@@ -81,6 +82,10 @@ async def update_unit_status(property_id: str, unit_id: str, payload: UnitStatus
                 "unitId": unit_id,
             })
         except Exception as e:
+            # Sentry capture added - found during a comprehensive
+            # sweep that caught-and-printed exceptions were invisible
+            # to Sentry (which only auto-captures unhandled ones).
+            sentry_sdk.capture_exception(e)
             print(f"Workflow dispatch failed: {e}")
 
     return serialize(result)
@@ -297,6 +302,10 @@ async def add_unit(property_id: str, payload: UnitIn, user: dict = Depends(requi
             "bedrooms": payload.bedrooms,
         })
     except Exception as e:
+        # Sentry capture added - found during a comprehensive
+        # sweep that caught-and-printed exceptions were invisible
+        # to Sentry (which only auto-captures unhandled ones).
+        sentry_sdk.capture_exception(e)
         print(f"Workflow dispatch failed: {e}")
 
     return serialize(result)
