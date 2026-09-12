@@ -41,6 +41,14 @@ never calls a real external API.
   genuinely isolated from the other's during a single run. Only 2 of
   the 8 checks are covered — see that file's own docstring for why
   the rest (Stripe/Twilio-dependent) aren't yet.
+- **`test_payment_webhook.py`** — real regression protection for a
+  genuinely serious bug found during a comprehensive sweep: the real
+  rent-payment ACH webhook (routers/payments.py) was calling `.get()`
+  on a StripeObject, the same bug already fixed once in
+  routers/billing.py's webhook but missed here until this sweep.
+  Confirms a validly-signed `payment_intent.succeeded`/`.payment_failed`
+  event actually updates the right charge, and that a forged
+  signature is rejected.
 
 ## A real gotcha worth knowing if you add tests here
 
