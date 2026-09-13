@@ -16,7 +16,9 @@ import { API_BASE } from "./config";
  * real, subscribable cards with an honest "recommended for you" badge
  * driven by the org's own live unit count, never a hard gate.
  * Organization now covers the real, optional dedicated-SMS-number
- * setting (routers/organizations.py) - both shown only to staff, and
+ * setting (routers/organizations.py) and a real, self-serve export of
+ * the organization's entire dataset (routers/data_export.py, see
+ * ExportDataSection's own docstring) - both shown only to staff, and
  * only functional for the org owner specifically, matching the real
  * ownership boundary the backend enforces. Security now also covers
  * real two-factor authentication (routers/two_factor.py) - see
@@ -657,6 +659,7 @@ function OrganizationTab() {
   }
 
   return (
+    <div className="space-y-4">
     <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
       <h3 className="text-sm font-semibold">Dedicated SMS number</h3>
       <p className="text-xs text-slate-500">
@@ -684,6 +687,71 @@ function OrganizationTab() {
         className="text-sm font-semibold bg-slate-900 disabled:bg-slate-300 text-white px-4 py-2 rounded-lg"
       >
         {saving ? "Saving…" : "Save changes"}
+      </button>
+    </div>
+    <ExportDataSection />
+    </div>
+  );
+}
+
+/**
+ * ExportDataSection
+ *
+ * Real, self-serve export of everything this organization owns (backend:
+ * routers/data_export.py) - genuinely missing before this. Downloads a
+ * single JSON file directly via the browser's normal file-download
+ * mechanism (an <a> click on an object URL), not a new tab or a raw
+ * fetch response left dangling - the same real pattern already
+ * established for downloading the CSV import templates in
+ * BulkImport.jsx.
+ */
+function ExportDataSection() {
+  const { authFetch } = useAuth();
+  const { show: showToast } = useToast();
+  const [exporting, setExporting] = useState(false);
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const res = await authFetch(`${API_BASE}/organizations/me/export`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || "Couldn't export your data.");
+      }
+      const blob = await res.blob();
+      const contentDisposition = res.headers.get("Content-Disposition") || "";
+      const match = contentDisposition.match(/filename="([^"]+)"/);
+      const filename = match ? match[1] : "propwise_export.json";
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      showToast(err.message, "error");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+      <h3 className="text-sm font-semibold">Export your data</h3>
+      <p className="text-xs text-slate-500">
+        Download everything your organization has stored in PropWise AI — properties, leases,
+        maintenance history, payments, documents, and more — as a single file. Useful for your
+        own records, or if you ever want to move to another system.
+      </p>
+      <button
+        onClick={handleExport}
+        disabled={exporting}
+        className="text-sm font-semibold bg-slate-900 disabled:bg-slate-300 text-white px-4 py-2 rounded-lg"
+      >
+        {exporting ? "Preparing your export…" : "Download my data"}
       </button>
     </div>
   );
