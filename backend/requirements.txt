@@ -21,6 +21,8 @@ motor==3.7.1
 pydantic==2.13.5
 python-multipart==0.0.32
 bcrypt==5.0.0
+pyotp==2.10.0
+qrcode==8.2
 PyJWT==2.13.0
 anthropic==1.3.0
 python-dotenv==1.2.3
