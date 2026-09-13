@@ -21,7 +21,13 @@ POST /api/auth/register-staff   -> create a staff account. Requires an
                                     is how you provision additional staff
                                     users, not through public registration.
 POST /api/auth/register-owner   -> same, for owner accounts.
-POST /api/auth/login            -> returns a JWT + user profile
+POST /api/auth/login            -> password step. Returns a real
+                                    TokenResponse for an account with no
+                                    2FA, or {requires2FA, pendingToken}
+                                    for one that has it enabled.
+POST /api/auth/login/2fa        -> the real second step for an account
+                                    with 2FA enabled - a TOTP or backup
+                                    code exchanged for the real token.
 GET  /api/auth/me               -> current user, given a valid Bearer token
 POST /api/auth/forgot-password  -> public, sends a real single-use, 60-
                                     minute reset link if the given email
@@ -58,14 +64,15 @@ in an earlier session, the third is today's further hardening):
 from datetime import datetime, timezone, timedelta
 import secrets
 
+import pyotp
 from fastapi import APIRouter, HTTPException, Depends, Response, Request
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 
 from db import users_col, leases_col, properties_col, organizations_col, password_reset_tokens_col
-from models import StaffOwnerRegister, TenantActivate, UserLogin, TokenResponse, UserOut, ProfileUpdate, PasswordChange, OrganizationSignup, ForgotPasswordRequest, ResetPasswordRequest
+from models import StaffOwnerRegister, TenantActivate, UserLogin, TokenResponse, UserOut, ProfileUpdate, PasswordChange, OrganizationSignup, ForgotPasswordRequest, ResetPasswordRequest, Login2FARequest
 from email_service import send_email_async, EmailNotConfigured, EmailSendError
-from auth import hash_password, verify_password, create_access_token, get_current_user, require_staff, set_session_cookie, COOKIE_NAME
+from auth import hash_password, verify_password, create_access_token, get_current_user, require_staff, set_session_cookie, COOKIE_NAME, create_pending_2fa_token, verify_pending_2fa_token
 from rate_limiter import limiter
 import translation_service
 
@@ -264,12 +271,71 @@ async def register_owner(payload: StaffOwnerRegister, response: Response, curren
     return await _create_staff_or_owner(payload, forced_role="owner", org_id=current_user["orgId"], response=response)
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login")
 @limiter.limit("5/minute")
 async def login(request: Request, payload: UserLogin, response: Response):
+    """CHANGED (Sept 13, 2026): real two-factor authentication support
+    - see routers/two_factor.py's own module docstring for the full
+    setup/enable/disable flow. response_model=TokenResponse was
+    removed here specifically because this endpoint's real response
+    shape now genuinely differs by case: a normal account still gets
+    a real TokenResponse-shaped body, but an account with 2FA enabled
+    gets {requires2FA: true, pendingToken: ...} instead - a strict
+    response_model would silently strip that second shape down to
+    nothing useful."""
     user = await users_col.find_one({"email": payload.email})
     if not user or not verify_password(payload.password, user["password"]):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
+
+    user["id"] = str(user["_id"])
+
+    if user.get("totpEnabled"):
+        # Password was correct, but that alone is deliberately NOT
+        # enough here - a real access token is never issued at this
+        # point. The pending token below can only be exchanged for a
+        # real one via POST /login/2fa, after a correct code.
+        pending_token = create_pending_2fa_token(user["id"])
+        return {"requires2FA": True, "pendingToken": pending_token}
+
+    token = create_access_token(user["id"], user["role"])
+    set_session_cookie(response, token)
+    return TokenResponse(accessToken=token, user=to_user_out(user))
+
+
+@router.post("/login/2fa", response_model=TokenResponse)
+@limiter.limit("5/minute")
+async def login_with_two_factor(request: Request, payload: Login2FARequest, response: Response):
+    """The real second step of login for an account with 2FA enabled -
+    accepts EITHER a 6-digit TOTP code from the user's authenticator
+    app, OR one of their one-time backup codes (see
+    routers/two_factor.py's own docstring for why both exist). A used
+    backup code is immediately removed from the account - genuinely
+    single-use, not just labeled that way."""
+    user_id = verify_pending_2fa_token(payload.pendingToken)
+    user = await users_col.find_one({"_id": ObjectId(user_id)})
+    if not user or not user.get("totpEnabled"):
+        raise HTTPException(status_code=401, detail="Two-factor authentication is not active on this account.")
+
+    code = payload.code.strip()
+    totp = pyotp.TOTP(user["totpSecret"])
+    is_valid_totp = totp.verify(code, valid_window=1)
+
+    is_valid_backup_code = False
+    matched_backup_hash = None
+    if not is_valid_totp:
+        for backup_hash in user.get("totpBackupCodeHashes", []):
+            if verify_password(code, backup_hash):
+                is_valid_backup_code = True
+                matched_backup_hash = backup_hash
+                break
+
+    if not is_valid_totp and not is_valid_backup_code:
+        raise HTTPException(status_code=401, detail="That code doesn't match. Check your authenticator app, or use one of your backup codes.")
+
+    if matched_backup_hash:
+        # Real, immediate single-use enforcement - this exact backup
+        # code can never be used again after this point.
+        await users_col.update_one({"_id": user["_id"]}, {"$pull": {"totpBackupCodeHashes": matched_backup_hash}})
 
     user["id"] = str(user["_id"])
     token = create_access_token(user["id"], user["role"])
