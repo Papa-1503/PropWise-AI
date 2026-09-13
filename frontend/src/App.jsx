@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Outlet, useOutletContext } from "react-router-dom";
 import { useState, lazy, Suspense } from "react";
-import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList, Package, Droplets, TrendingUp, Shield, Tag, PenTool, Receipt, Calculator, Scale, Percent, History, HardHat, Wallet } from "lucide-react";
+import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList, Package, Droplets, TrendingUp, Shield, Tag, PenTool, Receipt, Calculator, Scale, Percent, History, HardHat, Wallet, UploadCloud } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";
 import { ToastProvider } from "./ToastContext";
 import { DarkModeProvider, useDarkMode } from "./DarkModeContext";
@@ -62,6 +62,7 @@ const MaintenanceSchedules = lazy(() => import("./MaintenanceSchedules"));
 const OnCall = lazy(() => import("./OnCall"));
 const Reconciliation = lazy(() => import("./Reconciliation"));
 const PropertyManagement = lazy(() => import("./PropertyManagement"));
+const BulkImport = lazy(() => import("./BulkImport"));
 import BuildingSelector from "./BuildingSelector";
 const OwnerPortal = lazy(() => import("./OwnerPortal"));
 import NotFound from "./NotFound";
@@ -120,6 +121,13 @@ function TabNotFound() {
  * CommandPalette, NotificationBell, BuildingSelector, etc.) and
  * Dashboard's own already-established sub-widgets are deliberately
  * left eager, since they're needed immediately regardless of route.
+ *
+ * CHANGED Sept 13, 2026: added a real bulk CSV import feature
+ * (BulkImport.jsx / backend routers/bulk_import.py) - the real,
+ * previously-missing fast path for onboarding a customer with an
+ * existing portfolio, instead of re-typing every property/unit/lease
+ * by hand through the UI. New "import" tab under the Admin group,
+ * lazy-loaded like every other tab added since the Sept 10 sweep.
  */
 
 // CHANGED (Sept 3, 2026): staff navigation was a single flat list of
@@ -142,7 +150,7 @@ const STAFF_TAB_GROUPS = [
   { label: "Rent & Accounting", tabs: ["payments", "rubs", "reconciliation", "trust-accounting", "capital-planning", "bill-scan", "portfolio-pricing", "budgets"] },
   { label: "Communications", tabs: ["communications", "feed", "packages", "write-assist", "conversation-log"] },
   { label: "Documents & Reports", tabs: ["documents", "gallery", "predictive-analytics", "compliance"] },
-  { label: "Admin", tabs: ["properties", "staff", "workflows", "custom-roles", "custom-fields", "vendors"] },
+  { label: "Admin", tabs: ["properties", "import", "staff", "workflows", "custom-roles", "custom-fields", "vendors"] },
 ];
 const STAFF_TABS = STAFF_TAB_GROUPS.flatMap((g) => g.tabs);
 const TENANT_TABS = ["documents", "maintenance", "payments", "gallery", "ai"];
@@ -171,6 +179,7 @@ const TAB_LABELS = {
   "on-call": "On-Call",
   reconciliation: "Reconciliation",
   properties: "Properties",
+  import: "Import Data",
   documents: "Documents",
   gallery: "Gallery",
   feed: "Team Feed",
@@ -211,6 +220,7 @@ const TAB_ICONS = {
   "on-call": PhoneCall,
   reconciliation: Landmark,
   properties: Building2,
+  import: UploadCloud,
   forms: ClipboardList,
   packages: Package,
   rubs: Droplets,
@@ -500,6 +510,7 @@ export default function App() {
             <Route path="write-assist" element={<WriteAssistWrapper />} />
             <Route path="bill-scan" element={<BillScanWrapper />} />
             <Route path="properties" element={<PropertyManagement />} />
+            <Route path="import" element={<BulkImport />} />
             <Route path="documents" element={<Documents />} />
             <Route path="gallery" element={<GalleryWrapper />} />
             <Route path="settings" element={<Settings />} />
