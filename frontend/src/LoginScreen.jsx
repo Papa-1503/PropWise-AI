@@ -55,10 +55,16 @@ import { API_BASE } from "./config";
  * same generic confirmation regardless of whether the email matched a
  * real account, mirroring the backend's own anti-enumeration design -
  * this UI must not leak account existence either.
+ *
+ * CHANGED Sept 13, 2026: added a real "2fa" mode - the second step of
+ * login for an account with two-factor authentication enabled (see
+ * AuthContext.jsx's login()/completeTwoFactorLogin() and
+ * routers/two_factor.py on the backend). A password-only sign-in no
+ * longer always lands in the app directly for these accounts.
  */
 export default function LoginScreen() {
-  const { login, register } = useAuth();
-  const [mode, setMode] = useState("signin"); // "signin" | "signup" | "forgot"
+  const { login, register, completeTwoFactorLogin } = useAuth();
+  const [mode, setMode] = useState("signin"); // "signin" | "signup" | "forgot" | "2fa"
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -66,6 +72,8 @@ export default function LoginScreen() {
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [forgotSubmitted, setForgotSubmitted] = useState(false);
+  const [pendingToken, setPendingToken] = useState(null);
+  const [twoFactorCode, setTwoFactorCode] = useState("");
   const idPrefix = useId();
 
   async function handleSubmit(e) {
@@ -74,7 +82,17 @@ export default function LoginScreen() {
     setError(null);
     try {
       if (mode === "signin") {
-        await login(email, password);
+        const result = await login(email, password);
+        // CHANGED Sept 13, 2026: real 2FA support - a password-only
+        // success no longer always means a real session (see
+        // AuthContext.jsx's own login() docstring). Switch to the
+        // real second step instead of treating this as done.
+        if (result?.requires2FA) {
+          setPendingToken(result.pendingToken);
+          setMode("2fa");
+        }
+      } else if (mode === "2fa") {
+        await completeTwoFactorLogin(pendingToken, twoFactorCode.trim());
       } else if (mode === "forgot") {
         await fetch(`${API_BASE}/auth/forgot-password`, {
           method: "POST",
@@ -94,6 +112,51 @@ export default function LoginScreen() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (mode === "2fa") {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center login-skyline-bg px-4">
+        <form
+          onSubmit={handleSubmit}
+          className="bg-white border border-slate-200 rounded-xl p-9 w-full max-w-[340px] text-center shadow-lg"
+        >
+          <h1 className="text-2xl font-serif font-bold mb-1">PropWise AI</h1>
+          <p className="text-xs text-slate-500 mb-5">
+            Enter the 6-digit code from your authenticator app, or one of your backup codes.
+          </p>
+          <div className="text-left mb-3">
+            <label htmlFor={`${idPrefix}-2fa-code`} className="sr-only">Authentication code</label>
+            <input
+              id={`${idPrefix}-2fa-code`}
+              type="text"
+              required
+              autoFocus
+              autoComplete="one-time-code"
+              placeholder="123456"
+              value={twoFactorCode}
+              onChange={(e) => setTwoFactorCode(e.target.value)}
+              className="w-full text-sm text-center tracking-widest font-mono border border-slate-200 rounded-md px-3 py-2"
+            />
+          </div>
+          {error && <p role="alert" className="text-xs text-rose-600 mb-3">{error}</p>}
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full bg-indigo-600 disabled:bg-indigo-300 text-white text-sm font-semibold rounded-md py-2"
+          >
+            {submitting ? "Verifying…" : "Verify"}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setMode("signin"); setPendingToken(null); setTwoFactorCode(""); setError(null); }}
+            className="text-xs text-slate-500 hover:underline mt-3"
+          >
+            Back to sign in
+          </button>
+        </form>
+      </div>
+    );
   }
 
   if (mode === "forgot") {
