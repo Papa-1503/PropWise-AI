@@ -9,14 +9,19 @@ import { API_BASE } from "./config";
  * Modeled on the shared design's tabbed Settings page. Profile and
  * Security are the two tabs with genuine, real capability that
  * existed before this pass (editing your name, changing your
- * password). Billing is real too (routers/billing.py,
- * billing_service.py), and Organization now covers the real,
- * optional dedicated-SMS-number setting (routers/organizations.py) -
- * both shown only to staff, and only functional for the org owner
- * specifically, matching the real ownership boundary the backend
- * enforces. Notification preferences at the user level still have no
- * real backend behind them - deliberately not added as a tab to avoid
- * UI with nothing functional behind it.
+ * password). Billing is real (routers/billing.py, billing_service.py),
+ * now with real multi-tier pricing (Starter/Growth/Pro - see that
+ * router's own module docstring for the market reasoning behind the
+ * 3 tiers) rather than one flat plan - the trial view shows all 3 as
+ * real, subscribable cards with an honest "recommended for you" badge
+ * driven by the org's own live unit count, never a hard gate.
+ * Organization now covers the real, optional dedicated-SMS-number
+ * setting (routers/organizations.py) - both shown only to staff, and
+ * only functional for the org owner specifically, matching the real
+ * ownership boundary the backend enforces. Notification preferences
+ * at the user level still have no real backend behind them -
+ * deliberately not added as a tab to avoid UI with nothing functional
+ * behind it.
  */
 
 function ProfileTab() {
@@ -210,25 +215,32 @@ function SecurityTab() {
 function BillingTab() {
   const { user, authFetch } = useAuth();
   const [status, setStatus] = useState(null);
+  const [tiersData, setTiersData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(null);
   const { show: showToast } = useToast();
 
   useEffect(() => {
-    authFetch(`${API_BASE}/billing/status`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => data && setStatus(data))
+    Promise.all([
+      authFetch(`${API_BASE}/billing/status`).then((res) => (res.ok ? res.json() : null)),
+      authFetch(`${API_BASE}/billing/tiers`).then((res) => (res.ok ? res.json() : null)),
+    ])
+      .then(([statusData, tiers]) => {
+        if (statusData) setStatus(statusData);
+        if (tiers) setTiersData(tiers);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [authFetch]);
 
-  async function handleUpgrade() {
-    setActionLoading(true);
+  async function handleUpgrade(tier) {
+    setActionLoading(tier);
     try {
       const res = await authFetch(`${API_BASE}/billing/checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          tier,
           successUrl: `${window.location.origin}/app/settings?billingSuccess=true`,
           cancelUrl: `${window.location.origin}/app/settings`,
         }),
@@ -238,12 +250,12 @@ function BillingTab() {
       window.location.href = data.checkoutUrl;
     } catch (err) {
       showToast(err.message, "error");
-      setActionLoading(false);
+      setActionLoading(null);
     }
   }
 
   async function handleManage() {
-    setActionLoading(true);
+    setActionLoading("manage");
     try {
       const res = await authFetch(`${API_BASE}/billing/portal`, {
         method: "POST",
@@ -255,7 +267,7 @@ function BillingTab() {
       window.location.href = data.portalUrl;
     } catch (err) {
       showToast(err.message, "error");
-      setActionLoading(false);
+      setActionLoading(null);
     }
   }
 
@@ -286,49 +298,98 @@ function BillingTab() {
   const isPaid = status.plan === "pro" && status.active;
   const isInternal = status.plan === "internal";
 
+  if (isInternal) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+        <h3 className="text-sm font-semibold">Billing</h3>
+        <p className="text-sm text-slate-600">This organization isn't subject to billing.</p>
+      </div>
+    );
+  }
+
+  if (isPaid) {
+    const currentTierInfo = tiersData?.tiers?.find((t) => t.id === status.billingTier);
+    return (
+      <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+        <h3 className="text-sm font-semibold">Billing</h3>
+        <p className="text-sm text-emerald-700 font-medium">
+          You're on the {currentTierInfo?.name || status.billingTier || "paid"} plan
+          {currentTierInfo ? ` — $${currentTierInfo.price}/month` : ""}.
+        </p>
+        {status.subscriptionStatus && status.subscriptionStatus !== "active" && (
+          <p className="text-xs text-amber-600">
+            Subscription status: {status.subscriptionStatus} — check your payment method if this persists.
+          </p>
+        )}
+        <p className="text-xs text-slate-500">
+          To change tiers or update your payment method, use the billing portal — it lets you switch
+          between Starter, Growth, and Pro directly.
+        </p>
+        <button
+          onClick={handleManage}
+          disabled={actionLoading === "manage"}
+          className="text-sm font-semibold bg-slate-900 disabled:bg-slate-300 text-white px-4 py-2 rounded-lg"
+        >
+          {actionLoading === "manage" ? "Opening…" : "Manage billing"}
+        </button>
+      </div>
+    );
+  }
+
+  // Trial (active or expired) - show real tier cards to choose from
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
       <h3 className="text-sm font-semibold">Billing</h3>
-
-      {isInternal ? (
-        <p className="text-sm text-slate-600">This organization isn't subject to billing.</p>
-      ) : isPaid ? (
-        <div>
-          <p className="text-sm text-emerald-700 font-medium mb-1">You're on the paid plan.</p>
-          {status.subscriptionStatus && status.subscriptionStatus !== "active" && (
-            <p className="text-xs text-amber-600 mb-2">
-              Subscription status: {status.subscriptionStatus} — check your payment method if this persists.
-            </p>
-          )}
-          <button
-            onClick={handleManage}
-            disabled={actionLoading}
-            className="text-sm font-semibold bg-slate-900 disabled:bg-slate-300 text-white px-4 py-2 rounded-lg"
-          >
-            {actionLoading ? "Opening…" : "Manage billing"}
-          </button>
-        </div>
+      {status.blocked ? (
+        <p className="text-sm text-rose-600 font-medium">
+          Your free trial has ended. Choose a plan below to keep using PropWise AI.
+        </p>
       ) : (
-        <div>
-          {status.blocked ? (
-            <p className="text-sm text-rose-600 font-medium mb-2">
-              Your free trial has ended. Subscribe to keep using PropWise AI.
-            </p>
-          ) : (
-            <p className="text-sm text-slate-600 mb-2">
-              {status.trialDaysLeft != null
-                ? `${status.trialDaysLeft} day${status.trialDaysLeft === 1 ? "" : "s"} left in your free trial.`
-                : "You're on a free trial."}
-            </p>
-          )}
-          <button
-            onClick={handleUpgrade}
-            disabled={actionLoading}
-            className="text-sm font-semibold bg-indigo-600 disabled:bg-indigo-300 text-white px-4 py-2 rounded-lg"
-          >
-            {actionLoading ? "Redirecting…" : "Subscribe now"}
-          </button>
-        </div>
+        <p className="text-sm text-slate-600">
+          {status.trialDaysLeft != null
+            ? `${status.trialDaysLeft} day${status.trialDaysLeft === 1 ? "" : "s"} left in your free trial.`
+            : "You're on a free trial."}{" "}
+          Choose a plan whenever you're ready.
+        </p>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {(tiersData?.tiers || []).map((tier) => {
+          const isRecommended = tiersData?.recommendedTier === tier.id;
+          return (
+            <div
+              key={tier.id}
+              className={`rounded-xl border p-4 flex flex-col ${
+                isRecommended ? "border-indigo-400 ring-1 ring-indigo-200 bg-indigo-50/40" : "border-slate-200"
+              }`}
+            >
+              {isRecommended && (
+                <span className="text-[10px] font-bold uppercase tracking-wide text-indigo-700 mb-1.5">
+                  Recommended for you
+                </span>
+              )}
+              <p className="text-sm font-semibold">{tier.name}</p>
+              <p className="text-xl font-bold mt-1">${tier.price}<span className="text-xs font-normal text-slate-500">/mo</span></p>
+              <p className="text-xs text-slate-500 mt-1 mb-3">{tier.unitGuidance}</p>
+              <button
+                onClick={() => handleUpgrade(tier.id)}
+                disabled={actionLoading === tier.id}
+                className={`mt-auto text-xs font-semibold px-3 py-2 rounded-lg ${
+                  isRecommended
+                    ? "bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white"
+                    : "bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white"
+                }`}
+              >
+                {actionLoading === tier.id ? "Redirecting…" : "Subscribe"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      {tiersData && (
+        <p className="text-[11px] text-slate-400">
+          You currently have {tiersData.yourUnitCount} unit{tiersData.yourUnitCount === 1 ? "" : "s"} across your properties.
+        </p>
       )}
     </div>
   );
