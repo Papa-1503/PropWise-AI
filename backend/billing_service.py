@@ -15,15 +15,17 @@ state machine by hand here would be real, unnecessary risk.
 Required environment variables:
     STRIPE_SECRET_KEY          — same key stripe_service.py uses, one
                                   real Stripe account for both products
-    STRIPE_PRICE_ID             — the real Stripe Price ID for this
-                                  app's paid plan (created once, by
-                                  hand, in the Stripe dashboard under
-                                  Product catalog - this app has
-                                  exactly one real paid tier for now,
-                                  not a multi-tier price list; see
-                                  routers/billing.py's own module
-                                  docstring for why multi-tier is real,
-                                  separate follow-on work)
+    STRIPE_PRICE_ID_STARTER,
+    STRIPE_PRICE_ID_GROWTH,
+    STRIPE_PRICE_ID_PRO          — one real Stripe Price ID per tier
+                                  (created by hand in the Stripe
+                                  dashboard under Product catalog -
+                                  see routers/billing.py's own TIERS
+                                  dict for the current tier
+                                  definitions and the real market
+                                  reasoning behind having 3, replacing
+                                  the single flat-rate plan this app
+                                  launched with)
     STRIPE_BILLING_WEBHOOK_SECRET — a SEPARATE signing secret from
                                   STRIPE_WEBHOOK_SECRET (rent ACH's own
                                   webhook) - configured as a second,
@@ -98,13 +100,21 @@ def get_or_create_org_customer(org_id: str, email: str, org_name: str) -> str:
     return customer.id
 
 
-def create_checkout_session(customer_id: str, price_id: str, success_url: str, cancel_url: str) -> dict:
+def create_checkout_session(customer_id: str, price_id: str, success_url: str, cancel_url: str, metadata: dict | None = None) -> dict:
     """Real Stripe Checkout Session in subscription mode - the actual
     upgrade flow. This backend never collects or sees a card number;
     Checkout is Stripe's own hosted page, the same real security
     boundary already established for bank-account linking in
     stripe_service.py's SetupIntent flow (this backend only ever
-    handles tokenized IDs and URLs, never raw payment details)."""
+    handles tokenized IDs and URLs, never raw payment details).
+
+    metadata (added for real multi-tier pricing) is attached to BOTH
+    the Checkout Session itself and, via subscription_data, to the
+    real resulting Subscription object - the subscription-level copy
+    is what makes the tier recoverable later from a
+    customer.subscription.updated webhook (e.g. after a portal-based
+    plan change), not just from the one-time checkout.session.completed
+    event."""
     _get_client_configured()
     try:
         session = stripe.checkout.Session.create(
@@ -113,6 +123,8 @@ def create_checkout_session(customer_id: str, price_id: str, success_url: str, c
             line_items=[{"price": price_id, "quantity": 1}],
             success_url=success_url,
             cancel_url=cancel_url,
+            metadata=metadata or {},
+            subscription_data={"metadata": metadata or {}},
         )
         return {"checkoutUrl": session.url, "sessionId": session.id}
     except stripe.error.StripeError as exc:
@@ -158,8 +170,8 @@ async def get_or_create_org_customer_async(org_id: str, email: str, org_name: st
     return await asyncio.to_thread(get_or_create_org_customer, org_id, email, org_name)
 
 
-async def create_checkout_session_async(customer_id: str, price_id: str, success_url: str, cancel_url: str) -> dict:
-    return await asyncio.to_thread(create_checkout_session, customer_id, price_id, success_url, cancel_url)
+async def create_checkout_session_async(customer_id: str, price_id: str, success_url: str, cancel_url: str, metadata: dict | None = None) -> dict:
+    return await asyncio.to_thread(create_checkout_session, customer_id, price_id, success_url, cancel_url, metadata)
 
 
 async def create_billing_portal_session_async(customer_id: str, return_url: str) -> dict:
