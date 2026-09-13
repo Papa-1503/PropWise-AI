@@ -61,6 +61,41 @@ def create_access_token(user_id: str, role: str) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
+PENDING_2FA_TOKEN_EXPIRE_MINUTES = 5
+
+
+def create_pending_2fa_token(user_id: str) -> str:
+    """A real, deliberately short-lived (5 minute) and narrowly-scoped
+    token issued after a correct password but BEFORE a correct 2FA
+    code - carries a pending2FA claim that get_current_user below
+    explicitly rejects, so this can never be used as a substitute for
+    a real access token even if someone tried to replay it directly
+    against a protected endpoint. See routers/auth.py's /login and
+    /login/2fa for the real two-step flow this supports."""
+    expire = datetime.now(timezone.utc) + timedelta(minutes=PENDING_2FA_TOKEN_EXPIRE_MINUTES)
+    payload = {"sub": user_id, "pending2FA": True, "exp": expire}
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def verify_pending_2fa_token(token: str) -> str:
+    """Returns the real user_id encoded in a pending-2FA token, or
+    raises a real 401 if it's invalid, expired, or - critically - a
+    normal access token being misused here (a normal token has no
+    pending2FA claim, so this rejects it the same as an outright
+    forgery)."""
+    unauthorized = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="This code has expired or is invalid - please sign in again.")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except PyJWTError:
+        raise unauthorized
+    if not payload.get("pending2FA"):
+        raise unauthorized
+    user_id = payload.get("sub")
+    if not user_id:
+        raise unauthorized
+    return user_id
+
+
 COOKIE_NAME = "rentflow_session"
 
 
@@ -90,6 +125,13 @@ async def get_current_user(request: Request, token: Optional[str] = Depends(oaut
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         user_id = payload.get("sub")
         if not user_id:
+            raise unauthorized
+        # Real, deliberate rejection - a pending-2FA token (see
+        # create_pending_2fa_token above) must NEVER be usable as a
+        # real access token, or 2FA would be trivially bypassable by
+        # just using the token issued after password-only verification
+        # directly against a protected endpoint.
+        if payload.get("pending2FA"):
             raise unauthorized
     except PyJWTError:
         raise unauthorized
