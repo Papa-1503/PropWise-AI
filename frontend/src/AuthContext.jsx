@@ -144,6 +144,35 @@ export function AuthProvider({ children }) {
       throw new Error(err.detail || "Login failed");
     }
     const data = await res.json();
+    // CHANGED Sept 13, 2026: real 2FA support (routers/two_factor.py,
+    // routers/auth.py's /login). A password-only success no longer
+    // always means a real session - an account with 2FA enabled gets
+    // {requires2FA: true, pendingToken} instead, and no session is
+    // established here at all. The caller (LoginScreen) is
+    // responsible for then collecting the real code and calling
+    // completeTwoFactorLogin below - this deliberately mirrors the
+    // real two-step flow the backend enforces, rather than hiding it
+    // behind one function that pretends login is always one step.
+    if (data.requires2FA) {
+      return { requires2FA: true, pendingToken: data.pendingToken };
+    }
+    localStorage.setItem(TOKEN_KEY, data.accessToken);
+    setToken(data.accessToken);
+    setUser(data.user);
+    return data.user;
+  }
+
+  async function completeTwoFactorLogin(pendingToken, code) {
+    const res = await fetch(`${API_BASE}/auth/login/2fa`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pendingToken, code }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "That code didn't work.");
+    }
+    const data = await res.json();
     localStorage.setItem(TOKEN_KEY, data.accessToken);
     setToken(data.accessToken);
     setUser(data.user);
@@ -208,6 +237,7 @@ export function AuthProvider({ children }) {
         setUser,
         loading,
         login,
+        completeTwoFactorLogin,
         register,
         signupOrganization,
         logout,
