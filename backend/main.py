@@ -169,14 +169,17 @@ async def security_headers_middleware(request, call_next):
     return response
 
 # Adjust to your actual frontend origin(s) in production
-# Still "rentflow-ai-1" despite the product being renamed to PropWise
-# AI - Render's .onrender.com subdomain can't be changed after a
-# service is created (confirmed directly, no dashboard workaround
-# exists); see config.js's fuller note. Deliberately living with the
-# old URL rather than migrating to a real custom domain for now.
+# CHANGED Sept 13, 2026: a real custom domain (getpropwiseai.com) now
+# exists and is verified/SSL-issued on Render - added alongside the
+# existing onrender.com origin, not replacing it, since Render's
+# "Render Subdomain" setting is still enabled and rentflow-ai-1.onrender.com
+# remains a real, reachable origin for this same frontend. www is
+# included too since Render's own custom-domain setup redirects it to
+# the root domain, but a browser's initial request to www still
+# originates from that host before the redirect completes.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "https://rentflow-ai-1.onrender.com"],
+    allow_origins=["http://localhost:5173", "https://rentflow-ai-1.onrender.com", "https://getpropwiseai.com", "https://www.getpropwiseai.com"],
     allow_credentials=True,  # required for the new HttpOnly session cookie to be
                              # sent on cross-origin requests at all - browsers
                              # silently drop credentialed cookies otherwise. Only
