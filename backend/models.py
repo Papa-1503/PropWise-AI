@@ -476,6 +476,31 @@ class TokenResponse(BaseModel):
     user: UserOut
 
 
+class TwoFactorEnableRequest(BaseModel):
+    """The 6-digit code from the user's own authenticator app,
+    confirming they actually scanned the real QR code from /2fa/setup
+    and their app is generating matching codes - this is what turns a
+    pending, unconfirmed secret into a real, enabled one."""
+    code: str
+
+
+class TwoFactorEnableResponse(BaseModel):
+    backupCodes: list[str]
+
+
+class TwoFactorDisableRequest(BaseModel):
+    """Disabling 2FA is a real, deliberate reduction in account
+    security - requiring the current password here (not just being
+    logged in) matches the same real-world caution as requiring it to
+    change a password."""
+    password: str
+
+
+class Login2FARequest(BaseModel):
+    pendingToken: str
+    code: str
+
+
 # ---------- AI Actions ----------
 #
 # IMPORTANT: `confidence` and projected outcome numbers here are Claude's
