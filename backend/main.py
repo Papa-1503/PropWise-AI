@@ -115,6 +115,7 @@ from routers import vendor_assistant
 from routers import collections_assistant
 from routers import inspection_assistant
 from routers import renewal_assistant
+from routers import roles_assistant
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Replaces the old @app.on_event("startup") decorator - found
@@ -279,6 +280,7 @@ app.include_router(vendor_assistant.router)
 app.include_router(collections_assistant.router)
 app.include_router(inspection_assistant.router)
 app.include_router(renewal_assistant.router)
+app.include_router(roles_assistant.router)
 # BUG FIX (found by actually running this): StaticFiles() raises at import
 # time if the directory doesn't already exist on disk. On a fresh checkout
 # there is no ./uploads folder yet, so the server would crash before it
