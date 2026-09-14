@@ -1,12 +1,14 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Outlet, useOutletContext } from "react-router-dom";
-import { useState, lazy, Suspense } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { LayoutDashboard, Zap, ClipboardCheck, Wrench, DollarSign, Rss, Sparkles, FileText, Image, GitBranch, MessageSquare, FileSignature, UserSearch, UserPlus2, Users, CalendarClock, Landmark, Building2, Menu, Moon, Sun, Search, PhoneCall, ClipboardList, Package, Droplets, TrendingUp, Shield, Tag, PenTool, Receipt, Calculator, Scale, Percent, History, HardHat, Wallet, UploadCloud } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext";
+import { API_BASE } from "./config";
 import { ToastProvider } from "./ToastContext";
 import { DarkModeProvider, useDarkMode } from "./DarkModeContext";
 import Avatar from "./Avatar";
 const LeadCaptureForm = lazy(() => import("./LeadCaptureForm"));
 const Documents = lazy(() => import("./Documents"));
+const OnboardingAssistant = lazy(() => import("./OnboardingAssistant"));
 const Gallery = lazy(() => import("./Gallery"));
 import LoginScreen from "./LoginScreen";
 import RecentActivity from "./RecentActivity";
@@ -128,6 +130,16 @@ function TabNotFound() {
  * existing portfolio, instead of re-typing every property/unit/lease
  * by hand through the UI. New "import" tab under the Admin group,
  * lazy-loaded like every other tab added since the Sept 10 sweep.
+ *
+ * CHANGED Sept 13, 2026 (later): added a real, agentic AI onboarding
+ * assistant (OnboardingAssistant.jsx / backend
+ * routers/onboarding_assistant.py) - shown at the top of the
+ * Dashboard tab for any staff org that hasn't yet added a real
+ * property AND a real lease, checked live via GET
+ * /api/onboarding/status rather than a client-side flag that could
+ * go stale. Disappears automatically once setup is genuinely
+ * complete (onSetupComplete callback), so it never lingers as dead
+ * UI for an established organization.
  */
 
 // CHANGED (Sept 3, 2026): staff navigation was a single flat list of
@@ -445,9 +457,24 @@ function AppGate() {
 }
 
 function DashboardTab({ effectivePropertyId, userName }) {
+  const { authFetch } = useAuth();
+  const [needsOnboarding, setNeedsOnboarding] = useState(null); // null = unknown yet, true/false once checked
+
+  useEffect(() => {
+    authFetch(`${API_BASE}/onboarding/status`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setNeedsOnboarding(data ? !data.setupComplete : false))
+      .catch(() => setNeedsOnboarding(false));
+  }, [authFetch]);
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5">
       <div className="space-y-5">
+        {needsOnboarding && (
+          <Suspense fallback={null}>
+            <OnboardingAssistant onSetupComplete={() => setNeedsOnboarding(false)} />
+          </Suspense>
+        )}
         <PortfolioHealthHeader propertyId={effectivePropertyId} userName={userName} />
         <Suspense fallback={<div className="h-40 bg-slate-100 rounded-xl animate-pulse" />}>
           <Dashboard propertyId={effectivePropertyId} />
