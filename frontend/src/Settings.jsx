@@ -16,9 +16,11 @@ import { API_BASE } from "./config";
  * real, subscribable cards with an honest "recommended for you" badge
  * driven by the org's own live unit count, never a hard gate.
  * Organization now covers the real, optional dedicated-SMS-number
- * setting (routers/organizations.py) and a real, self-serve export of
+ * setting (routers/organizations.py), a real, self-serve export of
  * the organization's entire dataset (routers/data_export.py, see
- * ExportDataSection's own docstring) - both shown only to staff, and
+ * ExportDataSection's own docstring), and a real, embeddable vacancy
+ * listings widget (routers/public_listings.py, see
+ * VacancyWidgetSection's own docstring) - all shown only to staff, and
  * only functional for the org owner specifically, matching the real
  * ownership boundary the backend enforces. Security now also covers
  * real two-factor authentication (routers/two_factor.py) - see
@@ -689,7 +691,49 @@ function OrganizationTab() {
         {saving ? "Saving…" : "Save changes"}
       </button>
     </div>
+    <VacancyWidgetSection />
     <ExportDataSection />
+    </div>
+  );
+}
+
+/**
+ * VacancyWidgetSection
+ *
+ * Real, copy-paste embed code for backend routers/public_listings.py's
+ * vacancy-widget.js - a genuine competitive angle: a free, always-
+ * current listing widget staff can drop directly onto their OWN
+ * company website, outside PropWise AI entirely. orgId is pre-filled
+ * from the real, logged-in user's own account - never something staff
+ * have to go find or copy from elsewhere.
+ */
+function VacancyWidgetSection() {
+  const { user } = useAuth();
+  const { show: showToast } = useToast();
+  const embedCode = `<div id="propwise-vacancies"></div>\n<script src="${API_BASE}/public/vacancy-widget.js" data-org-id="${user?.orgId || ""}" defer></script>`;
+
+  function handleCopy() {
+    navigator.clipboard.writeText(embedCode)
+      .then(() => showToast("Embed code copied.", "success"))
+      .catch(() => showToast("Couldn't copy — select and copy manually.", "error"));
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+      <h3 className="text-sm font-semibold">Vacancy listings widget</h3>
+      <p className="text-xs text-slate-500">
+        Show your currently available units directly on your own website — always up to date, no manual
+        updates needed. Paste this snippet anywhere in your site's HTML.
+      </p>
+      <pre className="text-[11px] bg-slate-900 text-slate-100 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-all">
+        {embedCode}
+      </pre>
+      <button
+        onClick={handleCopy}
+        className="text-sm font-semibold bg-slate-900 text-white px-4 py-2 rounded-lg"
+      >
+        Copy embed code
+      </button>
     </div>
   );
 }
