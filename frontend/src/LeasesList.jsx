@@ -7,6 +7,7 @@ import { API_BASE } from "./config";
 import Resident360Modal from "./Resident360Modal";
 import UnitHistoryModal from "./UnitHistoryModal";
 import RenewalRiskPanel from "./RenewalRiskPanel";
+import RenewalAssistant from "./RenewalAssistant";
 
 /**
  * LeasesList
@@ -492,6 +493,8 @@ export default function LeasesList({ propertyId }) {
           </button>
         </div>
       </div>
+
+      <RenewalAssistant />
 
       {showRisk && (
         <div className="mb-4">
