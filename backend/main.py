@@ -110,6 +110,7 @@ from routers import buildium_import
 from routers import two_factor
 from routers import data_export
 from routers import onboarding_assistant
+from routers import reconciliation_assistant
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Replaces the old @app.on_event("startup") decorator - found
@@ -269,6 +270,7 @@ app.include_router(buildium_import.router)
 app.include_router(two_factor.router)
 app.include_router(data_export.router)
 app.include_router(onboarding_assistant.router)
+app.include_router(reconciliation_assistant.router)
 # BUG FIX (found by actually running this): StaticFiles() raises at import
 # time if the directory doesn't already exist on disk. On a fresh checkout
 # there is no ./uploads folder yet, so the server would crash before it
