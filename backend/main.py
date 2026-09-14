@@ -765,6 +765,18 @@ async def vendor_sla_scheduler():
         await asyncio.sleep(interval_seconds)
 
 
-@app.get("/api/health")
+@app.api_route("/api/health", methods=["GET", "HEAD"])
 async def health():
+    """CHANGED Sept 13, 2026: real bug found via UptimeRobot's own
+    monitor going "down" against this exact endpoint - confirmed
+    directly (not assumed) that a HEAD request here returned a real
+    405, even though GET always worked fine. FastAPI/Starlette does
+    NOT automatically add HEAD support to a route registered only via
+    @app.get() the way some other frameworks do - api_route with an
+    explicit methods list is the real fix, not a workaround. This
+    matters beyond UptimeRobot specifically: HEAD requests against a
+    plain GET endpoint are a real, standard HTTP client behavior (many
+    monitoring tools, load balancers, and HTTP libraries default to
+    HEAD for lightweight "is this alive" checks), so this was a real
+    gap, not just this one tool's quirk."""
     return {"status": "ok"}
