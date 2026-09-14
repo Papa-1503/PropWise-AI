@@ -4,6 +4,7 @@ import InspectionChecklist from "./InspectionChecklist";
 import EmptyState from "./EmptyState";
 import { ClipboardCheck, Plus } from "lucide-react";
 import { API_BASE } from "./config";
+import InspectionAssistant from "./InspectionAssistant";
 
 /**
  * InspectionsList
@@ -96,6 +97,8 @@ export default function InspectionsList({ propertyId, unitId, inspectorName }) {
           New inspection
         </button>
       </div>
+
+      <InspectionAssistant />
 
       {loading ? (
         <div className="h-40 bg-slate-100 rounded-xl animate-pulse" />
