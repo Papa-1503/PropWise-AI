@@ -4,6 +4,7 @@ import { useToast } from "./ToastContext";
 import { API_BASE } from "./config";
 import EmptyState from "./EmptyState";
 import { Wrench, Plus, X, Star, AlertTriangle, Pencil } from "lucide-react";
+import VendorAssistant from "./VendorAssistant";
 
 /**
  * VendorsList
@@ -279,6 +280,8 @@ export default function VendorsList() {
           New vendor
         </button>
       </div>
+
+      <VendorAssistant onVendorAdded={fetchVendors} />
 
       <div className="flex gap-1 mb-3 flex-wrap">
         {["all", ...CATEGORIES].map((c) => (
