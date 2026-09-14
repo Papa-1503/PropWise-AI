@@ -3,6 +3,7 @@ import { useAuth } from "./AuthContext";
 import EmptyState from "./EmptyState";
 import { Landmark, Plus, X, Link2, Link2Off } from "lucide-react";
 import { API_BASE } from "./config";
+import ReconciliationCopilot from "./ReconciliationCopilot";
 
 /**
  * Reconciliation
@@ -12,6 +13,14 @@ import { API_BASE } from "./config";
  * charges already in the payments ledger. The backend already had a
  * genuinely useful "suggest matches" endpoint (same-amount, same-
  * property candidates) — built but unused until now.
+ *
+ * CHANGED Sept 14, 2026: added ReconciliationCopilot - a real,
+ * conversational AI guide (backend: routers/reconciliation_assistant.py)
+ * that walks staff through the same real matching this page already
+ * does manually, one line at a time, but conversationally. Both views
+ * share the same real data - a match made through the copilot calls
+ * fetchLines() below so the manual table reflects it immediately, and
+ * the copilot itself disappears once nothing is left unmatched.
  */
 
 function NewLineModal({ propertyId, onClose, onSaved }) {
@@ -272,6 +281,8 @@ export default function Reconciliation({ propertyId }) {
           Add line
         </button>
       </div>
+
+      <ReconciliationCopilot onLineMatched={fetchLines} />
 
       <label className="flex items-center gap-1.5 text-xs text-slate-500 mb-3">
         <input type="checkbox" checked={showUnmatchedOnly} onChange={(e) => setShowUnmatchedOnly(e.target.checked)} />
