@@ -3,6 +3,7 @@ import { useAuth } from "./AuthContext";
 import EmptyState from "./EmptyState";
 import { Shield, Plus, X, Trash2 } from "lucide-react";
 import { API_BASE } from "./config";
+import RolesAssistant from "./RolesAssistant";
 
 const PERMISSION_CHOICES = ["leasing", "maintenance", "finance", "communications", "staff_management", "reports"];
 
@@ -69,6 +70,8 @@ export default function CustomRoles() {
           <Plus size={14} /> New role
         </button>
       </div>
+
+      <RolesAssistant onChanged={fetchData} />
 
       <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-3 mb-3">
         Staff with no role assigned below keep full access, same as today. A role only ever scopes access down for whoever is explicitly assigned one.
