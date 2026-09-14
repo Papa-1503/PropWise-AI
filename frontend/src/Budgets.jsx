@@ -3,6 +3,7 @@ import { useAuth } from "./AuthContext";
 import EmptyState from "./EmptyState";
 import { Wallet, Plus, X, TrendingUp, TrendingDown } from "lucide-react";
 import { API_BASE } from "./config";
+import BudgetAssistant from "./BudgetAssistant";
 
 /**
  * Budgets
@@ -24,6 +25,7 @@ function currentPeriod() {
 
 export default function Budgets({ propertyId }) {
   const [tab, setTab] = useState("lines");
+  const [refreshKey, setRefreshKey] = useState(0);
 
   if (!propertyId) {
     return (
@@ -41,6 +43,7 @@ export default function Budgets({ propertyId }) {
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-lg font-semibold">Budgets</h2>
       </div>
+      <BudgetAssistant onChanged={() => setRefreshKey((k) => k + 1)} />
       <div className="flex gap-1.5 mb-3">
         {["lines", "report"].map((t) => (
           <button
@@ -54,7 +57,7 @@ export default function Budgets({ propertyId }) {
           </button>
         ))}
       </div>
-      {tab === "lines" ? <BudgetLinesTab propertyId={propertyId} /> : <BudgetReportTab propertyId={propertyId} />}
+      {tab === "lines" ? <BudgetLinesTab key={refreshKey} propertyId={propertyId} /> : <BudgetReportTab propertyId={propertyId} />}
     </div>
   );
 }
