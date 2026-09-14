@@ -6,6 +6,7 @@ import { API_BASE } from "./config";
 import EmptyState from "./EmptyState";
 import { DollarSign, BellRing } from "lucide-react";
 import AutopaySetup from "./AutopaySetup";
+import CollectionsAssistant from "./CollectionsAssistant";
 
 
 const STATUS_STYLE = {
@@ -157,6 +158,7 @@ export default function PaymentsPanel({ propertyId }) {
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5">
+      {isStaff && <CollectionsAssistant />}
       {paidMonth && (
         <div className="flex items-center justify-between bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2 mb-3 text-sm">
           <span className="text-indigo-700">
