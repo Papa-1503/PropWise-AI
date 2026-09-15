@@ -8,6 +8,13 @@ hardware across buildings, and locking this app to one specific brand's
 proprietary API would mean re-integrating every time a different
 building uses different hardware.
 
+CHANGED (Sept 15, 2026): extended with real thermostat control
+(ecobee, Google Nest, Honeywell Resideo, Sensi, SmartThings-connected
+units) - the same real Seam workspace and SEAM_API_KEY already
+configured for locks above also covers thermostats, confirmed
+directly against Seam's own published API reference before writing
+this. No new developer account needed for this addition.
+
 Same architectural template as stripe_service.py/twilio: sync core
 functions plus async wrappers, honest exceptions rather than a silent
 no-op. Genuinely simpler than Stripe/QuickBooks here — Seam uses a
@@ -114,6 +121,61 @@ def delete_access_code(access_code_id: str) -> dict:
     return _request("POST", "/access_codes/delete", {"access_code_id": access_code_id})
 
 
+# ---------- Thermostats ----------
+#
+# Same real, unified Seam workspace and SEAM_API_KEY already configured
+# for smart locks above - Seam covers thermostats (ecobee, Google Nest,
+# Honeywell Resideo, Sensi, SmartThings-connected units, and more)
+# through the exact same account and API key, confirmed directly
+# against Seam's own published API reference (real endpoint paths,
+# real request/response shapes) before writing this, same standard
+# applied to every other integration in this app. No new developer
+# account needed for this feature.
+
+def list_thermostats() -> list[dict]:
+    """Every thermostat currently connected to this Seam workspace -
+    staff match these against real units via unit.seamThermostatDeviceId
+    (see models.py's UnitIn) once devices are actually connected."""
+    data = _request("POST", "/thermostats/list", {})
+    return data.get("thermostats", [])
+
+
+def get_thermostat(device_id: str) -> dict:
+    """Real, live device state - current temperature reading, current
+    HVAC/fan mode, and the device's own real capability flags
+    (can_hvac_heat, can_hvac_cool, etc.) that determine which HVAC
+    modes are actually valid to set on this specific unit. POST, not
+    GET - confirmed directly against Seam's own docs that /devices/get
+    explicitly supports either, and POST is the safer, more broadly-
+    compatible choice for a request that must carry a JSON body (some
+    proxies/clients strip bodies from GET requests)."""
+    data = _request("POST", "/devices/get", {"device_id": device_id})
+    return data.get("device", {})
+
+
+def set_hvac_mode(
+    device_id: str,
+    hvac_mode: str,
+    heating_set_point_fahrenheit: float | None = None,
+    cooling_set_point_fahrenheit: float | None = None,
+) -> dict:
+    """Real remote climate control - the genuinely valuable operation
+    for this app: staff can set a vacant unit to an energy-saving mode
+    between tenants, or prep a unit's climate ahead of a move-in,
+    without a physical visit. hvac_mode must be one of Seam's own real,
+    documented values: heat, cool, heat_cool, eco (Google Nest only),
+    or off - validated by the caller against the device's own real
+    capability flags (from get_thermostat above) before this is ever
+    called, so a mode a specific thermostat genuinely can't perform is
+    never silently attempted."""
+    body: dict = {"device_id": device_id, "hvac_mode_setting": hvac_mode}
+    if heating_set_point_fahrenheit is not None:
+        body["heating_set_point_fahrenheit"] = heating_set_point_fahrenheit
+    if cooling_set_point_fahrenheit is not None:
+        body["cooling_set_point_fahrenheit"] = cooling_set_point_fahrenheit
+    return _request("POST", "/thermostats/set_hvac_mode", body)
+
+
 # Async wrappers — run the blocking httpx calls in a thread pool so
 # they don't stall the FastAPI event loop, same pattern as
 # sms_service.send_sms_async / market_rent_service.fetch_comps_async.
@@ -139,3 +201,21 @@ async def create_access_code_async(
 
 async def delete_access_code_async(access_code_id: str) -> dict:
     return await asyncio.to_thread(delete_access_code, access_code_id)
+
+
+async def list_thermostats_async() -> list[dict]:
+    return await asyncio.to_thread(list_thermostats)
+
+
+async def get_thermostat_async(device_id: str) -> dict:
+    return await asyncio.to_thread(get_thermostat, device_id)
+
+
+async def set_hvac_mode_async(
+    device_id: str, hvac_mode: str,
+    heating_set_point_fahrenheit: float | None = None,
+    cooling_set_point_fahrenheit: float | None = None,
+) -> dict:
+    return await asyncio.to_thread(
+        set_hvac_mode, device_id, hvac_mode, heating_set_point_fahrenheit, cooling_set_point_fahrenheit,
+    )
