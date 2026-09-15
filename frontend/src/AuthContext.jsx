@@ -11,7 +11,8 @@ import { createContext, useContext, useState, useCallback, useEffect } from "rea
  *   - login(email, password)
  *   - register(payload)
  *   - logout()
- *   - authFetch(url, options)   fetch() wrapper that attaches the Bearer token
+ *   - authFetch(url, options)   fetch() wrapper that sends the real HttpOnly
+ *                          session cookie on every request
  *   - properties           staff-only: list of all buildings [{id, name}], for the
  *                          building selector and for looking up a building's name
  *                          from a propertyId when displaying tickets/charges/etc.
@@ -28,18 +29,40 @@ import { createContext, useContext, useState, useCallback, useEffect } from "rea
  * IMPORTANT: swap the other components' bare `fetch(...)` calls (in
  * InspectionChecklist.jsx, MaintenanceTickets.jsx, AICopilot.jsx, Dashboard.jsx)
  * for `authFetch(...)` from this context — otherwise their requests won't
- * carry a token and staff-only routes will 401.
+ * carry the session and staff-only routes will 401.
+ *
+ * CHANGED Sept 15, 2026: real cookie-auth migration, completing the
+ * "still open" item flagged in this session's own earlier security-
+ * hardening pass - the backend (auth.py's get_current_user) has
+ * accepted the real HttpOnly session cookie as an equally-valid
+ * credential alongside the Bearer header since that pass, and
+ * authFetch below was already sending it (credentials: "include"),
+ * but the frontend's own SOURCE OF TRUTH for "am I logged in" was
+ * still a JWT sitting in localStorage - genuinely readable by any
+ * injected script, the exact XSS exposure HttpOnly cookies exist to
+ * close. There is now no token in localStorage at all: login/
+ * register/2FA/org-signup rely entirely on the cookie the server's
+ * response already sets, and on mount this always asks the server
+ * (GET /auth/me) whether a real session exists, since an HttpOnly
+ * cookie is by design invisible to JavaScript - there is no client-
+ * side way to check it any other way.
+ *
+ * Real, separate gap also fixed alongside this: login/register/2FA/
+ * org-signup previously called fetch() WITHOUT credentials: "include"
+ * - confirmed directly that a browser will not persist a Set-Cookie
+ * response header from a cross-origin request unless credentials are
+ * explicitly requested on that same request, meaning the real session
+ * cookie may never have actually been stored by the browser at all
+ * before this fix, regardless of what the backend was sending.
  */
 
 import { API_BASE } from "./config";
 
-const TOKEN_KEY = "rentflow_token";
 const SELECTED_PROPERTY_KEY = "rentflow_selected_property";
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY));
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [properties, setProperties] = useState([]);
@@ -54,40 +77,30 @@ export function AuthProvider({ children }) {
 
   const authFetch = useCallback(
     (url, options = {}) => {
-      const headers = { ...(options.headers || {}) };
-      if (token) headers.Authorization = `Bearer ${token}`;
-      // credentials: "include" makes the browser also send the real
-      // HttpOnly session cookie set by login/register (backend/auth.py,
-      // this session's earlier work) on every request - the Bearer
-      // header above is left completely unchanged and still sent
-      // alongside it, so this is purely additive, not a replacement.
-      // get_current_user already accepts either credential source; this
-      // is what makes the frontend actually offer the cookie at all,
-      // rather than the safer path existing on the backend with no way
-      // for the browser to use it.
-      return fetch(url, { ...options, headers, credentials: "include" });
+      // credentials: "include" sends the real HttpOnly session cookie
+      // set by login/register/2FA/org-signup (backend/auth.py) on
+      // every request - this is the ONLY credential this app sends
+      // now; there is no Authorization header and no token anywhere
+      // in JavaScript-readable storage to attach one from.
+      return fetch(url, { ...options, credentials: "include" });
     },
-    [token]
-  ); 
+    []
+  );
 
   const fetchMe = useCallback(async () => {
-    if (!token) {
-      setUser(null);
-      setLoading(false);
-      return;
-    }
+    // No local signal exists for "is there a session" - an HttpOnly
+    // cookie can't be read from JavaScript by design, so the real,
+    // only way to know is to ask the server and see what comes back.
     try {
       const res = await authFetch(`${API_BASE}/auth/me`);
-      if (!res.ok) throw new Error("Session expired");
+      if (!res.ok) throw new Error("Not authenticated");
       setUser(await res.json());
     } catch {
-      setToken(null);
-      localStorage.removeItem(TOKEN_KEY);
       setUser(null);
     } finally {
       setLoading(false);
     }
-  }, [token, authFetch]);
+  }, [authFetch]);
 
   useEffect(() => {
     fetchMe();
@@ -98,7 +111,7 @@ export function AuthProvider({ children }) {
   // building's name anywhere a unit is shown, so "Unit 101" never appears
   // without saying which building it's in.
   const fetchProperties = useCallback(async () => {
-    if (!token || user?.role !== "staff") {
+    if (!user || user.role !== "staff") {
       setProperties([]);
       return;
     }
@@ -112,7 +125,7 @@ export function AuthProvider({ children }) {
       // fail quietly — the building selector just won't populate; existing
       // "All Buildings" behavior still works via propertyId=null
     }
-  }, [token, user, authFetch]);
+  }, [user, authFetch]);
 
   useEffect(() => {
     fetchProperties();
@@ -137,6 +150,7 @@ export function AuthProvider({ children }) {
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ email, password }),
     });
     if (!res.ok) {
@@ -148,16 +162,19 @@ export function AuthProvider({ children }) {
     // routers/auth.py's /login). A password-only success no longer
     // always means a real session - an account with 2FA enabled gets
     // {requires2FA: true, pendingToken} instead, and no session is
-    // established here at all. The caller (LoginScreen) is
-    // responsible for then collecting the real code and calling
-    // completeTwoFactorLogin below - this deliberately mirrors the
-    // real two-step flow the backend enforces, rather than hiding it
-    // behind one function that pretends login is always one step.
+    // established here at all (no cookie is set for a pending-2FA
+    // response either - see get_current_user's own real rejection of
+    // a pending2FA token). The caller (LoginScreen) is responsible for
+    // then collecting the real code and calling completeTwoFactorLogin
+    // below - this deliberately mirrors the real two-step flow the
+    // backend enforces, rather than hiding it behind one function that
+    // pretends login is always one step.
     if (data.requires2FA) {
       return { requires2FA: true, pendingToken: data.pendingToken };
     }
-    localStorage.setItem(TOKEN_KEY, data.accessToken);
-    setToken(data.accessToken);
+    // The server's response already set the real session cookie
+    // (set_session_cookie, backend/auth.py) - nothing else to store
+    // client-side, the cookie IS the session from here on.
     setUser(data.user);
     return data.user;
   }
@@ -166,6 +183,7 @@ export function AuthProvider({ children }) {
     const res = await fetch(`${API_BASE}/auth/login/2fa`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ pendingToken, code }),
     });
     if (!res.ok) {
@@ -173,8 +191,6 @@ export function AuthProvider({ children }) {
       throw new Error(err.detail || "That code didn't work.");
     }
     const data = await res.json();
-    localStorage.setItem(TOKEN_KEY, data.accessToken);
-    setToken(data.accessToken);
     setUser(data.user);
     return data.user;
   }
@@ -183,6 +199,7 @@ export function AuthProvider({ children }) {
     const res = await fetch(`${API_BASE}/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
@@ -190,8 +207,6 @@ export function AuthProvider({ children }) {
       throw new Error(err.detail || "Registration failed");
     }
     const data = await res.json();
-    localStorage.setItem(TOKEN_KEY, data.accessToken);
-    setToken(data.accessToken);
     setUser(data.user);
     return data.user;
   }
@@ -200,6 +215,7 @@ export function AuthProvider({ children }) {
     const res = await fetch(`${API_BASE}/auth/signup-organization`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
@@ -207,27 +223,25 @@ export function AuthProvider({ children }) {
       throw new Error(err.detail || "Couldn't create your organization.");
     }
     const data = await res.json();
-    localStorage.setItem(TOKEN_KEY, data.accessToken);
-    setToken(data.accessToken);
     setUser(data.user);
     return data.user;
   }
 
   function logout() {
-    // The real HttpOnly cookie (backend/auth.py, this session) can't be
-    // cleared from JavaScript at all - that's the entire point of
-    // HttpOnly. Without this call, clearing localStorage alone would
-    // leave a real, still-valid 7-day session cookie active on this
-    // browser even after "logging out." Fire-and-forget: even if this
-    // request fails (offline, etc.), the local token/state is still
-    // cleared below, so the user is genuinely logged out of this
-    // browser's own view of the app either way.
-    fetch(`${API_BASE}/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {});
-    localStorage.removeItem(TOKEN_KEY);
-    setToken(null);
-    setUser(null);
-    setProperties([]);
-    setSelectedPropertyState(null);
+    // The real HttpOnly cookie (backend/auth.py) can't be cleared from
+    // JavaScript at all - that's the entire point of HttpOnly. This
+    // real server round-trip is now the ONLY way this app can end a
+    // session - there's no longer a local token to simply discard.
+    // Awaited (not fire-and-forget) so `user` is only cleared once the
+    // cookie is genuinely gone server-side too, avoiding a brief state
+    // where the UI shows logged-out but the cookie is still valid.
+    fetch(`${API_BASE}/auth/logout`, { method: "POST", credentials: "include" })
+      .catch(() => {})
+      .finally(() => {
+        setUser(null);
+        setProperties([]);
+        setSelectedPropertyState(null);
+      });
   }
 
   return (
