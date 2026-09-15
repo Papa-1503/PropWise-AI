@@ -50,7 +50,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from db import payments_col, users_col, late_notices_col, properties_col, leases_col
 from date_utils import parse_date_utc
 from models import ChargeCreate, PaymentRecord, CheckoutSessionCreate, PaymentReturn, AutopayEnroll
-from auth import require_staff, get_current_user
+from auth import require_staff, get_current_user, require_permission
 from rate_limiter import limiter
 from services.events import emit_event
 from stripe_service import (
@@ -102,7 +102,9 @@ def serialize(charge: dict) -> dict:
 
 
 @router.post("")
-async def create_charge(payload: ChargeCreate, user: dict = Depends(require_staff)):
+# CHANGED (Sept 15, 2026): real permission enforcement - see
+# routers/leases.py's create_lease for the fuller note.
+async def create_charge(payload: ChargeCreate, user: dict = Depends(require_permission("finance"))):
     doc = payload.model_dump()
     doc["orgId"] = user["orgId"]
     doc["dueDate"] = parse_date_utc(doc["dueDate"])
