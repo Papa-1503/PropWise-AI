@@ -24,7 +24,7 @@ app goes through (this file's own HTTP handler, routers/telephony.py's
 AI phone triage, routers/sms_inbound.py's text-in triage) - org_id is
 now a REQUIRED, explicit parameter on that function (not just a dict
 key a caller could forget to set), so a new caller literally cannot
-compile without deciding whose org a ticket belongs to. Every other
+compile without deciding whose organization a ticket belongs to. Every other
 query below is scoped through user["orgId"] directly.
 """
 import sentry_sdk
@@ -36,7 +36,7 @@ from bson import ObjectId
 from db import tickets_col, users_col
 from models import TicketCreate, TicketUpdate, TimeEntryCreate, TicketSatisfactionSubmit
 import notifications_service
-from auth import require_staff, get_current_user
+from auth import require_staff, get_current_user, require_permission
 from services.events import emit_event
 from services.ticket_dedup import find_existing_open_duplicate, record_duplicate_occurrence
 from services.ticket_severity import compute_severity
@@ -189,7 +189,11 @@ async def create_ticket_document(doc: dict, org_id: str) -> dict:
 
 
 @router.patch("/{ticket_id}")
-async def update_ticket(ticket_id: str, payload: TicketUpdate, user: dict = Depends(require_staff)):
+# CHANGED (Sept 15, 2026): real permission enforcement - see
+# routers/leases.py's create_lease for the fuller note on why this
+# matters. Deliberately NOT applied to create_ticket above, which
+# tenants also call - require_permission always rejects non-staff.
+async def update_ticket(ticket_id: str, payload: TicketUpdate, user: dict = Depends(require_permission("maintenance"))):
     if not ObjectId.is_valid(ticket_id):
         raise HTTPException(status_code=400, detail="Invalid ticket ID")
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
