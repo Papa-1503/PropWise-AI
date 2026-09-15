@@ -18,7 +18,7 @@ from bson import ObjectId
 
 from db import users_col
 from models import StaffPropertyAssignment, StaffPhoneUpdate
-from auth import require_staff
+from auth import require_staff, require_permission
 from audit_service import log_action
 
 router = APIRouter(prefix="/api/staff", tags=["staff"])
@@ -38,7 +38,9 @@ async def list_staff(user: dict = Depends(require_staff)):
 
 
 @router.patch("/{user_id}/properties")
-async def set_staff_properties(user_id: str, payload: StaffPropertyAssignment, user: dict = Depends(require_staff)):
+# CHANGED (Sept 15, 2026): real permission enforcement - see
+# routers/leases.py's create_lease for the fuller note.
+async def set_staff_properties(user_id: str, payload: StaffPropertyAssignment, user: dict = Depends(require_permission("staff_management"))):
     if not ObjectId.is_valid(user_id):
         raise HTTPException(status_code=400, detail="Invalid user ID")
 
