@@ -267,3 +267,31 @@ async def test_communications_permission_blocks_email_send_when_missing(client, 
         headers=auth_headers(org_a),
     )
     assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_me_exposes_customroleid_when_assigned(client, org_a, patch_db_with_mock):
+    """CHANGED (Sept 15, 2026): customRoleId is now exposed on
+    /auth/me so the frontend can look up this role's real permissions
+    and scope navigation to what this staff member can actually do."""
+    role_resp = await client.post(
+        "/api/custom-roles",
+        json={"name": "Leasing Agent", "permissions": ["leasing"]},
+        headers=auth_headers(org_a),
+    )
+    role_id = role_resp.json()["id"]
+    await client.patch(
+        f"/api/custom-roles/staff/{org_a['userId']}/assign",
+        json={"customRoleId": role_id},
+        headers=auth_headers(org_a),
+    )
+
+    resp = await client.get("/api/auth/me", headers=auth_headers(org_a))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["customRoleId"] == role_id
+
+
+@pytest.mark.asyncio
+async def test_me_customroleid_is_null_by_default(client, org_a, patch_db_with_mock):
+    resp = await client.get("/api/auth/me", headers=auth_headers(org_a))
+    assert resp.json()["customRoleId"] is None
