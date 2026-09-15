@@ -32,7 +32,7 @@ import cloudinary.uploader
 from db import leases_col, documents_col, properties_col, renewal_checkins_col
 from models import LeaseCreate, LeaseUpdate, InsurancePolicyUpdate, RenewalIncentiveOffer, RenewalIncentiveResponse, RenewalCheckInSubmit
 from date_utils import parse_date_utc
-from auth import require_staff, require_staff_or_owner, get_current_user
+from auth import require_staff, require_staff_or_owner, get_current_user, require_permission
 from services.events import emit_event
 from audit_service import log_action
 import notifications_service
@@ -129,7 +129,12 @@ async def my_lease(user: dict = Depends(get_current_user)):
 
 
 @router.post("")
-async def create_lease(payload: LeaseCreate, user: dict = Depends(require_staff)):
+# CHANGED (Sept 15, 2026): first real enforcement point for the
+# custom-roles permission system - require_permission was fully built
+# (auth.py) but confirmed, directly, to be wired into ZERO real
+# endpoints anywhere in this app until now. A staff member with a
+# custom role missing "leasing" can no longer create a lease.
+async def create_lease(payload: LeaseCreate, user: dict = Depends(require_permission("leasing"))):
     # Real data-integrity check, not just a security one: without this,
     # a lease could end up pointing at a propertyId outside the
     # creator's own org (e.g. a stale ID from a different org's
