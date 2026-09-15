@@ -43,7 +43,7 @@ from routers.vendors import serialize
 router = APIRouter(prefix="/api/vendor-assistant", tags=["vendors"])
 
 anthropic_client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-MODEL = "claude-sonnet-4-6"
+MODEL = "claude-haiku-4-5-20251001"
 MAX_TOOL_ITERATIONS = 5
 
 VALID_CATEGORIES = ("plumbing", "electrical", "hvac", "general", "landscaping", "locksmith")
@@ -71,6 +71,7 @@ TOOLS = [
             },
             "required": ["name", "category"],
         },
+        "cache_control": {"type": "ephemeral"},
     },
 ]
 
@@ -132,7 +133,9 @@ async def vendor_assistant_chat(payload: VendorChatRequest, user: dict = Depends
 
     for _ in range(MAX_TOOL_ITERATIONS):
         response = await anthropic_client.messages.create(
-            model=MODEL, max_tokens=1024, system=SYSTEM_PROMPT, tools=TOOLS, messages=messages,
+            model=MODEL, max_tokens=1024,
+            system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+            tools=TOOLS, messages=messages,
         )
 
         tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
