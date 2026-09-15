@@ -1,6 +1,88 @@
 import { useState, useEffect, useCallback } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useAuth } from "./AuthContext";
 import { API_BASE } from "./config";
+
+/**
+ * NOISummary
+ *
+ * Added in direct response to real product-review feedback: "the
+ * first number on many investor dashboards would be NOI... I would
+ * put it near the top." Sits directly above the existing health-
+ * score header, the real, top-of-dashboard spot. All three real
+ * figures come straight from GET /api/dashboard/noi
+ * (routers/dashboard.py) - noiThisMonth is real, already-collected
+ * revenue minus real, categorized expenses; noiAtRisk reuses the
+ * exact same revenue-at-risk figure the health score below already
+ * shows (never a second, diverging definition); noiProjectedThisMonth
+ * is an honestly-labeled ESTIMATE, and shows nothing rather than a
+ * fabricated number when there isn't yet enough real expense history
+ * to base a projection on (hasEnoughHistoryForProjection).
+ */
+function NOISummary({ propertyId }) {
+  const [noi, setNoi] = useState(null);
+  const [expanded, setExpanded] = useState(null); // 'this' | 'risk' | 'projected' | null
+  const { authFetch } = useAuth();
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (propertyId) params.set("propertyId", propertyId);
+    authFetch(`${API_BASE}/dashboard/noi?${params.toString()}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then(setNoi)
+      .catch(() => {});
+  }, [propertyId, authFetch]);
+
+  if (!noi) return null;
+
+  const toggle = (key) => setExpanded((cur) => (cur === key ? null : key));
+  const fmt = (n) => (n < 0 ? `-$${Math.abs(n).toLocaleString()}` : `$${n.toLocaleString()}`);
+
+  return (
+    <div className="bg-white/5 border border-white/10 rounded-lg p-4 mb-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <button onClick={() => toggle("this")} className="text-left">
+          <div className="text-[10px] font-mono uppercase tracking-wide text-white/50 flex items-center gap-1">
+            NOI This Month {expanded === "this" ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+          </div>
+          <div className={`text-2xl font-bold mt-0.5 ${noi.noiThisMonth < 0 ? "text-rose-300" : "text-white"}`}>
+            {fmt(noi.noiThisMonth)}
+          </div>
+        </button>
+        <button onClick={() => toggle("risk")} className="text-left">
+          <div className="text-[10px] font-mono uppercase tracking-wide text-white/50 flex items-center gap-1">
+            NOI At Risk {expanded === "risk" ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+          </div>
+          <div className="text-2xl font-bold mt-0.5 text-amber-300">{fmt(noi.noiAtRisk)}</div>
+        </button>
+        <button onClick={() => toggle("projected")} disabled={!noi.hasEnoughHistoryForProjection} className="text-left disabled:cursor-default">
+          <div className="text-[10px] font-mono uppercase tracking-wide text-white/50 flex items-center gap-1">
+            NOI Projected (Est.) {noi.hasEnoughHistoryForProjection && (expanded === "projected" ? <ChevronUp size={10} /> : <ChevronDown size={10} />)}
+          </div>
+          <div className="text-2xl font-bold mt-0.5 text-white/90">
+            {noi.hasEnoughHistoryForProjection ? fmt(noi.noiProjectedThisMonth) : <span className="text-sm font-normal text-white/40 italic">not enough history yet</span>}
+          </div>
+        </button>
+      </div>
+
+      {expanded === "this" && (
+        <p className="text-[11px] text-white/60 mt-3 pt-3 border-t border-white/10">
+          ${noi.revenueCollectedThisMonth.toLocaleString()} collected across {noi.revenueChargeCount} payment{noi.revenueChargeCount === 1 ? "" : "s"} so far this month, minus ${noi.expensesThisMonth.toLocaleString()} in {noi.expenseLineCount} categorized expense{noi.expenseLineCount === 1 ? "" : "s"}. A real, partial-month figure — will keep changing as the month goes on.
+        </p>
+      )}
+      {expanded === "risk" && (
+        <p className="text-[11px] text-white/60 mt-3 pt-3 border-t border-white/10">
+          {noi.vacancies} vacant unit{noi.vacancies === 1 ? "" : "s"}, {noi.leaseRenewalsNeeded} lease{noi.leaseRenewalsNeeded === 1 ? "" : "s"} needing renewal attention, and ${noi.delinquentBalance.toLocaleString()} across {noi.delinquentAccounts} delinquent account{noi.delinquentAccounts === 1 ? "" : "s"}. Same figure shown in the health score below.
+        </p>
+      )}
+      {expanded === "projected" && noi.hasEnoughHistoryForProjection && (
+        <p className="text-[11px] text-white/60 mt-3 pt-3 border-t border-white/10">
+          Estimate only: ${noi.scheduledMonthlyRevenue.toLocaleString()} scheduled full-month rent roll, minus ${noi.projectedExpenses.toLocaleString()} — the real trailing {noi.trailingMonthsUsed}-month average of actual categorized expenses. Not a guarantee.
+        </p>
+      )}
+    </div>
+  );
+}
 
 
 export default function PortfolioHealthHeader({ propertyId, userName }) {
@@ -33,6 +115,7 @@ export default function PortfolioHealthHeader({ propertyId, userName }) {
 
   return (
     <div className="bg-[#14213d] text-white rounded-xl p-5 mb-5">
+      <NOISummary propertyId={propertyId} />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-serif font-bold">{greeting}{userName ? `, ${userName}` : ""}</h1>
