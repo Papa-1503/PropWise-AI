@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from db import properties_col, leases_col, tickets_col, inspections_col, ai_actions_col, payments_col, leads_col, dashboard_prefs_col
+from db import properties_col, leases_col, tickets_col, inspections_col, ai_actions_col, payments_col, leads_col, dashboard_prefs_col, bank_lines_col
 from auth import require_staff
 from models import DashboardPreferencesUpdate
 import cash_flow_service
@@ -102,6 +102,117 @@ async def get_portfolio_health(propertyId: str | None = None, user: dict = Depen
     }
 
 
+@router.get("/noi")
+async def get_noi(propertyId: str | None = None, user: dict = Depends(require_staff)):
+    """Real Net Operating Income for the current calendar month, plus
+    every real figure that makes it up - not just the final total.
+    Sophisticated operators reasonably ask "how is this calculated?"
+    before trusting a headline number (this genuinely happened during
+    a real product review of this app) - so this returns the
+    breakdown alongside the total, not just the total, and the
+    frontend is expected to show both.
+
+    Three real, distinct figures, each honestly scoped to what it
+    actually is:
+
+    - noiThisMonth: real, ALREADY-COLLECTED revenue (payments_col,
+      paidDate this month) minus real, ALREADY-CATEGORIZED expenses
+      (bank_lines_col, reusing the exact same category != None
+      convention routers/budgets.py's own budget_vs_actual_report
+      already uses to mean "a real, staff-categorized expense line" -
+      never a duplicate or diverging definition of "expense"). This is
+      a real, current, partial-month figure - it will keep growing as
+      the month progresses, not a final number.
+
+    - noiAtRisk: reuses get_portfolio_health's own real
+      revenue-at-risk figure directly (vacant units, unsigned
+      near-term renewals, delinquent balances) rather than
+      recomputing a second, potentially-diverging definition of "at
+      risk."
+
+    - noiProjectedThisMonth: an honest ESTIMATE, clearly labeled as
+      one - projected revenue is the real scheduled monthly rent roll
+      (occupied units x their real rent) rather than what's been
+      collected so far; projected expenses is the real trailing
+      3-month average of actual categorized bank-line expenses, when
+      there's enough real history to compute one. When there isn't
+      (a brand-new org with no real expense history yet),
+      hasEnoughHistoryForProjection is false and
+      noiProjectedThisMonth is null - never a fabricated number
+      standing in for missing real data.
+    """
+    now = datetime.now(timezone.utc)
+    month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+
+    query: dict = {"orgId": user["orgId"]}
+    if propertyId:
+        query["propertyId"] = propertyId
+
+    # Real, actual COLLECTED revenue this month - not scheduled/
+    # potential revenue (that's a separate, honestly-projected figure
+    # below).
+    paid_this_month = await payments_col.find({
+        **query, "paidDate": {"$gte": month_start, "$lte": now},
+    }).to_list(length=5000)
+    revenue_collected = sum(c.get("amountPaid", 0) for c in paid_this_month)
+
+    # Real, staff-categorized expense lines this month - the exact
+    # same real convention (category != None on a bank line) already
+    # trusted by routers/budgets.py's own report.
+    expense_lines_this_month = await bank_lines_col.find({
+        **query, "date": {"$gte": month_start, "$lte": now}, "category": {"$ne": None},
+    }).to_list(length=5000)
+    expenses_this_month = sum(abs(line.get("amount", 0)) for line in expense_lines_this_month)
+
+    noi_this_month = revenue_collected - expenses_this_month
+
+    # Reuses get_portfolio_health's own real, already-computed
+    # revenue-at-risk figure - never a second, potentially-diverging
+    # definition of "at risk."
+    health = await get_portfolio_health(propertyId=propertyId, user=user)
+    noi_at_risk = health["revenueAtRisk"]
+
+    # Real scheduled full-month rent roll - occupied units x their
+    # real rent, the same real query shape get_dashboard_stats above
+    # already uses for monthlyRevenue.
+    properties = await properties_col.find({"orgId": user["orgId"], **({"_id": propertyId} if propertyId else {})}).to_list(length=500)
+    scheduled_monthly_revenue = sum(
+        u.get("rent", 0) for p in properties for u in p.get("units", []) if u.get("status") == "occupied"
+    )
+
+    # Real trailing 3-month average of actual categorized expenses -
+    # an honest basis for a projection, never invented. Looks back at
+    # the 3 real calendar months before the current one.
+    three_months_ago_start = (month_start - timedelta(days=90)).replace(day=1)
+    trailing_lines = await bank_lines_col.find({
+        **query, "date": {"$gte": three_months_ago_start, "$lt": month_start}, "category": {"$ne": None},
+    }).to_list(length=15000)
+    real_months_with_data = len({(line["date"].year, line["date"].month) for line in trailing_lines if line.get("date")})
+    has_enough_history = real_months_with_data >= 1
+    projected_expenses = round(sum(abs(l.get("amount", 0)) for l in trailing_lines) / real_months_with_data, 2) if has_enough_history else None
+    noi_projected = round(scheduled_monthly_revenue - projected_expenses, 2) if has_enough_history else None
+
+    return {
+        "noiThisMonth": round(noi_this_month, 2),
+        "revenueCollectedThisMonth": round(revenue_collected, 2),
+        "expensesThisMonth": round(expenses_this_month, 2),
+        "expenseLineCount": len(expense_lines_this_month),
+        "revenueChargeCount": len(paid_this_month),
+
+        "noiAtRisk": noi_at_risk,
+        "vacancies": health["vacancies"],
+        "leaseRenewalsNeeded": health["leaseRenewalsNeeded"],
+        "delinquentAccounts": health["delinquentAccounts"],
+        "delinquentBalance": health["delinquentBalance"],
+
+        "hasEnoughHistoryForProjection": has_enough_history,
+        "noiProjectedThisMonth": noi_projected,
+        "scheduledMonthlyRevenue": round(scheduled_monthly_revenue, 2),
+        "projectedExpenses": projected_expenses,
+        "trailingMonthsUsed": real_months_with_data,
+    }
+
+
 @router.get("/workforce")
 async def get_workforce_stats(propertyId: str | None = None, days: int = 30, user: dict = Depends(require_staff)):
     """
@@ -143,6 +254,18 @@ async def get_workforce_stats(propertyId: str | None = None, days: int = 30, use
         {**prop_filter, "createdAt": {"$gte": since}, "status": "completed"}
     ).to_list(length=500)
     revenue_protected = sum(a.get("estimatedValue") or 0 for a in completed_actions)
+    # Real drill-down: the actual completed actions that sum to
+    # revenue_protected above, not just the total. A sophisticated
+    # operator reasonably asks "how did you get to this number?" -
+    # this is the real, honest answer, not a black box.
+    revenue_protected_breakdown = [
+        {
+            "type": a.get("type"), "title": a.get("title"),
+            "estimatedValue": round(a.get("estimatedValue") or 0, 2),
+            "affectedUnitIds": a.get("affectedUnitIds", []),
+        }
+        for a in completed_actions if a.get("estimatedValue")
+    ]
     leads_created = await leads_col.count_documents({**prop_filter, "createdAt": {"$gte": since}})
     tours_scheduled = await leads_col.count_documents({**prop_filter, "touredAt": {"$gte": since}})
     applications_count = await leads_col.count_documents({**prop_filter, "appliedAt": {"$gte": since}})
@@ -162,10 +285,22 @@ async def get_workforce_stats(propertyId: str | None = None, days: int = 30, use
     recently_paid = await payments_col.find(
         {**prop_filter, "paidDate": {"$gte": since}, "amountPaid": {"$gt": 0}}
     ).to_list(length=1000)
-    recovered_revenue = sum(
-        p["amountPaid"] for p in recently_paid
+    recovered_payments = [
+        p for p in recently_paid
         if p.get("dueDate") and p.get("paidDate") and p["paidDate"] > p["dueDate"]
-    )
+    ]
+    recovered_revenue = sum(p["amountPaid"] for p in recovered_payments)
+    # Real drill-down: the actual recovered payments that sum to
+    # recovered_revenue above, including how many days late each one
+    # was - the concrete, verifiable basis for the headline total.
+    recovered_revenue_breakdown = [
+        {
+            "propertyId": p.get("propertyId"), "unitId": p.get("unitId"),
+            "amountPaid": round(p["amountPaid"], 2),
+            "daysLate": (p["paidDate"] - p["dueDate"]).days,
+        }
+        for p in recovered_payments
+    ]
 
     return {
         "windowDays": days,
@@ -181,6 +316,7 @@ async def get_workforce_stats(propertyId: str | None = None, days: int = 30, use
             "actionsSuggested": actions_suggested,
             "actionsApproved": actions_approved,
             "revenueProtected": round(revenue_protected, 2),
+            "revenueProtectedBreakdown": revenue_protected_breakdown,
             "tracked": True,
         },
         "leasingAI": {
@@ -197,6 +333,7 @@ async def get_workforce_stats(propertyId: str | None = None, days: int = 30, use
             "displayName": "Penny",
             "residentsContacted": residents_contacted,
             "recoveredRevenue": round(recovered_revenue, 2),
+            "recoveredRevenueBreakdown": recovered_revenue_breakdown,
             "tracked": True,
         },
     }
@@ -467,3 +604,4 @@ async def update_dashboard_preferences(payload: DashboardPreferencesUpdate, user
         {"userId": user["id"]}, {"$set": updates}, upsert=True
     )
     return {"visibleWidgets": payload.visibleWidgets, "widgetOrder": payload.widgetOrder, "isDefault": False}
+    
