@@ -53,6 +53,7 @@ from routers import condition_reports
 from routers import market_rent
 from routers import tours
 from routers import smart_locks
+from routers import thermostats
 from routers import accounting
 from routers import vendor_acceptance
 from routers import admin
@@ -215,6 +216,7 @@ app.include_router(condition_reports.router)
 app.include_router(market_rent.router)
 app.include_router(tours.router)
 app.include_router(smart_locks.router)
+app.include_router(thermostats.router)
 app.include_router(accounting.router)
 app.include_router(vendor_acceptance.router)
 app.include_router(email_test.router)
