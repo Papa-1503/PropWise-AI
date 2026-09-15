@@ -166,6 +166,53 @@ const STAFF_TAB_GROUPS = [
   { label: "Admin", tabs: ["properties", "import", "staff", "workflows", "custom-roles", "custom-fields", "vendors"] },
 ];
 const STAFF_TABS = STAFF_TAB_GROUPS.flatMap((g) => g.tabs);
+
+// CHANGED (Sept 15, 2026): real navigation scoping by custom role,
+// using tonight's earlier require_permission work as its foundation.
+// Maps each staff tab to the real permission category
+// (models.py's PERMISSION_CHOICES) that governs it; a tab with no
+// entry here (dashboard, actions, ai, scenario, settings) is always
+// visible to every staff member regardless of role - these are
+// general overview/utility tools, not scoped to one team function.
+//
+// HONEST SCOPE NOTE: this hides sidebar entries, it does not by
+// itself enforce anything - the real, structural security boundary
+// is require_permission on the backend, and that's only genuinely
+// wired up on 6 specific endpoints so far (create_lease,
+// update_ticket, create_charge, send_email_communication,
+// set_staff_properties, create_report - see each router's own real
+// CHANGED comment). A tab hidden here whose own underlying endpoints
+// aren't among those 6 is still technically reachable by a direct
+// API call: this map is a real UX improvement for reducing clutter
+// and confusion, not a substitute for finishing that backend rollout.
+const TAB_PERMISSION_MAP = {
+  leads: "leasing", screening: "leasing", leases: "leasing", forms: "leasing",
+  maintenance: "maintenance", inspections: "maintenance", schedules: "maintenance", "on-call": "maintenance",
+  payments: "finance", rubs: "finance", reconciliation: "finance", "trust-accounting": "finance",
+  "capital-planning": "finance", "bill-scan": "finance", "portfolio-pricing": "finance", budgets: "finance",
+  communications: "communications", feed: "communications", packages: "communications",
+  "write-assist": "communications", "conversation-log": "communications",
+  documents: "reports", gallery: "reports", "predictive-analytics": "reports", compliance: "reports",
+  properties: "staff_management", import: "staff_management", staff: "staff_management",
+  workflows: "staff_management", "custom-roles": "staff_management", "custom-fields": "staff_management",
+  vendors: "staff_management",
+};
+
+/** Real, live filtering - `permissions` is the real, resolved list
+ * from AuthContext's userPermissions (null means full access, since
+ * that's the real default for any account with no custom role
+ * assigned). A tab with no entry in TAB_PERMISSION_MAP always passes
+ * through untouched. */
+function filterTabsByPermission(tabs, permissions) {
+  if (!permissions) return tabs;
+  return tabs.filter((t) => !TAB_PERMISSION_MAP[t] || permissions.includes(TAB_PERMISSION_MAP[t]));
+}
+function filterGroupsByPermission(groups, permissions) {
+  if (!permissions) return groups;
+  return groups
+    .map((g) => ({ ...g, tabs: filterTabsByPermission(g.tabs, permissions) }))
+    .filter((g) => g.tabs.length > 0);
+}
 const TENANT_TABS = ["documents", "maintenance", "payments", "gallery", "ai"];
 // Real, readable labels — the sidebar previously rendered raw tab
 // keys through a CSS `capitalize` class, which is exactly why
@@ -259,8 +306,8 @@ const TAB_ICONS = {
  * regardless of role. For a tenant (whose tabs don't include "dashboard"
  * at all), that silently sent them to a staff-only page. */
 function IndexRedirect() {
-  const { user } = useAuth();
-  const tabs = user?.role === "staff" ? STAFF_TABS : TENANT_TABS;
+  const { user, userPermissions } = useAuth();
+  const tabs = user?.role === "staff" ? filterTabsByPermission(STAFF_TABS, userPermissions) : TENANT_TABS;
   return <Navigate to={tabs[0]} replace />;
 }
 
@@ -277,7 +324,7 @@ function RootRedirect() {
 }
 
 function AppGate() {
-  const { user, loading, logout, selectedProperty } = useAuth();
+  const { user, loading, logout, selectedProperty, userPermissions } = useAuth();
   const { dark, toggle: toggleDarkMode } = useDarkMode();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -288,7 +335,7 @@ function AppGate() {
   if (!user) return <LoginScreen />;
   if (user.role === "owner") return <OwnerPortal user={user} logout={logout} />;
 
-  const tabs = user.role === "staff" ? STAFF_TABS : TENANT_TABS;
+  const tabs = user.role === "staff" ? filterTabsByPermission(STAFF_TABS, userPermissions) : TENANT_TABS;
   const currentSegment = location.pathname.replace(/^\/app\/?/, "");
   const activeTab = tabs.includes(currentSegment) ? currentSegment : null;
 
@@ -300,6 +347,14 @@ function AppGate() {
   // staff-only Leases page. The ALL_TABS check below distinguishes "a
   // real tab that just isn't yours" from "a genuinely unknown path",
   // which should still fall through to TabNotFound instead.
+  //
+  // CHANGED (Sept 15, 2026): `tabs` above is now also scoped by real
+  // custom-role permissions, so this same guard naturally extends to
+  // redirect a restricted staff member away from a tab their role
+  // doesn't include too - e.g. browser history pointing at /app/leases
+  // for someone whose role only has "maintenance". Still a UX
+  // redirect, not a security boundary - see TAB_PERMISSION_MAP's own
+  // honest scope note above.
   const allKnownTabs = [...new Set([...STAFF_TABS, ...TENANT_TABS])];
   if (currentSegment && allKnownTabs.includes(currentSegment) && !tabs.includes(currentSegment)) {
     return <Navigate to={`/app/${tabs[0]}`} replace />;
@@ -321,7 +376,7 @@ function AppGate() {
       </div>
       <nav data-onboarding-target="sidebar-nav" className="flex-1 p-3 space-y-0.5 overflow-y-auto">
         {user.role === "staff" ? (
-          STAFF_TAB_GROUPS.map((group) => (
+          filterGroupsByPermission(STAFF_TAB_GROUPS, userPermissions).map((group) => (
             <div key={group.label} className="mb-3 last:mb-0">
               <p className="px-3 pt-1 pb-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
                 {group.label}
