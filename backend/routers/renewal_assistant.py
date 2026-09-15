@@ -62,7 +62,7 @@ import renewal_risk_service
 router = APIRouter(prefix="/api/renewal-assistant", tags=["leases"])
 
 anthropic_client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-MODEL = "claude-sonnet-4-6"
+MODEL = "claude-haiku-4-5-20251001"
 MAX_TOOL_ITERATIONS = 6
 
 SYSTEM_PROMPT = """You are the PropWise AI renewal outreach assistant. Your job is to help staff decide which soon-to-expire leases need real renewal attention, and offer a real incentive where it makes sense.
@@ -89,6 +89,7 @@ TOOLS = [
             },
             "required": ["leaseId", "description"],
         },
+        "cache_control": {"type": "ephemeral"},
     },
 ]
 
@@ -166,7 +167,9 @@ async def renewal_assistant_chat(payload: RenewalChatRequest, user: dict = Depen
 
     for _ in range(MAX_TOOL_ITERATIONS):
         response = await anthropic_client.messages.create(
-            model=MODEL, max_tokens=1024, system=SYSTEM_PROMPT, tools=TOOLS, messages=messages,
+            model=MODEL, max_tokens=1024,
+            system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+            tools=TOOLS, messages=messages,
         )
 
         tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
