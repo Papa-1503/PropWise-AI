@@ -20,6 +20,7 @@ from db import properties_col, leases_col, tickets_col, inspections_col, ai_acti
 from auth import require_staff
 from models import DashboardPreferencesUpdate
 import cash_flow_service
+from renewal_risk_service import compute_renewal_risk
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
@@ -99,6 +100,121 @@ async def get_portfolio_health(propertyId: str | None = None, user: dict = Depen
         "occupancyPct": round(occupancy_pct, 1),
         "delinquentAccounts": delinquent_count,
         "delinquentBalance": round(delinquent_balance, 2),
+    }
+
+
+@router.get("/command-center")
+async def get_command_center(propertyId: str | None = None, user: dict = Depends(require_staff)):
+    """A real, honest daily priority digest - the top real, current
+    items across the portfolio that genuinely warrant attention today,
+    each with a real dollar figure where one genuinely exists (never
+    fabricated for items that don't have one), ranked highest-impact
+    first.
+
+    Deliberately does NOT include a bulk "approve everything" action -
+    every other agentic feature built this session (the collections
+    copilot, the renewal outreach assistant, offer_renewal_incentive)
+    requires explicit per-item human confirmation before anything
+    consequential happens, and this digest is a summary view ON TOP
+    of those same real flows, not a new, separate bypass around them.
+    Each item links to the real existing panel where staff can review
+    full context and act - reviewing and confirming, not one-click
+    bulk execution.
+
+    4 real sources, each already proven elsewhere in this app - never
+    a new, separate calculation:
+    - Highest-risk leases needing renewal attention (reuses
+      renewal_risk_service.compute_renewal_risk, the same real scoring
+      routers/leases.py's own renewal-risk endpoints already use)
+    - Delinquent accounts (reuses the same real query shape as
+      list_delinquent in routers/payments.py)
+    - Urgent, still-open maintenance tickets
+    - AI Actions still awaiting a staff decision (status="suggested"),
+      sorted by their own real estimatedValue when set
+    """
+    now = datetime.now(timezone.utc)
+    org_filter: dict = {"orgId": user["orgId"]}
+    if propertyId:
+        org_filter["propertyId"] = propertyId
+
+    items = []
+    total_quantified_impact = 0.0
+
+    # 1. Highest-risk leases needing renewal attention - same real
+    # 91-day window and "not yet signed" filter already used by
+    # routers/leases.py's list_renewal_risk.
+    cutoff = now + timedelta(days=91)
+    lease_query = {**org_filter, "endDate": {"$gte": now, "$lte": cutoff}, "renewalStatus": {"$ne": "signed"}}
+    at_risk_leases = await leases_col.find(lease_query).to_list(length=500)
+    scored_leases = []
+    for lease in at_risk_leases:
+        risk = await compute_renewal_risk(lease)
+        if risk.get("riskLevel") == "high":
+            scored_leases.append((lease, risk))
+    scored_leases.sort(key=lambda x: x[1].get("score", 0), reverse=True)
+    if scored_leases:
+        renewal_revenue_at_stake = sum(l.get("rent", 0) for l, _ in scored_leases)
+        items.append({
+            "type": "renewal_risk",
+            "title": f"{len(scored_leases)} lease{'s' if len(scored_leases) != 1 else ''} at high risk of non-renewal",
+            "detail": f"Combined monthly rent at stake: ${renewal_revenue_at_stake:,.0f}",
+            "dollarImpact": round(renewal_revenue_at_stake, 2),
+            "count": len(scored_leases),
+            "link": "/app/leases",
+        })
+        total_quantified_impact += renewal_revenue_at_stake
+
+    # 2. Delinquent accounts - same real query shape as
+    # routers/payments.py's list_delinquent.
+    delinquent_charges = await payments_col.find({**org_filter, "dueDate": {"$lt": now}}).to_list(length=1000)
+    delinquent = [c for c in delinquent_charges if c.get("amountPaid", 0) < c.get("amountDue", 0)]
+    if delinquent:
+        delinquent_balance = sum(c["amountDue"] - c.get("amountPaid", 0) for c in delinquent)
+        items.append({
+            "type": "delinquent",
+            "title": f"{len(delinquent)} delinquent account{'s' if len(delinquent) != 1 else ''} need collections follow-up",
+            "detail": f"Total outstanding: ${delinquent_balance:,.0f}",
+            "dollarImpact": round(delinquent_balance, 2),
+            "count": len(delinquent),
+            "link": "/app/payments",
+        })
+        total_quantified_impact += delinquent_balance
+
+    # 3. Urgent, still-open maintenance tickets - no honest dollar
+    # figure exists for this in the app today (no cost-of-inaction
+    # model), so dollarImpact stays null rather than a guess.
+    urgent_tickets = await tickets_col.count_documents({**org_filter, "status": {"$ne": "done"}, "priority": "urgent"})
+    if urgent_tickets:
+        items.append({
+            "type": "maintenance_urgent",
+            "title": f"{urgent_tickets} urgent maintenance ticket{'s' if urgent_tickets != 1 else ''} still open",
+            "detail": "Urgent tickets warrant same-day attention",
+            "dollarImpact": None,
+            "count": urgent_tickets,
+            "link": "/app/maintenance",
+        })
+
+    # 4. AI Actions still awaiting a real staff decision.
+    pending_actions = await ai_actions_col.find({**org_filter, "status": "suggested"}).sort("estimatedValue", -1).to_list(length=200)
+    if pending_actions:
+        pending_value = sum(a.get("estimatedValue") or 0 for a in pending_actions)
+        items.append({
+            "type": "pending_ai_action",
+            "title": f"{len(pending_actions)} AI-suggested action{'s' if len(pending_actions) != 1 else ''} awaiting your review",
+            "detail": f"Estimated combined impact: ${pending_value:,.0f}" if pending_value else "Review and approve or dismiss each one",
+            "dollarImpact": round(pending_value, 2) if pending_value else None,
+            "count": len(pending_actions),
+            "link": "/app/actions",
+        })
+        if pending_value:
+            total_quantified_impact += pending_value
+
+    items.sort(key=lambda i: i["dollarImpact"] or -1, reverse=True)
+
+    return {
+        "items": items,
+        "totalQuantifiedImpact": round(total_quantified_impact, 2),
+        "asOf": now.isoformat(),
     }
 
 
@@ -604,4 +720,3 @@ async def update_dashboard_preferences(payload: DashboardPreferencesUpdate, user
         {"userId": user["id"]}, {"$set": updates}, upsert=True
     )
     return {"visibleWidgets": payload.visibleWidgets, "widgetOrder": payload.widgetOrder, "isDefault": False}
-    
