@@ -36,7 +36,7 @@ from models import ProspectChatRequest, CopilotResponse
 router = APIRouter(prefix="/api/public", tags=["public"])
 
 anthropic_client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-MODEL = "claude-sonnet-4-6"
+MODEL = "claude-haiku-4-5-20251001"
 
 
 async def _gather_prospect_context(property_id: str | None) -> str:
@@ -142,7 +142,7 @@ CONTEXT:
         response = await anthropic_client.messages.create(
             model=MODEL,
             max_tokens=400,
-            system=system_prompt,
+            system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
             messages=messages,
         )
     except Exception as exc:
