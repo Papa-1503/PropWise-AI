@@ -27,7 +27,7 @@ from bson import ObjectId
 from db import custom_reports_col, payments_col, tickets_col, properties_col
 from models import CustomReportCreate
 from date_utils import parse_date_utc
-from auth import require_staff
+from auth import require_staff, require_permission
 
 router = APIRouter(prefix="/api/custom-reports", tags=["custom-reports"])
 
@@ -39,7 +39,9 @@ def serialize(doc: dict) -> dict:
 
 
 @router.post("")
-async def create_report(payload: CustomReportCreate, user: dict = Depends(require_staff)):
+# CHANGED (Sept 15, 2026): real permission enforcement - see
+# routers/leases.py's create_lease for the fuller note.
+async def create_report(payload: CustomReportCreate, user: dict = Depends(require_permission("reports"))):
     doc = payload.model_dump()
     doc["orgId"] = user["orgId"]
     doc["createdAt"] = datetime.now(timezone.utc)
