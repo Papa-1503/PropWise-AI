@@ -38,7 +38,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from db import communications_col
 from models import CommunicationCreate, SendEmailCommunication, SendSmsCommunication, GroupMessageSend
-from auth import require_staff
+from auth import require_staff, require_permission
 from email_service import send_email_async, EmailNotConfigured, EmailSendError
 from sms_service import send_sms_async, get_org_sms_number, SmsNotConfigured, SmsSendError
 from db import properties_col, leases_col
@@ -78,7 +78,9 @@ async def create_communication(payload: CommunicationCreate, user: dict = Depend
 
 
 @router.post("/send-email")
-async def send_email_communication(payload: SendEmailCommunication, user: dict = Depends(require_staff)):
+# CHANGED (Sept 15, 2026): real permission enforcement - see
+# routers/leases.py's create_lease for the fuller note.
+async def send_email_communication(payload: SendEmailCommunication, user: dict = Depends(require_permission("communications"))):
     doc = {
         "propertyId": payload.propertyId,
         "unitId": payload.unitId,
