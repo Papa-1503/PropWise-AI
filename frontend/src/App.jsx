@@ -68,6 +68,7 @@ const PropertyManagement = lazy(() => import("./PropertyManagement"));
 const BulkImport = lazy(() => import("./BulkImport"));
 import BuildingSelector from "./BuildingSelector";
 const OwnerPortal = lazy(() => import("./OwnerPortal"));
+import CommandCenter from "./CommandCenter";
 import NotFound from "./NotFound";
 
 /** Simpler 404 for an unmatched path *within* the already-authenticated
@@ -531,6 +532,7 @@ function DashboardTab({ effectivePropertyId, userName }) {
             <OnboardingAssistant onSetupComplete={() => setNeedsOnboarding(false)} />
           </Suspense>
         )}
+        <CommandCenter propertyId={effectivePropertyId} userName={userName} />
         <PortfolioHealthHeader propertyId={effectivePropertyId} userName={userName} />
         <Suspense fallback={<div className="h-40 bg-slate-100 rounded-xl animate-pulse" />}>
           <Dashboard propertyId={effectivePropertyId} />
