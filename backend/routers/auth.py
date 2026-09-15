@@ -92,6 +92,16 @@ def to_user_out(user: dict) -> UserOut:
         preferredLanguage=user.get("preferredLanguage"),
         orgId=user.get("orgId"),
         isOrgOwner=user.get("isOrgOwner", False),
+        # CHANGED (Sept 15, 2026): exposed so the frontend can look up
+        # this role's real permissions (GET /api/custom-roles) and
+        # scope navigation visibility to what this staff member can
+        # actually do - the UI counterpart to tonight's earlier
+        # require_permission enforcement work. Note this is a real UX
+        # convenience, NOT itself a security boundary: hiding a tab
+        # doesn't restrict the underlying API, which is only genuinely
+        # enforced on the specific endpoints require_permission
+        # already gates.
+        customRoleId=user.get("customRoleId"),
     )
 
 
