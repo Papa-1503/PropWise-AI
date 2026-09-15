@@ -197,6 +197,12 @@ class UnitIn(BaseModel):
     # Optional and defaulting to None - most units won't have a smart
     # lock connected, and every smart-lock feature already fails
     # honest (a clear 400, not a silent no-op) when this is unset.
+    seamThermostatDeviceId: Optional[str] = None
+    # ^ CHANGED (Sept 15, 2026): same real pattern as seamDeviceId
+    # above, for this unit's real Seam-connected thermostat instead of
+    # its lock - a unit can have neither, either, or both connected,
+    # since they're genuinely separate physical devices. Staff finds
+    # the real device_id via GET /api/thermostats/devices.
 
 
 class PropertyCreate(BaseModel):
@@ -302,6 +308,7 @@ class UnitDetailsUpdate(BaseModel):
     bathrooms: Optional[float] = None
     squareFootage: Optional[float] = None
     seamDeviceId: Optional[str] = None
+    seamThermostatDeviceId: Optional[str] = None
 
 
 # ---------- Leases ----------
@@ -1352,3 +1359,17 @@ class AccessCodeCreate(BaseModel):
     code: Optional[str] = None  # omit to let Seam generate a random one
     startsAt: Optional[str] = None
     endsAt: Optional[str] = None
+
+
+class ThermostatModeSet(BaseModel):
+    """Real remote climate control for one unit's connected thermostat
+    (routers/thermostats.py). hvacMode must be one of Seam's own real,
+    documented values - checked against the specific device's own
+    real capability flags in the endpoint (a device that can't cool,
+    e.g. a heat-only unit, must never be sent "cool" or "heat_cool"),
+    not just accepted blindly. Set points are optional - "off" needs
+    neither; "heat"/"cool" need the matching one; "heat_cool" needs
+    both."""
+    hvacMode: Literal["heat", "cool", "heat_cool", "eco", "off"]
+    heatingSetPointFahrenheit: Optional[float] = None
+    coolingSetPointFahrenheit: Optional[float] = None
