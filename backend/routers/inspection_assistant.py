@@ -51,7 +51,7 @@ from models import ItemStatusUpdate
 router = APIRouter(prefix="/api/inspection-assistant", tags=["inspections"])
 
 anthropic_client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-MODEL = "claude-sonnet-4-6"
+MODEL = "claude-haiku-4-5-20251001"
 MAX_TOOL_ITERATIONS = 8
 
 SYSTEM_PROMPT = """You are the PropWise AI inspection assistant. Your job is to let an inspector describe what they find, room by room, in plain language, while you mark the matching checklist item(s) on their behalf.
@@ -90,6 +90,7 @@ TOOLS = [
             },
             "required": ["inspectionId", "itemId", "status"],
         },
+        "cache_control": {"type": "ephemeral"},
     },
 ]
 
@@ -171,7 +172,9 @@ async def inspection_assistant_chat(payload: InspectionChatRequest, user: dict =
 
     for _ in range(MAX_TOOL_ITERATIONS):
         response = await anthropic_client.messages.create(
-            model=MODEL, max_tokens=1024, system=SYSTEM_PROMPT, tools=TOOLS, messages=messages,
+            model=MODEL, max_tokens=1024,
+            system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+            tools=TOOLS, messages=messages,
         )
 
         tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
