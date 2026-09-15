@@ -700,7 +700,14 @@ async def rent_automation_scheduler():
     risk outreach (90/60/30 days before lease expiry) — see
     renewal_risk_service.py and _do_renewal_risk_check's own
     docstrings for the real scoring reasoning and why this stays
-    separate from the existing generic _do_lease_renewal_check."""
+    separate from the existing generic _do_lease_renewal_check.
+
+    Extended (Sept 14, 2026) with the 9th check: automated lead
+    nurture (day 3/7/14 follow-up emails for leads still in "new"
+    status) — see lead_nurture_service.py's own docstring for the
+    real, fixed-template approach and why a lead's own status field
+    is sufficient as the stop condition, with no separate opt-out
+    mechanism needed."""
     from routers import admin as admin_router
     import scheduler_health
     interval_seconds = 6 * 60 * 60  # every 6 hours
@@ -752,6 +759,12 @@ async def rent_automation_scheduler():
             logger.info(f"[scheduler] vendor compliance check: {result}")
         except Exception:
             logger.exception("[scheduler] vendor compliance check failed")
+        try:
+            import lead_nurture_service
+            result = await lead_nurture_service._do_lead_nurture_check()
+            logger.info(f"[scheduler] lead nurture check: {result}")
+        except Exception:
+            logger.exception("[scheduler] lead nurture check failed")
         await scheduler_health.record_heartbeat("rent_automation_scheduler")
         await asyncio.sleep(interval_seconds)
 
