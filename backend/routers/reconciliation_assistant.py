@@ -56,7 +56,7 @@ from models import BankLineMatch
 router = APIRouter(prefix="/api/reconciliation-assistant", tags=["reconciliation"])
 
 anthropic_client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-MODEL = "claude-sonnet-4-6"
+MODEL = "claude-haiku-4-5-20251001"
 MAX_TOOL_ITERATIONS = 6
 
 SYSTEM_PROMPT = """You are the PropWise AI reconciliation copilot. Your job is to help staff match unmatched bank statement lines to the recorded charges they actually correspond to, one at a time, conversationally.
@@ -90,6 +90,7 @@ TOOLS = [
             "properties": {"lineId": {"type": "string"}, "chargeId": {"type": "string"}},
             "required": ["lineId", "chargeId"],
         },
+        "cache_control": {"type": "ephemeral"},
     },
 ]
 
@@ -157,7 +158,9 @@ async def reconciliation_assistant_chat(payload: ReconciliationChatRequest, user
 
     for _ in range(MAX_TOOL_ITERATIONS):
         response = await anthropic_client.messages.create(
-            model=MODEL, max_tokens=1024, system=SYSTEM_PROMPT, tools=TOOLS, messages=messages,
+            model=MODEL, max_tokens=1024,
+            system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+            tools=TOOLS, messages=messages,
         )
 
         tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
