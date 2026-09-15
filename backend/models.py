@@ -439,6 +439,7 @@ class UserOut(BaseModel):
     preferredLanguage: Optional[str] = None
     orgId: Optional[str] = None
     isOrgOwner: bool = False
+    customRoleId: Optional[str] = None
 
 
 class ProfileUpdate(BaseModel):
