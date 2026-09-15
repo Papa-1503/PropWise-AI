@@ -23,6 +23,7 @@ const Dashboard = lazy(() => import("./Dashboard"));
 const MaintenanceTickets = lazy(() => import("./MaintenanceTickets"));
 const InspectionsList = lazy(() => import("./InspectionsList"));
 const AICopilot = lazy(() => import("./AICopilot"));
+const TenantChatbot = lazy(() => import("./TenantChatbot"));
 const ScenarioPlanner = lazy(() => import("./ScenarioPlanner"));
 const ComplianceCalendar = lazy(() => import("./ComplianceCalendar"));
 const PortfolioPricing = lazy(() => import("./PortfolioPricing"));
@@ -651,7 +652,16 @@ function ReconciliationWrapper() {
   return <Reconciliation propertyId={effectivePropertyId} />;
 }
 function AICopilotWrapper() {
+  // SECURITY/ROUTING FIX (Sept 14, 2026): this "ai" tab previously
+  // rendered AICopilot for every role, tenants included - and
+  // AICopilot always calls the staff-scoped /api/ai/copilot. That
+  // endpoint is now require_staff-gated server-side too (the real,
+  // structural fix - this routing fix alone would not have been
+  // enough on its own), but a tenant should see a real, correctly-
+  // scoped, genuinely useful assistant here regardless, not a 403.
+  const { user } = useAuth();
   const { effectivePropertyId } = useOutletContext();
+  if (user?.role === "tenant") return <TenantChatbot />;
   return <AICopilot propertyId={effectivePropertyId} />;
 }
 function ScenarioPlannerWrapper() {
