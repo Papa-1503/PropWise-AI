@@ -54,6 +54,14 @@ import { createContext, useContext, useState, useCallback, useEffect } from "rea
  * explicitly requested on that same request, meaning the real session
  * cookie may never have actually been stored by the browser at all
  * before this fix, regardless of what the backend was sending.
+ *
+ * CHANGED Sept 15, 2026 (later): real navigation scoping by custom
+ * role - userPermissions below resolves this staff member's real
+ * permission list (or null for full access) so App.jsx can hide
+ * sidebar tabs their role doesn't cover. See App.jsx's own
+ * TAB_PERMISSION_MAP for the honest scope note: this is a UX
+ * convenience, not a security boundary - the real one is
+ * require_permission on the backend.
  */
 
 import { API_BASE } from "./config";
@@ -66,6 +74,16 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [properties, setProperties] = useState([]);
+  // CHANGED (Sept 15, 2026): null means "full access" (either no
+  // custom role assigned - today's real default for every existing
+  // account - or resolution hasn't finished yet); an array means this
+  // staff member's real, resolved permission list, used to scope
+  // which sidebar tabs are shown. A real UX convenience only, not a
+  // security boundary by itself - see userPermissions's own fetch
+  // logic below and TAB_PERMISSION_MAP in App.jsx for the honest
+  // caveat that this never replaces the real API-level
+  // require_permission enforcement.
+  const [userPermissions, setUserPermissions] = useState(null);
   const [selectedProperty, setSelectedPropertyState] = useState(() => {
     try {
       const saved = localStorage.getItem(SELECTED_PROPERTY_KEY);
@@ -130,6 +148,36 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     fetchProperties();
   }, [fetchProperties]);
+
+  // Resolves this staff member's real permission list from their
+  // assigned custom role, if any - reuses the existing, real
+  // GET /api/custom-roles endpoint (routers/custom_roles.py) rather
+  // than adding a new one. No customRoleId (today's real default for
+  // every existing account, and any account created without one) or
+  // a role that's since been deleted both mean the real default:
+  // full access, userPermissions stays null.
+  const fetchUserPermissions = useCallback(async () => {
+    if (!user || user.role !== "staff" || !user.customRoleId) {
+      setUserPermissions(null);
+      return;
+    }
+    try {
+      const res = await authFetch(`${API_BASE}/custom-roles`);
+      if (!res.ok) {
+        setUserPermissions(null);
+        return;
+      }
+      const data = await res.json();
+      const role = (data.roles || []).find((r) => r.id === user.customRoleId);
+      setUserPermissions(role ? role.permissions : null);
+    } catch {
+      setUserPermissions(null);
+    }
+  }, [user, authFetch]);
+
+  useEffect(() => {
+    fetchUserPermissions();
+  }, [fetchUserPermissions]);
 
   function setSelectedProperty(prop) {
     setSelectedPropertyState(prop);
@@ -240,6 +288,7 @@ export function AuthProvider({ children }) {
       .finally(() => {
         setUser(null);
         setProperties([]);
+        setUserPermissions(null);
         setSelectedPropertyState(null);
       });
   }
@@ -257,6 +306,7 @@ export function AuthProvider({ children }) {
         logout,
         authFetch,
         properties,
+        userPermissions,
         selectedProperty,
         setSelectedProperty,
         getPropertyName,
