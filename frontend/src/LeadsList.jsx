@@ -18,6 +18,14 @@ import { API_BASE } from "./config";
  * Note: list_leads returns the id field as `_id` (string), not `id`
  * like the Leases/Screening endpoints — confirmed by reading the
  * backend directly before assuming either way.
+ *
+ * CHANGED Sept 14, 2026: shows the real, automated nurture stage
+ * (lead_nurture_service.py) inline on each "new" lead - a small,
+ * read-only indicator so staff can see which leads have already
+ * gotten an automated day 3/7/14 follow-up, rather than that
+ * happening invisibly in the background. No new endpoint needed -
+ * list_leads already returns the full lead document, nurtureStage
+ * included.
  */
 
 const STATUS_STYLE = {
@@ -67,6 +75,9 @@ function LeadRow({ lead, buildingName, onStatusChange }) {
         {buildingName ? <span>{buildingName} · </span> : !lead.propertyId && <span>General inquiry · </span>}
         {lead.unitId && <span>Unit {lead.unitId} · </span>}
         {lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : ""}
+        {lead.status === "new" && lead.nurtureStage > 0 && (
+          <span className="text-indigo-500"> · Nurture: {["", "day 3", "day 7", "final"][lead.nurtureStage]} sent</span>
+        )}
       </p>
     </div>
   );
